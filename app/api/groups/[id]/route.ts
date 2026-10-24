@@ -9,7 +9,7 @@ import { now } from "@/lib/clock";
 export const GET = route<IdCtx>(async (req, user, ctx) => {
   const id = await idParam(ctx);
   await requireMember(id, user.id);
-  const after = Number(req.nextUrl.searchParams.get("after") ?? 0);
+  const after = Number(req.nextUrl.searchParams.get("after") ?? 0) || 0;
   const db = await getDb();
   const [group] = await db.query(`SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by FROM groups WHERE id = $1`, [id]);
   const members = await db.query(

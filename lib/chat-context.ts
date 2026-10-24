@@ -28,7 +28,11 @@ export function redact(text: string, members: Person[], subjectId: number | null
     .replace(/\+?\d[\d\s().-]{7,}\d/g, "[number]");
   for (const m of members) {
     const role = m.id === subjectId ? "[SUBJECT]" : alias(m.id, aliases);
-    for (const n of [`@${m.username}`, m.username, m.display_name]) {
+    // A first name on its own ("Jake" for "Jake Thompson") identifies someone just as well.
+    const first = m.display_name.trim().split(/\s+/)[0];
+    const names = [`@${m.username}`, m.username, m.display_name];
+    if (first.length >= 3 && !STOP.has(first.toLowerCase())) names.push(first);
+    for (const n of names) {
       if (n.length < 2) continue;
       out = out.replace(new RegExp(`(^|[^\\w@])${escape(n)}(?![\\w])`, "gi"), `$1${role}`);
     }
