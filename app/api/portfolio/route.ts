@@ -1,13 +1,14 @@
 import { getDb } from "@/lib/db";
 import { route } from "@/lib/auth";
 import { isAdminUsername } from "@/lib/config";
+import { BALANCE_SERIES, chartPoints } from "@/lib/series";
 import { netWorth } from "@/lib/economy";
 import { priceYes } from "@/lib/lmsr";
 import { explorer, onChainBalance, solanaConfig } from "@/lib/solana";
 
 export const GET = route(async (_req, user) => {
   const db = await getDb();
-  const series = await db.query(`SELECT ts, balance, net_worth FROM balance_ticks WHERE user_id = $1 ORDER BY ts LIMIT 3000`, [user.id]);
+  const series = await chartPoints(db, BALANCE_SERIES, user.id);
   const positions = await db.query<any>(
     `SELECT p.*, m.title, m.kind, m.status, m.outcome, m.b, m.q_yes, m.q_no, m.resolves_at, m.group_id, g.name AS group_name, g.emoji
      FROM positions p JOIN markets m ON m.id = p.market_id JOIN groups g ON g.id = m.group_id

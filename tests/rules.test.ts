@@ -208,3 +208,23 @@ test("the +50 allowance comes once per full week, never twice", async () => {
   await at(14.1)(() => applyAllowance(db, u.id));
   assert.equal(await bal(), 600);
 });
+
+test("the chain gets a stake's terms when it opens and a hash of how it settled", async () => {
+  const { sha256 } = await import("../lib/pricing-record");
+  const id = await open("Cara gets the 8am train");
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 20 });
+  await mk.proposeResult(people.alice, id, true, PROOF);
+  await mk.confirmResult(people.cara, id);
+  const memos = (await db.query<{ memo: string }>(`SELECT memo FROM chain_ops WHERE market_id = $1 AND kind = 'memo' ORDER BY id`, [id])).map((r) => JSON.parse(r.memo));
+  const opened = memos.find((m) => m.ev === "open");
+  const resolved = memos.find((m) => m.ev === "resolve");
+  assert.equal(opened.t, mk.termsHash(await mk.getMarket(db, id)), "the terms hash matches the stake as it stands");
+  const [rec] = await db.query<{ record: string; sha256: string }>(`SELECT record, sha256 FROM pricing_records WHERE $1 = ANY(market_ids) AND kind = 'settle'`, [id]);
+  assert.equal(resolved.h, rec.sha256);
+  assert.equal(sha256(rec.record), rec.sha256, "anyone holding the record can recompute the hash");
+  const body = JSON.parse(rec.record);
+  assert.equal(body.terms, opened.t);
+  assert.equal(body.proposedBy, people.alice.id);
+  assert.equal(body.confirmedBy, people.cara.id);
+  assert.ok(!JSON.stringify(memos).includes("Cara gets"), "no words from the stake go on the chain");
+});

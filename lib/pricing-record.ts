@@ -52,7 +52,7 @@ export function traceFields(t: Trace | undefined) {
   };
 }
 
-export async function saveRecord(q: Q, groupId: number, marketIds: number[], kind: "open" | "reprice", body: object, at: Date) {
+export async function saveRecord(q: Q, groupId: number, marketIds: number[], kind: "open" | "reprice" | "settle" | "void", body: object, at: Date) {
   const record = JSON.stringify({ v: 1, kind, at: at.toISOString(), group: groupId, ...body }, null, 2);
   const hash = sha256(record);
   await q.query(`INSERT INTO pricing_records (group_id, market_ids, kind, record, sha256, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [

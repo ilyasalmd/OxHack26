@@ -9,11 +9,12 @@ import { ArrowUpRight, Check, Copy } from "@/components/icons";
 import { applyShares, bookAt, priceYes, sharesForAmount } from "@/lib/lmsr";
 import { decimalOdds } from "@/lib/odds";
 
-type Rec = { id: number; kind: "open" | "reprice"; sha256: string; createdAt: string; record: string };
+type Rec = { id: number; kind: "open" | "reprice" | "settle" | "void"; sha256: string; createdAt: string; record: string };
 type Data = {
   market: { id: number; title: string; kind: string; group: string; aiProb: number; openProb: number; source: string; createdAt: string };
   records: Rec[];
   anchor: { status: string; signature: string | null; memoHash: string | null; devnetUrl: string | null } | null;
+  settlement: { status: string; signature: string | null; memo: string } | null;
 };
 type Similar = { title: string; outcome: boolean; similarity: number };
 type OpenRecord = {
@@ -65,6 +66,7 @@ export default function PricingRecordPage() {
   if (!me.account.isAdmin) return <main className="p-10 text-center text-sm text-mute">Pricing records are for the app&apos;s admin.</main>;
   const opening = d?.records.find((r) => r.kind === "open");
   const remarks = d?.records.filter((r) => r.kind === "reprice") ?? [];
+  const ending = d?.records.filter((r) => r.kind === "settle" || r.kind === "void").at(-1);
 
   return (
     <main className="flex min-h-dvh flex-col lg:min-h-full">
@@ -89,10 +91,37 @@ export default function PricingRecordPage() {
                 {remarks.map((r) => <Remark key={r.id} rec={r} marketId={d.market.id} />)}
               </section>
             )}
+            {ending && <Ending rec={ending} memo={d.settlement} />}
           </>
         )}
       </div>
     </main>
+  );
+}
+
+/** How it settled (or was called off): the stored record, its hash, and the memo that carries that hash. */
+function Ending({ rec, memo }: { rec: Rec; memo: Data["settlement"] }) {
+  const r = JSON.parse(rec.record) as { outcome?: boolean; how?: string; reason?: string; evidence?: string | null; terms: string };
+  let memoHash: string | null = null;
+  try {
+    memoHash = memo ? (JSON.parse(memo.memo).h ?? null) : null;
+  } catch {}
+  return (
+    <section className="mt-12">
+      <h2 className="text-lg font-semibold tracking-tight">{rec.kind === "settle" ? "How it settled" : "How it was called off"}</h2>
+      <Block title="On the chain as a hash">
+        {rec.kind === "settle" ? <Row label="Result" value={`${r.outcome ? "YES" : "NO"} · ${r.how}`} /> : <Row label="Reason" value={r.reason ?? ""} />}
+        <Row label="Terms hash (same as at opening)" value={r.terms} mono />
+        {r.evidence && <Row label="Evidence photo hash (encrypted bytes)" value={r.evidence} mono />}
+        <Row label="SHA-256 of the stored record" value={rec.sha256} mono />
+        <Check3 ok={memoHash === rec.sha256} pending={!memo} text={memoHash ? "The same hash is in the settlement memo" : "No settlement memo yet"} />
+        {memo?.signature && (
+          <Link href={`/chain/${memo.signature}`} className="mt-2 inline-flex items-center gap-1 text-sm text-white hover:underline">
+            Open the transaction <ArrowUpRight size={13} />
+          </Link>
+        )}
+      </Block>
+    </section>
   );
 }
 

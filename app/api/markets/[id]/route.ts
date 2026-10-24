@@ -8,16 +8,14 @@ import { findSimilar } from "@/lib/memory";
 import { now } from "@/lib/clock";
 import { SETTLE_WINDOW_MS } from "@/lib/safety";
 import { isAdminUsername } from "@/lib/config";
+import { PRICE_SERIES, chartPoints } from "@/lib/series";
 
 export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const id = await idParam(ctx);
   const db = await getDb();
   const m = await getMarket(db, id);
   await requireMember(m.group_id, user.id);
-  const ticks = await db.query<{ ts: Date; price: number; source: string }>(
-    `SELECT ts, price, source FROM price_ticks WHERE market_id = $1 ORDER BY ts LIMIT 2000`,
-    [id]
-  );
+  const ticks = await chartPoints<{ ts: Date; price: number; source: string }>(db, PRICE_SERIES, id);
   // Hourly candles: a Timescale continuous aggregate on Tiger Cloud, date_bin elsewhere.
   const priceCandles = db.timescale
     ? await db.query(`SELECT bucket, open, high, low, close FROM price_candles_1h WHERE market_id = $1 ORDER BY bucket`, [id])

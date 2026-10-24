@@ -6,7 +6,7 @@ import { sides } from "./labels";
 import { analyzeSituation, repriceStocks, summarizeOutcome, embed, type Analysis } from "./ai";
 import { evidenceFor, type Similar } from "./memory";
 import { profileForPrompt, type ProfileAnswers } from "./profile-questions";
-import { openingMaths, profileCommitment, saveRecord, traceFields } from "./pricing-record";
+import { openingMaths, profileCommitment, saveRecord, sha256, traceFields } from "./pricing-record";
 import type { Trace } from "./ai";
 import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount, type Book, type Side } from "./lmsr";
 import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
@@ -222,7 +222,8 @@ export async function createMarket(user: User, groupId: number, input: Situation
     await systemMessage(q, groupId, "market", `${a.kind === "stock" ? "listed a stock" : "opened a bet"}: ${a.title}`, m.id, user.id);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       m.id,
-      JSON.stringify({ app: "friendstakes", v: 1, ev: "open", market: m.id, group: groupId, kind: a.kind, p: +p.openProb.toFixed(4), resolves: input.resolvesAt.slice(0, 10), h: hash }),
+      // h: the full pricing record. t: just the terms anyone in the chat can check against the stake page.
+      JSON.stringify({ app: "friendstakes", v: 1, ev: "open", market: m.id, group: groupId, kind: a.kind, p: +p.openProb.toFixed(4), resolves: input.resolvesAt.slice(0, 10), h: hash, t: termsHash({ id: m.id, title: a.title, resolution_rule: a.resolutionRule, resolves_at: new Date(input.resolvesAt), kind: a.kind, answer: a.answer, line: a.line, unit: a.unit, creator_id: user.id, subject_id: p.subject?.id ?? null }) }),
       ts,
     ]);
     return m.id;
@@ -394,11 +395,24 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     const [held] = await q.query<{ fees_held: number }>(`UPDATE markets SET fees_held = 0 WHERE id = $1 AND fees_held > 0 RETURNING fees_held`, [marketId]);
     if (held && m.fees_held >= 0.01) await credit(q, m.creator_id, m.fees_held, `Listing fees · ${m.title}`, marketId);
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'resolve')`, [marketId, now(), outcome ? 1 : 0]);
+    // The settlement goes on the chain as a hash of who called it, who confirmed it, how, and the evidence's encrypted bytes.
+    const [proof] = m.proposed_evidence ? await q.query<{ data: Uint8Array }>(`SELECT data FROM attachments WHERE id = $1`, [m.proposed_evidence]) : [];
+    const settled = await saveRecord(q, m.group_id, [marketId], "settle", {
+      market: marketId,
+      outcome,
+      how: opts.suffix ?? "settled",
+      note,
+      proposedBy: m.proposed_by,
+      confirmedBy: opts.caller ?? null,
+      evidence: proof ? sha256(Buffer.from(proof.data).toString("base64")) : null,
+      crowd: +crowd.toFixed(4),
+      terms: termsHash(m),
+    }, now());
     const extra = [note, opts.suffix, lonely ? "only one person traded it, so everyone got their money back" : ""].filter(Boolean).join(" · ");
     await systemMessage(q, m.group_id, "resolution", `resolved ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
-      JSON.stringify({ app: "friendstakes", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4) }),
+      JSON.stringify({ app: "friendstakes", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4), h: settled }),
       now(),
     ]);
     return out;
@@ -408,6 +422,15 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
   const memory = rememberOutcome(m, outcome, crowd, payouts, note).catch((e) => console.warn("[memory]", e));
   if (opts.waitForMemory) await memory;
   return { payouts };
+}
+
+/**
+ * A stake's terms as a hash: the question, how it settles, the deadline, its type and line, who
+ * posted it and who it's about (as account numbers). The opening memo carries it, and so do the
+ * settlement and void records, so the chain shows a stake settled on the terms it opened with.
+ */
+export function termsHash(m: Pick<MarketRow, "id" | "title" | "resolution_rule" | "resolves_at" | "kind" | "answer" | "line" | "unit" | "creator_id" | "subject_id">) {
+  return sha256(JSON.stringify({ market: m.id, title: m.title, rule: m.resolution_rule, resolves: new Date(m.resolves_at).toISOString(), kind: m.kind, answer: m.answer, line: m.line ?? null, unit: m.unit ?? "", creator: m.creator_id, subject: m.subject_id ?? null }));
 }
 
 /** Step one of fair settling: put a result forward. It settles when another member confirms, or after 24 hours. */
@@ -532,9 +555,10 @@ export async function voidMarket(marketId: number, opts: { reason: "veto" | "dis
     await q.query(`UPDATE positions SET yes_shares = 0, no_shares = 0, spent = 0, fees_paid = 0 WHERE market_id = $1`, [marketId]);
     await q.query(`UPDATE markets SET fees_held = 0 WHERE id = $1`, [marketId]);
     await systemMessage(q, m.group_id, "system", opts.text, marketId, opts.actorId);
+    const voided = await saveRecord(q, m.group_id, [marketId], "void", { market: marketId, reason: opts.reason, by: opts.actorId, refunded, terms: termsHash(m) }, ts);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
-      JSON.stringify({ app: "friendstakes", v: 1, ev: "void", market: marketId }),
+      JSON.stringify({ app: "friendstakes", v: 1, ev: "void", market: marketId, reason: opts.reason, h: voided }),
       ts,
     ]);
     return { voided: true, refunded };
