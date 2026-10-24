@@ -26,7 +26,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
          ${AVATAR_COLS("u", "$2")}, gm.delivered_upto::int AS delivered_upto, gm.read_upto::int AS read_upto
        FROM group_members gm JOIN users u ON u.id = gm.user_id
        LEFT JOIN group_keys k ON k.group_id = gm.group_id AND k.user_id = u.id
-       WHERE gm.group_id = $1 ORDER BY u.balance DESC`,
+       WHERE gm.group_id = $1 AND (NOT gm.guest OR gm.user_id = $2) ORDER BY u.balance DESC`,
       [id, user.id]
     ),
     db.query<{ wallpaper: string | null; muted: boolean }>(`SELECT wallpaper, muted FROM group_members WHERE group_id = $1 AND user_id = $2`, [id, user.id]),
@@ -34,11 +34,11 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
       `SELECT k.wrapped_key, w.public_key AS wrapper_public_key FROM group_keys k JOIN users w ON w.id = k.wrapped_by WHERE k.group_id = $1 AND k.user_id = $2`,
       [id, user.id]
     ),
-    // People who left still wrote some of the chat; the page needs their name and colour, not their keys.
+    // People who left (or guests, who aren't listed) still wrote some of the chat; the page needs their name and colour, not their keys.
     db.query(
       `SELECT DISTINCT u.id, u.username, u.display_name, u.color FROM messages m JOIN users u ON u.id = m.user_id
-       WHERE m.group_id = $1 AND NOT EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = $1 AND gm.user_id = u.id)`,
-      [id]
+       WHERE m.group_id = $1 AND NOT EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = $1 AND gm.user_id = u.id AND (NOT gm.guest OR gm.user_id = $2))`,
+      [id, user.id]
     ),
     // A message you reported is hidden for you from then on.
     db.query(
@@ -83,6 +83,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
       proposed_outcome: m.proposed_outcome,
       proposed_by: m.proposed_by,
       proposed_at: m.proposed_at,
+      proposed_early: m.proposed_early,
       void_reason: m.void_reason,
       closed: isClosed(m),
       price: price(m),

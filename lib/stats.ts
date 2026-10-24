@@ -5,10 +5,11 @@ import { priceYes } from "./lmsr";
 const brier = (p: number, y: boolean) => (p - (y ? 1 : 0)) ** 2;
 
 /** Leaderboard: balance, net worth and forecasting skill (Brier skill score vs always saying 50%). */
-export async function leaderboard(q: Q, groupId: number) {
+export async function leaderboard(q: Q, groupId: number, viewerId: number) {
   const members = await q.query<{ id: number; username: string; display_name: string; color: string }>(
-    `SELECT u.id, u.username, u.display_name, u.color FROM users u JOIN group_members gm ON gm.user_id = u.id WHERE gm.group_id = $1`,
-    [groupId]
+    `SELECT u.id, u.username, u.display_name, u.color FROM users u JOIN group_members gm ON gm.user_id = u.id
+     WHERE gm.group_id = $1 AND (NOT gm.guest OR gm.user_id = $2)`,
+    [groupId, viewerId]
   );
   // A trader's forecast is where they left the price; scored against what happened.
   const trades = await q.query<{ user_id: number; price_after: number; outcome: boolean; pnl_side: string }>(

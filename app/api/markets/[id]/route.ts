@@ -62,6 +62,10 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const open = m.status === "open";
   const proposed = open && m.proposed_outcome != null;
   const [mine] = await db.query(`SELECT 1 FROM reports WHERE market_id = $1 AND reporter_id = $2`, [id, user.id]);
+  const [myKey] = await db.query<{ wrapped_key: string; wrapper_public_key: string }>(
+    `SELECT k.wrapped_key, w.public_key AS wrapper_public_key FROM group_keys k JOIN users w ON w.id = k.wrapped_by WHERE k.group_id = $1 AND k.user_id = $2`,
+    [m.group_id, user.id]
+  );
   return {
     market: { ...m, price: price(m), closed },
     creator: people.find((p) => p.id === m.creator_id),
@@ -73,9 +77,14 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
           note: m.proposed_note,
           by: people.find((p) => p.id === m.proposed_by) ?? null,
           at: m.proposed_at,
-          settlesAt: new Date(new Date(m.proposed_at as Date).getTime() + SETTLE_WINDOW_MS),
+          // An early "it already happened" waits for a confirmation instead of a timer.
+          early: m.proposed_early,
+          evidenceId: m.proposed_evidence,
+          settlesAt: m.proposed_early ? null : new Date(new Date(m.proposed_at as Date).getTime() + SETTLE_WINDOW_MS),
         }
       : null,
+    // This member's copy of the chat key, to open (or encrypt) a photo of evidence on this page.
+    myKey: myKey ?? null,
     ticks,
     candles,
     trades,
@@ -89,8 +98,11 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       // Bets are locked once placed; stocks pay a small fee after the first free trade.
       canSell: m.kind === "stock",
       fee: await tradeFee(db, m, user.id),
-      // The poster calls it, early if it already happened; anyone can a day after the deadline.
-      canResolve: open && !proposed && !isSubject && (m.creator_id === user.id || now().getTime() >= new Date(m.resolves_at).getTime() + PROPOSE_GRACE_MS),
+      // Before the deadline anyone can say it already happened (with evidence); after it, the
+      // poster calls it, and anyone can a day later.
+      canResolve:
+        open && !proposed && !isSubject && (new Date(m.resolves_at) > now() || m.creator_id === user.id || now().getTime() >= new Date(m.resolves_at).getTime() + PROPOSE_GRACE_MS),
+      early: open && new Date(m.resolves_at) > now(),
       canConfirm: proposed && !isSubject && m.proposed_by !== user.id,
       canVeto: open && isSubject,
       canReport: m.creator_id !== user.id || isSubject,

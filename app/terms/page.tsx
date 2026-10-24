@@ -30,7 +30,7 @@ export default function Terms() {
       </UL>
 
       <H>5. How results are settled</H>
-      <p>One member proposes the result. A different member, who isn&apos;t the person it&apos;s about, confirms it or disputes it. A dispute voids the situation and refunds everyone. If nobody reacts within 24 hours, the result settles as proposed. Trading stops as soon as a result is proposed. Settling is between friends and is not an official verdict on anything.</p>
+      <p>One member proposes the result. A different member, who isn&apos;t the person it&apos;s about, confirms it or disputes it. A dispute voids the situation and refunds everyone. If nobody reacts within 24 hours, the result settles as proposed. Before the deadline, any member can say it has already happened if they add evidence (a note or a photo). That only settles once another member, who isn&apos;t the person it&apos;s about and wouldn&apos;t be paid by it, confirms it; if someone disputes it, trading simply opens again. Trading stops as soon as a result is proposed. Settling is between friends and is not an official verdict on anything.</p>
 
       <H>6. Your account and your chats</H>
       <UL>

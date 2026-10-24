@@ -14,6 +14,8 @@ import { formatOdds, useOddsFormat } from "@/lib/odds";
 import { ArrowUpRight, Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
+import { groupKey } from "@/components/groupkeys";
+import { primeAttachment, shrinkImage, uploadEncrypted, useAttachment } from "@/components/media";
 
 function useWide() {
   const [wide, setWide] = useState(false);
@@ -37,18 +39,19 @@ type Detail = {
   };
   creator: Person;
   subject: Person | null;
-  proposal: { outcome: boolean; note: string; by: Person | null; at: string; settlesAt: string } | null;
+  proposal: { outcome: boolean; note: string; by: Person | null; at: string; early: boolean; evidenceId: number | null; settlesAt: string | null } | null;
+  myKey: { wrapped_key: string; wrapper_public_key: string } | null;
   ticks: { ts: string; price: number; source: string }[];
   candles: { bucket: string; open: number; high: number; low: number; close: number; volume: number; n: number }[];
   trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string }[];
   position: { yes_shares: number; no_shares: number; spent: number } | null;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
   const id = Number(use(params).id);
-  const { me, refresh } = useSession();
+  const { me, refresh, identity } = useSession();
   const [d, setD] = useState<Detail | null>(null);
   const [hover, setHover] = useState<{ t: number; v: number } | null>(null);
   const [chartMode, setChartMode] = useState<"candles" | "line">("candles");
@@ -59,6 +62,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [resolveOpen, setResolveOpen] = useState(false);
   const [note, setNote] = useState("");
   const [actual, setActual] = useState("");
+  // Evidence for an early "it already happened": a photo from this device, encrypted with the chat's key.
+  const [proof, setProof] = useState<{ url: string; bytes: Uint8Array } | null>(null);
+  const [chatKey, setChatKey] = useState<CryptoKey | null>(null);
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -77,6 +83,13 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   }, []);
 
   const load = useCallback(() => api<Detail>(`/api/markets/${id}`).then(setD).catch((e) => setErr(e.message)), [id]);
+  const groupId = d?.market.group_id;
+  const myKey = d?.myKey ?? null;
+  useEffect(() => {
+    if (!groupId || !identity || !myKey) return;
+    groupKey(groupId, identity, myKey).then((k) => setChatKey(k?.key ?? null)).catch(() => {});
+  }, [groupId, identity, myKey]);
+  const evidenceUrl = useAttachment(d?.proposal?.evidenceId, chatKey, "image/jpeg");
   useEffect(() => {
     load();
     const t = setInterval(load, 2000);
@@ -122,8 +135,15 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       // A number question is settled by the number; the server works out which side that is.
       const value = Number(actual.replace(",", "."));
       if (isNumber && !Number.isFinite(value)) throw new Error(`Enter the actual number${m.unit ? ` in ${m.unit}` : ""}`);
-      await api(`/api/markets/${id}/resolve`, { body: isNumber ? { value, note } : { outcome, note } });
+      let evidenceId: number | undefined;
+      if (proof) {
+        if (!chatKey) throw new Error("Unlock your chats first to attach a photo");
+        evidenceId = await uploadEncrypted("image", m.group_id, chatKey, proof.bytes);
+        primeAttachment(evidenceId, proof.url);
+      }
+      await api(`/api/markets/${id}/resolve`, { body: isNumber ? { value, note, evidenceId } : { outcome, note, evidenceId } });
       setResolveOpen(false);
+      setProof(null);
       await Promise.all([load(), refresh()]);
     } catch (e) {
       setErr((e as Error).message);
@@ -289,17 +309,29 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               <span className={`font-semibold ${proposal.outcome ? "text-up" : "text-down"}`}>{isNumber ? (proposal.outcome ? `${lbl.yes}` : `${lbl.no}`) : proposal.outcome ? "YES, it happened" : "NO, it didn't"}</span>
             </div>
             <p className="mt-2 text-mute">
-              {proposal.by?.display_name ?? "Someone"} says so{proposal.note ? `: “${proposal.note}”` : ""}. Trading is closed.
+              {proposal.by?.display_name ?? "Someone"} says {proposal.early ? "it already happened" : "so"}{proposal.note ? `: “${proposal.note}”` : ""}. Trading is paused.
               {d.me.canConfirm
                 ? " Does that match what happened?"
                 : d.me.isSubject
                   ? " It's about you, so you can't confirm or dispute it, but you can call it off."
                   : " Another member has to confirm or dispute it."}
             </p>
-            <p className="mt-1 text-xs text-mute">
-              {new Date(proposal.settlesAt).getTime() > now
-                ? `If nobody replies, it settles as proposed in ${timeLeft(proposal.settlesAt, new Date(now)).replace(" left", "")}.`
-                : "Nobody replied in time, so it is about to settle as proposed."}
+            {proposal.evidenceId != null && (
+              <div className="mt-3 overflow-hidden rounded-xl border border-line bg-ink">
+                {evidenceUrl && evidenceUrl !== "error" ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={evidenceUrl} alt="Photo added as evidence" className="max-h-80 w-full object-contain" />
+                ) : (
+                  <p className="p-3 text-xs text-mute">{evidenceUrl === "error" ? "The photo couldn't be opened on this device." : "Opening the photo…"}</p>
+                )}
+              </div>
+            )}
+            <p className="mt-2 text-xs text-mute">
+              {proposal.early
+                ? "It's before the deadline, so it only settles once another member checks this and confirms it. Disputing it opens trading again."
+                : proposal.settlesAt && new Date(proposal.settlesAt).getTime() > now
+                  ? `If nobody replies, it settles as proposed in ${timeLeft(proposal.settlesAt, new Date(now)).replace(" left", "")}.`
+                  : "Nobody replied in time, so it is about to settle as proposed."}
             </p>
             {d.me.canConfirm && (
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -438,7 +470,11 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Propose the result">
         <div className="space-y-3">
           <p className="text-sm text-mute">{m.resolution_rule}</p>
-          <p className="text-xs text-mute">Trading closes now. Another member (not the person it&apos;s about) confirms or disputes your call. If nobody does, it settles as you proposed after {SETTLE_WINDOW_HOURS} hours. A dispute calls the situation off and refunds everyone.</p>
+          {d.me.early ? (
+            <p className="text-xs text-mute">It&apos;s before the deadline, so you can only say it already happened, and you need proof: say what happened, or add a photo. Trading pauses, and it settles only when another member (not the person it&apos;s about, and not someone it pays) checks it and confirms. If someone disputes it, trading opens again.</p>
+          ) : (
+            <p className="text-xs text-mute">Trading closes now. Another member (not the person it&apos;s about) confirms or disputes your call. If nobody does, it settles as you proposed after {SETTLE_WINDOW_HOURS} hours. A dispute calls the situation off and refunds everyone.</p>
+          )}
           {isNumber ? (
             <>
               <label className="block rounded-2xl border border-line bg-ink p-4">
@@ -466,12 +502,38 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             </>
           ) : (
             <>
-              <Input placeholder="What happened? (optional, saved to group memory)" value={note} onChange={(e) => setNote(e.target.value)} />
+              <Input placeholder={d.me.early ? "What happened? e.g. walked in at 7:52, see photo" : "What happened? (optional, saved to group memory)"} value={note} onChange={(e) => setNote(e.target.value)} />
+              {d.me.early && (
+                <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-white/20 p-3 text-sm hover:border-white/40">
+                  {proof ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={proof.url} alt="" className="h-14 w-14 rounded-lg object-cover" />
+                  ) : (
+                    <span className="flex h-14 w-14 items-center justify-center rounded-lg bg-white/5 text-mute">+</span>
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-medium">{proof ? "Photo added" : "Add a photo as proof"}</span>
+                    <span className="text-xs text-mute">Encrypted on this device. Only this chat can see it.</span>
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    hidden
+                    onChange={async (e) => {
+                      const f = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!f) return;
+                      const img = await shrinkImage(f).catch(() => null);
+                      if (img) setProof({ url: URL.createObjectURL(img.blob), bytes: img.bytes });
+                    }}
+                  />
+                </label>
+              )}
               <div className="grid grid-cols-2 gap-2">
-                <Button variant="up" disabled={busy || !d.me.canResolveYes} onClick={() => resolve(true)}>YES, it happened</Button>
+                <Button variant="up" disabled={busy || !d.me.canResolveYes || (d.me.early && !proof && note.trim().length < 10)} onClick={() => resolve(true)}>YES, it happened</Button>
                 <Button variant="down" disabled={busy || !d.me.canResolveNo} onClick={() => resolve(false)}>NO</Button>
               </div>
-              {!(d.me.canResolveYes && d.me.canResolveNo) && (
+              {(d.me.early ? !d.me.canResolveYes : !(d.me.canResolveYes && d.me.canResolveNo)) && (
                 <p className="text-xs text-mute">You have a stake in this, so a friend without one has to call it your way.</p>
               )}
             </>
@@ -486,13 +548,15 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           <p className="text-sm text-mute">
             {confirming === "veto"
               ? "The situation is voided for everyone. Every trade is refunded in full, it leaves the live list, and the chat is told you called it off. You can't undo this."
-              : "The situation is voided for everyone instead of settling. Every trade is refunded in full. You can't undo this."}
+              : d.proposal?.early
+                ? "You don't think it has happened yet. The claim is dropped and trading opens again; it can still happen before the deadline."
+                : "The situation is voided for everyone instead of settling. Every trade is refunded in full. You can't undo this."}
           </p>
           {err && <p className="text-sm text-down">{err}</p>}
           <div className="flex gap-2">
             <Button variant="ghost" className="flex-1" onClick={() => setConfirming(null)}>Cancel</Button>
             <Button variant="down" className="flex-[2]" disabled={busy} onClick={() => act(confirming === "veto" ? "veto" : "dispute")}>
-              {busy ? "Working…" : confirming === "veto" ? "Call it off" : "Dispute and refund"}
+              {busy ? "Working…" : confirming === "veto" ? "Call it off" : d.proposal?.early ? "Not yet, reopen it" : "Dispute and refund"}
             </Button>
           </div>
         </div>

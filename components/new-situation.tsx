@@ -157,7 +157,7 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
               {members.map((m) => {
                 // People who turned off situations about them are greyed out (you can always pick yourself).
                 const off = m.subject_policy === "nobody" && m.id !== meId;
-                return <Person key={m.id} on={subject === m.username} off={off} label={m.id === meId ? "Me" : m.display_name} avatar={<Avatar name={m.display_name} color={m.color} size={44} />} onClick={() => !off && setSubject(m.username)} />;
+                return <Person key={m.id} on={subject === m.username} off={off} label={m.id === meId ? "Me" : m.display_name} avatar={<Avatar id={m.id} name={m.display_name} color={m.color} size={44} />} onClick={() => !off && setSubject(m.username)} />;
               })}
             </div>
           </Field>

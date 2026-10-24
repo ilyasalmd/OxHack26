@@ -21,6 +21,7 @@ const people: Record<string, User> = {};
 let chat = 0;
 
 const DAY = 24 * 3600_000;
+const PROOF = "saw it happen, photo in the chat";
 const balance = async (u: User) => (await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [u.id]))[0].balance;
 const status = async (id: number) => (await mk.getMarket(db, id)).status;
 const rejects = (p: Promise<unknown>, re: RegExp) => assert.rejects(p, (e: Error) => re.test(e.message));
@@ -49,23 +50,49 @@ test("nobody settles alone: the proposer can't confirm, someone else can", async
   const id = await open("It snows in Oxford this week");
   await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 40 });
   await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 20 });
-  await mk.proposeResult(people.alice, id, true);
+  await mk.proposeResult(people.alice, id, true, PROOF);
   assert.equal(await status(id), "open");
   await rejects(mk.confirmResult(people.alice, id), /another member/);
   await mk.confirmResult(people.cara, id);
   assert.equal(await status(id), "resolved");
 });
 
-test("before the deadline only the poster can propose, and only YES", async () => {
+test("before the deadline anyone can say it happened, but only with evidence, and never NO", async () => {
   const id = await open("Bob finishes the essay early");
-  await rejects(mk.proposeResult(people.bob, id, true), /.+/);
-  await rejects(mk.proposeResult(people.alice, id, false), /.+/);
-  await mk.proposeResult(people.alice, id, true);
+  await rejects(mk.proposeResult(people.cara, id, true), /evidence/);
+  await rejects(mk.proposeResult(people.cara, id, false, PROOF), /only be called/);
+  await mk.proposeResult(people.cara, id, true, PROOF);
+  const m = await mk.getMarket(db, id);
+  assert.equal(m.status, "open");
+  assert.equal(m.proposed_early, true);
+});
+
+test("an early claim never settles by itself, and a dispute opens trading again", async () => {
+  const id = await open("Alice books the flights this week");
+  await mk.proposeResult(people.bob, id, true, PROOF);
+  await db.query(`UPDATE markets SET proposed_at = proposed_at - interval '3 days' WHERE id = $1`, [id]);
+  await mk.finaliseProposals(db);
+  assert.equal(await status(id), "open", "no confirmation, no settlement");
+  await rejects(mk.trade(people.cara, id, { side: "no", action: "buy", amount: 10 }), /proposed/);
+  await mk.disputeResult(people.cara, id);
+  const m = await mk.getMarket(db, id);
+  assert.equal(m.status, "open");
+  assert.equal(m.proposed_outcome, null);
+  await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 10 });
+});
+
+test("someone the result would pay can't confirm it", async () => {
+  const id = await open("Cara runs 10k before Sunday");
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 30 });
+  await mk.proposeResult(people.alice, id, true, PROOF);
+  await rejects(mk.confirmResult(people.bob, id), /gain/);
+  await rejects(mk.confirmResult(people.alice, id), /another member/);
+  assert.equal(await status(id), "open");
 });
 
 test("the subject can't confirm a result about themselves", async () => {
   const id = await open("Bob gets to the gym three times", "bob");
-  await mk.proposeResult(people.alice, id, true);
+  await mk.proposeResult(people.alice, id, true, PROOF);
   await rejects(mk.confirmResult(people.bob, id), /can't confirm/);
 });
 
@@ -74,7 +101,7 @@ test("a market only one person traded pays nothing: the stake comes back", async
   const start = await balance(people.bob);
   await mk.trade(people.bob, id, { side: "no", action: "buy", amount: 60 });
   assert.ok((await balance(people.bob)) < start);
-  await mk.proposeResult(people.alice, id, true);
+  await mk.proposeResult(people.alice, id, true, PROOF);
   await mk.confirmResult(people.cara, id);
   assert.equal(await status(id), "resolved");
   assert.ok(Math.abs((await balance(people.bob)) - start) < 0.01, "the lone trader gets their stake back");
@@ -86,7 +113,7 @@ test("with two traders the winner is paid and the loser isn't refunded", async (
   const cara0 = await balance(people.cara);
   await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 30 });
   await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 30 });
-  await mk.proposeResult(people.alice, id, true);
+  await mk.proposeResult(people.alice, id, true, PROOF);
   await mk.confirmResult(people.cara, id).catch(() => mk.confirmResult(people.bob, id));
   assert.ok((await balance(people.bob)) > bob0);
   assert.ok((await balance(people.cara)) < cara0);

@@ -64,7 +64,7 @@ export async function joinSampleGroups(userId: number, q?: Q) {
     done.add(h.group_id);
     const wrapped = await wrapGroupKey(raw, priv, me.public_key);
     const added = await db.query(
-      `INSERT INTO group_members (group_id, user_id, joined_at) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id`,
+      `INSERT INTO group_members (group_id, user_id, joined_at, guest) VALUES ($1,$2,$3,true) ON CONFLICT DO NOTHING RETURNING user_id`,
       [h.group_id, userId, now()]
     );
     if (!added.length) continue;

@@ -12,8 +12,9 @@ export const POST = route<IdCtx>(async (_req, user, ctx) => {
   const db = await getDb();
   await db.tx(async (q) => {
     await q.query(`DELETE FROM group_keys WHERE group_id = $1 AND user_id = $2`, [id, user.id]);
-    await q.query(`DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`, [id, user.id]);
-    await q.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1,$2,'system',$3,$4)`, [id, null, `${user.display_name} left`, now()]);
+    const [gone] = await q.query<{ guest: boolean }>(`DELETE FROM group_members WHERE group_id = $1 AND user_id = $2 RETURNING guest`, [id, user.id]);
+    // A guest was never listed in the sample chat, so nobody needs to hear they left.
+    if (!gone?.guest) await q.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1,$2,'system',$3,$4)`, [id, null, `${user.display_name} left`, now()]);
   });
   const calledOff = await callOffSituationsAbout(user.id, user.display_name, id);
   return { ok: true, calledOff };

@@ -21,7 +21,7 @@ export const GET = route(async (_req, user) => {
     `SELECT g.id, g.name, g.emoji, g.invite_code, g.is_dm, g.photo_id::int AS photo_id, gm.muted,
        (SELECT row_to_json(p) FROM (SELECT u.id, u.username, u.display_name, u.color, u.public_key, ${AVATAR_COLS("u", "$1")}
          FROM group_members o JOIN users u ON u.id = o.user_id WHERE g.is_dm AND o.group_id = g.id AND o.user_id <> $1 LIMIT 1) p) AS peer,
-       (SELECT count(*) FROM group_members x WHERE x.group_id = g.id)::int AS members,
+       (SELECT count(*) FROM group_members x WHERE x.group_id = g.id AND (NOT x.guest OR x.user_id = $1))::int AS members,
        (SELECT count(*) FROM markets m WHERE m.group_id = g.id AND m.status = 'open')::int AS open_markets,
        -- Unread: other people's messages and new bets since you last had the chat open (not history from before you joined).
        (SELECT count(*) FROM messages x WHERE x.group_id = g.id AND x.id > gm.read_upto AND x.created_at > gm.joined_at

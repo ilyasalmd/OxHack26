@@ -22,7 +22,8 @@ export const POST = route(async (req, user) => {
   // Situations about them stop before the scrub, with stakes refunded, as the privacy notice promises.
   await callOffSituationsAbout(user.id, user.display_name);
   await db.tx(async (q) => {
-    const groups = await q.query<{ group_id: number }>(`SELECT group_id FROM group_members WHERE user_id = $1`, [user.id]);
+    // Guests were never listed in the sample chats, so those get no "left" line.
+    const groups = await q.query<{ group_id: number }>(`SELECT group_id FROM group_members WHERE user_id = $1 AND NOT guest`, [user.id]);
     for (const g of groups)
       await q.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1, NULL, 'system', $2, $3)`, [g.group_id, `${user.display_name} left`, now()]);
     await q.query(`DELETE FROM group_members WHERE user_id = $1`, [user.id]);

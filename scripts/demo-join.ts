@@ -1,13 +1,14 @@
 /**
  * Puts every real account into every sample chat it isn't in yet (demo only), so everyone sees
  * the synthetic history. The sample people stay in the chats their story puts them in. New sign-ups get this automatically; this catches existing accounts.
+ * Real accounts join as guests: they see everything but are only listed to themselves.
  * Memberships parked earlier (group_members_parked) come back first with their original keys.
  *
  *   npm run demo:join
  */
 import { getDb } from "../lib/db";
 import { DEMO_DATA_FOR_ALL } from "../lib/config";
-import { joinSampleGroups } from "../lib/demo";
+import { SAMPLE_GROUPS, joinSampleGroups } from "../lib/demo";
 import { PEOPLE } from "./seed-content";
 
 async function main() {
@@ -36,6 +37,14 @@ async function main() {
     total += n;
   }
   if (!total) console.log("Every account is already in every sample chat.");
+  // Real accounts are guests in the sample chats (only listed to themselves), so each chat keeps its own cast.
+  const guests = await db.query(
+    `UPDATE group_members gm SET guest = true FROM groups gr, users u
+      WHERE gr.id = gm.group_id AND u.id = gm.user_id AND ${SAMPLE_GROUPS}
+        AND NOT (u.username = ANY($1)) AND gm.user_id <> gr.created_by AND NOT gm.guest RETURNING gm.user_id`,
+    [PEOPLE.map((p) => p.username)]
+  );
+  if (guests.length) console.log(`Marked ${guests.length} sample-chat memberships as guests`);
   process.exit(0);
 }
 

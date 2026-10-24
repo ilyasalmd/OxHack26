@@ -46,6 +46,10 @@ export type MarketRow = {
   proposed_by: number | null;
   proposed_at: Date | null;
   proposed_note: string;
+  /** Put forward before the deadline with evidence: only a confirmation settles it, never the 24h timer. */
+  proposed_early: boolean;
+  /** A photo attached as evidence (encrypted with the chat's key). */
+  proposed_evidence: number | null;
   void_reason: "veto" | "dispute" | "reports" | null;
   created_at: Date;
   resolves_at: Date;
@@ -72,12 +76,13 @@ export type SituationInput = {
   line?: number;
 };
 
-async function subjectFor(q: Q, groupId: number, username?: string | null) {
+async function subjectFor(q: Q, groupId: number, username?: string | null, creatorId?: number) {
   if (!username) return null;
+  // A guest in a sample chat isn't one of its people, so situations there can only be about them if they post them.
   const [u] = await q.query<{ id: number; display_name: string; username: string; subject_policy: string }>(
     `SELECT u.id, u.display_name, u.username, u.subject_policy FROM users u JOIN group_members gm ON gm.user_id = u.id
-     WHERE gm.group_id = $1 AND u.username = $2`,
-    [groupId, username.replace(/^@/, "").toLowerCase()]
+     WHERE gm.group_id = $1 AND u.username = $2 AND (NOT gm.guest OR u.id = $3)`,
+    [groupId, username.replace(/^@/, "").toLowerCase(), creatorId ?? null]
   );
   if (!u) throw new HttpError(400, `@${username} isn't in this group`);
   return u;
@@ -85,7 +90,7 @@ async function subjectFor(q: Q, groupId: number, username?: string | null) {
 
 /** The subject, after checking they're in the group and haven't opted out (people can always post about themselves). */
 async function consentedSubject(q: Q, groupId: number, username: string | null | undefined, creatorId?: number) {
-  const u = await subjectFor(q, groupId, username);
+  const u = await subjectFor(q, groupId, username, creatorId);
   if (u && u.subject_policy === "nobody" && u.id !== creatorId) throw new HttpError(400, `${u.display_name} has turned off situations about them`);
   return u ? { id: u.id, display_name: u.display_name, username: u.username } : null;
 }
@@ -309,21 +314,28 @@ export async function tradeFee(q: Q, m: MarketRow, userId: number) {
   return n >= ECONOMY.freeTrades ? ECONOMY.stockFee : 0;
 }
 
-/** Who may put a result forward: not the subject, the creator any time, anyone else once the date has passed. */
 /** How long after the deadline the poster alone may call it before anyone in the chat can. */
 export const PROPOSE_GRACE_MS = 24 * 3600_000;
+/** An early "it happened" needs evidence: a photo, or a note at least this long saying what happened. */
+export const EVIDENCE_MIN_CHARS = 10;
 
 /**
- * Whoever posted the situation proposes the result, early if it already happened. Before the
- * deadline only the "it happened" side can be known, so NO/Under has to wait. If the poster goes
- * quiet, any member can propose a day after the deadline so nothing sits unsettled for ever.
+ * Who may put a result forward (never the person it's about):
+ * - Before the deadline, anyone in the chat can say it already happened (YES only, since NO isn't
+ *   known yet), with evidence. It settles only once another member confirms it.
+ * - After the deadline, whoever posted it calls it; a day later anyone can, so nothing sits
+ *   unsettled for ever. That result settles on a confirm, or by itself after 24 hours.
  */
-export function assertCanPropose(m: MarketRow, user: User, outcome?: boolean) {
+export function assertCanPropose(m: MarketRow, user: User, outcome?: boolean, evidence = false) {
   if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't call it");
   const past = new Date(m.resolves_at) <= now();
+  if (!past) {
+    if (outcome === false) throw new HttpError(400, `Before the deadline it can only be called ${sides(m).yes}. ${sides(m).no} isn't known until it closes.`);
+    if (!evidence) throw new HttpError(400, "Before the deadline you need evidence: say what happened, or add a photo, so the others can check it");
+    return;
+  }
   if (m.creator_id !== user.id && now().getTime() < new Date(m.resolves_at).getTime() + PROPOSE_GRACE_MS)
     throw new HttpError(403, "Only whoever posted it can propose the result until a day after the deadline");
-  if (!past && outcome === false) throw new HttpError(400, `Before the deadline it can only be called ${sides(m).yes}. ${sides(m).no} isn't known until it closes.`);
 }
 
 async function assertMember(q: Q, groupId: number, userId: number) {
@@ -399,7 +411,7 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
 }
 
 /** Step one of fair settling: put a result forward. It settles when another member confirms, or after 24 hours. */
-export async function proposeResult(user: User, marketId: number, result: boolean | { value: number }, note = "") {
+export async function proposeResult(user: User, marketId: number, result: boolean | { value: number }, note = "", evidenceId: number | null = null) {
   const db = await getDb();
   return db.tx(async (q) => {
     const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
@@ -417,13 +429,30 @@ export async function proposeResult(user: User, marketId: number, result: boolea
       await q.query(`UPDATE markets SET actual = $2 WHERE id = $1`, [marketId, result.value]);
     }
     if (m.proposed_outcome != null) throw new HttpError(400, "A result has already been proposed. Another member needs to confirm or dispute it.");
-    assertCanPropose(m, user, outcome);
+    if (evidenceId != null) {
+      const [photo] = await q.query(`SELECT 1 FROM attachments WHERE id = $1 AND group_id = $2 AND owner_id = $3 AND kind = 'image'`, [evidenceId, m.group_id, user.id]);
+      if (!photo) throw new HttpError(400, "Upload the photo to this chat first");
+    }
+    const early = new Date(m.resolves_at) > now();
+    assertCanPropose(m, user, outcome, evidenceId != null || note.trim().length >= EVIDENCE_MIN_CHARS);
     await assertMember(q, m.group_id, user.id);
     // Under the row lock, so nobody can buy a side and then call it their way.
     assertMayCall(await callableBy(q, m, user.id), outcome);
-    await q.query(`UPDATE markets SET proposed_outcome = $2, proposed_by = $3, proposed_at = $4, proposed_note = $5 WHERE id = $1`, [marketId, outcome, user.id, now(), note.slice(0, 200)]);
-    await systemMessage(q, m.group_id, "system", `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. Another member can confirm or dispute it; with no reply it settles in 24 hours`, marketId, user.id);
-    return { proposed: outcome };
+    await q.query(
+      `UPDATE markets SET proposed_outcome = $2, proposed_by = $3, proposed_at = $4, proposed_note = $5, proposed_early = $6, proposed_evidence = $7 WHERE id = $1`,
+      [marketId, outcome, user.id, now(), note.slice(0, 200), early, evidenceId]
+    );
+    await systemMessage(
+      q,
+      m.group_id,
+      "system",
+      early
+        ? `says “${m.title}” already happened${evidenceId != null ? " and added a photo" : ""}. It settles once another member checks the evidence and confirms it`
+        : `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. Another member can confirm or dispute it; with no reply it settles in 24 hours`,
+      marketId,
+      user.id
+    );
+    return { proposed: outcome, early };
   });
 }
 
@@ -441,11 +470,26 @@ async function reviewer(user: User, marketId: number) {
 
 export async function confirmResult(user: User, marketId: number) {
   const m = await reviewer(user, marketId);
+  // The confirmer can't be someone the result pays either, so two friends with the same bet can't wave it through.
+  assertMayCall(await callableBy(await getDb(), m, user.id), m.proposed_outcome!);
   return settle(m, m.proposed_outcome!, m.proposed_note, user.id, { suffix: "confirmed", caller: user.id });
 }
 
 export async function disputeResult(user: User, marketId: number) {
   const m = await reviewer(user, marketId);
+  // An early "it happened" that someone doesn't accept just goes away: it can still happen before the deadline.
+  if (m.proposed_early) {
+    const db = await getDb();
+    return db.tx(async (q) => {
+      const [cleared] = await q.query(
+        `UPDATE markets SET proposed_outcome = NULL, proposed_by = NULL, proposed_at = NULL, proposed_note = '', proposed_early = false, proposed_evidence = NULL
+          WHERE id = $1 AND status = 'open' AND proposed_early RETURNING id`,
+        [marketId]
+      );
+      if (cleared) await systemMessage(q, m.group_id, "system", `doesn't accept that “${m.title}” has happened yet, so trading is open again`, marketId, user.id);
+      return { reopened: !!cleared };
+    });
+  }
   return voidMarket(marketId, { reason: "dispute", actorId: user.id, text: `disputed the result, so “${m.title}” is void and everyone was refunded` });
 }
 
@@ -511,12 +555,13 @@ export async function callOffSituationsAbout(userId: number, displayName: string
   return open.length;
 }
 
-/** A proposal nobody reviewed for 24 hours (app clock) settles as proposed. Called by the worker. */
+/** A proposal nobody reviewed for 24 hours (app clock) settles as proposed. Called by the worker.
+ * An early "it happened" never settles this way: it needs another member to confirm it. */
 export async function finaliseProposals(q: Q) {
   // On the admin's demo clock, only the admin's own groups move forward.
   const ahead = aheadOfRealTime();
   const due = await q.query<MarketRow>(
-    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NOT NULL AND proposed_at <= $1
+    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NOT NULL AND NOT proposed_early AND proposed_at <= $1
        AND ($2::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $2)) ORDER BY proposed_at`,
     [new Date(now().getTime() - SETTLE_WINDOW_MS), ahead?.userId ?? null]
   );

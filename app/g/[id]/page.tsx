@@ -59,6 +59,8 @@ export type MarketLite = {
   proposed_outcome: boolean | null;
   proposed_by: number | null;
   proposed_at: string | null;
+  /** Said to have happened before the deadline, with evidence: settles only on a confirmation. */
+  proposed_early?: boolean;
   void_reason: string | null;
   closed: boolean;
   price: number;
@@ -835,12 +837,23 @@ function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite;
   return (
     <div className="mt-3 border-t border-line px-4 py-3 text-sm">
       <div>
-        <span className="text-mute">{by?.display_name ?? "Someone"} proposed </span>
+        <span className="text-mute">{by?.display_name ?? "Someone"} {mk.proposed_early ? "says it already happened: " : "proposed "}</span>
         <b className={mk.proposed_outcome ? "text-up" : "text-down"}>{(mk.proposed_outcome ? sides(mk).yes : sides(mk).no).toUpperCase()}</b>
-        <span className="text-mute">. {canReview ? "Is that right?" : mk.proposed_by === meId ? "Waiting for another member." : "It's about you, so you can only call it off."}</span>
+        <span className="text-mute">. {canReview ? (mk.proposed_early ? "Check the evidence before you confirm." : "Is that right?") : mk.proposed_by === meId ? "Waiting for another member." : "It's about you, so you can only call it off."}</span>
       </div>
-      <div className="mt-0.5 text-xs text-mute">{settlesAt > new Date(now).getTime() ? `Settles on its own in ${timeLeft(new Date(settlesAt), now).replace(" left", "")} if nobody replies.` : "Settling any moment now."}</div>
-      {canReview &&
+      <div className="mt-0.5 text-xs text-mute">
+        {mk.proposed_early
+          ? "Only settles when another member confirms it."
+          : settlesAt > new Date(now).getTime()
+            ? `Settles on its own in ${timeLeft(new Date(settlesAt), now).replace(" left", "")} if nobody replies.`
+            : "Settling any moment now."}
+      </div>
+      {canReview && mk.proposed_early && (
+        <Link href={`/m/${mk.id}`} className="mt-2.5 block rounded-xl bg-white/[.07] py-2 text-center text-sm font-medium hover:bg-white/10">
+          See the evidence
+        </Link>
+      )}
+      {canReview && !mk.proposed_early &&
         (asking ? (
           <div className="mt-2.5 space-y-2">
             <p className="text-xs text-mute">Disputing voids the situation for everyone and refunds every trade.</p>

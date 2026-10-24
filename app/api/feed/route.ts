@@ -33,7 +33,7 @@ export const GET = route(async (_req, user) => {
        coalesce((SELECT net_worth FROM balance_ticks b WHERE b.user_id = u.id ORDER BY b.ts DESC LIMIT 1), u.balance) AS net_worth
      FROM users u
      WHERE u.id IN (SELECT gm.user_id FROM group_members gm
-                    WHERE gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = $1))
+                    WHERE gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = $1) AND (NOT gm.guest OR gm.user_id = $1))
      ORDER BY net_worth DESC LIMIT 6`,
     [user.id]
   );
