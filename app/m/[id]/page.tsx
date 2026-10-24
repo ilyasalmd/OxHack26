@@ -31,7 +31,7 @@ type Detail = {
     id: number; group_id: number; kind: "bet" | "stock"; answer: "yesno" | "number"; line: number | null; unit: string; actual: number | null; decay: string; title: string; description: string; category: string; resolution_rule: string;
     ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string;
     chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
-    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean;
+    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number;
   };
   creator: Person;
   subject: Person | null;
@@ -40,7 +40,7 @@ type Detail = {
   trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string }[];
   position: { yes_shares: number; no_shares: number; spent: number } | null;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -175,15 +175,16 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       {pos.yes_shares > 0.001 && (
         <div className="mt-2 flex items-center justify-between gap-2 text-sm">
           <span className="text-up">{isStock && !isNumber ? "Holding" : lbl.yes} {fmt(pos.yes_shares)} shares</span>
-          {!resolved && !m.closed && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "yes", pos.yes_shares)}>Sell for {fmt(proceedsForShares(book, "yes", pos.yes_shares))}</button>}
+          {!resolved && !m.closed && d.me.canSell && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "yes", pos.yes_shares)}>Sell for {fmt(proceedsForShares(book, "yes", pos.yes_shares))}</button>}
         </div>
       )}
       {pos.no_shares > 0.001 && (
         <div className="mt-1 flex items-center justify-between gap-2 text-sm">
           <span className="text-down">{lbl.no} {fmt(pos.no_shares)} shares</span>
-          {!resolved && !m.closed && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "no", pos.no_shares)}>Close for {fmt(proceedsForShares(book, "no", pos.no_shares))}</button>}
+          {!resolved && !m.closed && d.me.canSell && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "no", pos.no_shares)}>Close for {fmt(proceedsForShares(book, "no", pos.no_shares))}</button>}
         </div>
       )}
+      {!resolved && !m.closed && !d.me.canSell && <p className="mt-2 text-xs text-mute">Locked in. A bet rides to the result and pays out when it settles.</p>}
     </section>
   );
 
@@ -348,6 +349,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             <p className="mt-3 text-xs text-mute">
               Stocks trade like a maturing bond: each long share pays 1 {c.ticker} (shown as 100) if it happens by {new Date(m.resolves_at).toLocaleDateString("en-GB")}.
               {m.decay === "hazard" ? " With no news, the price drifts down as maturity gets closer." : " The outcome is only known at maturity."}
+              {" "}Your first trade here is free; after that each trade pays {me.config.economy.stockFee} {c.ticker} to {d.creator.display_name}, who listed it, paid out at maturity{m.fees_held > 0 ? ` (${fmt(m.fees_held)} ${c.ticker} held so far)` : ""}.
             </p>
           )}
         </Fold>
@@ -390,7 +392,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
        <aside className="sticky top-20 mt-6 hidden space-y-4 lg:block">
         {!resolved && !voided && d.me.canTrade && !m.closed && (
           <section className="rounded-2xl border border-line bg-panel p-4">
-            <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+            <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
           </section>
         )}
         {positionCard}
@@ -400,7 +402,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <div className="lg:hidden"><TimeMachine onJump={load} /></div>
 
       <Sheet open={slipOpen && !wide} onClose={() => setSlipOpen(false)} title={isStock ? "Trade" : "Bet slip"}>
-        <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+        <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
       </Sheet>
 
       <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Propose the result">

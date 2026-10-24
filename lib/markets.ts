@@ -22,6 +22,7 @@ export type MarketRow = {
   unit: string;
   actual: number | null;
   decay: "none" | "hazard";
+  fees_held: number;
   title: string;
   description: string;
   category: string;
@@ -210,7 +211,10 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       if (m.kind === "bet") throw new HttpError(400, "You can't bet on a situation about yourself");
       if (input.side === "no" && input.action === "buy") throw new HttpError(400, "You can only go long on yourself. Invest in yourself!");
     }
+    // A bet is a bet: once placed it rides to the result. Stocks can be traded until maturity.
+    if (m.kind === "bet" && input.action === "sell") throw new HttpError(400, "A bet is locked once placed. It pays out when the result is in.");
     const [u] = await q.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1 FOR UPDATE`, [user.id]);
+    const fee = await tradeFee(q, m, user.id);
     const before = priceYes(book(m));
     let bk = book(m);
     let shares: number, coins: number;
@@ -220,6 +224,7 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       if (!(coins >= ECONOMY.minTrade)) throw new HttpError(400, `Minimum trade is ${ECONOMY.minTrade}`);
       if (coins > cap + 1e-9)
         throw new HttpError(400, `Max stake right now is ${cap.toFixed(2)} (${ECONOMY.maxStakeFraction * 100}% of balance, keeping ${ECONOMY.balanceFloor} safe)`);
+      if (fee > 0 && u.balance - coins - fee < ECONOMY.balanceFloor - 1e-9) throw new HttpError(400, `That plus the ${fee} fee would take you under the ${ECONOMY.balanceFloor} safety floor`);
       shares = sharesForAmount(bk, input.side, coins);
       bk = applyShares(bk, input.side, shares);
     } else {
@@ -249,11 +254,23 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
     );
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'trade')`, [marketId, ts, after]);
     await credit(q, user.id, input.action === "buy" ? -coins : coins, `${input.action} ${input.side === "yes" ? "long" : "short"} · ${m.title}`, marketId);
+    if (fee > 0) {
+      await credit(q, user.id, -fee, `Trading fee · ${m.title}`, marketId);
+      await q.query(`UPDATE markets SET fees_held = fees_held + $2 WHERE id = $1`, [marketId, fee]);
+      await q.query(`UPDATE positions SET fees_paid = fees_paid + $3 WHERE market_id = $1 AND user_id = $2`, [marketId, user.id, fee]);
+    }
     const verb = input.action === "buy" ? (input.side === "yes" ? "went long" : "went short") : `sold ${input.side === "yes" ? "long" : "short"}`;
     await systemMessage(q, m.group_id, "trade", `${verb} ${coins.toFixed(0)} · ${(before * 100).toFixed(0)}% → ${(after * 100).toFixed(0)}%`, marketId, user.id);
-    return { shares, coins, before, after };
+    return { shares, coins, before, after, fee };
   });
   return result;
+}
+
+/** The fee this trader's next trade on the market pays: nothing on bets, nothing for the lister, nothing for the first free trades. */
+export async function tradeFee(q: Q, m: MarketRow, userId: number) {
+  if (m.kind !== "stock" || m.creator_id === userId) return 0;
+  const [{ n }] = await q.query<{ n: number }>(`SELECT count(*)::int AS n FROM trades WHERE market_id = $1 AND user_id = $2`, [m.id, userId]);
+  return n >= ECONOMY.freeTrades ? ECONOMY.stockFee : 0;
 }
 
 /** Who may put a result forward: not the subject, the creator any time, anyone else once the date has passed. */
@@ -310,6 +327,9 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
       else await recordNetWorth(q, p.user_id);
       out.push({ user_id: p.user_id, payout, pnl: payout - p.spent });
     }
+    // Trading fees held on a stock go to whoever listed it, now that it has matured.
+    const [held] = await q.query<{ fees_held: number }>(`UPDATE markets SET fees_held = 0 WHERE id = $1 AND fees_held > 0 RETURNING fees_held`, [marketId]);
+    if (held && m.fees_held >= 0.01) await credit(q, m.creator_id, m.fees_held, `Listing fees · ${m.title}`, marketId);
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'resolve')`, [marketId, now(), outcome ? 1 : 0]);
     const extra = [note, opts.suffix].filter(Boolean).join(" · ");
     await systemMessage(q, m.group_id, "resolution", `resolved ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
@@ -403,16 +423,18 @@ export async function voidMarket(marketId: number, opts: { reason: "veto" | "dis
     if (m.status !== "open") return { voided: false, refunded: 0 };
     const ts = now();
     await q.query(`UPDATE markets SET status = 'void', void_reason = $2, resolved_at = $3 WHERE id = $1`, [marketId, opts.reason, ts]);
-    const positions = await q.query<{ user_id: number; spent: number }>(`SELECT user_id, spent FROM positions WHERE market_id = $1 ORDER BY user_id`, [marketId]);
+    const positions = await q.query<{ user_id: number; spent: number; fees_paid: number }>(`SELECT user_id, spent, fees_paid FROM positions WHERE market_id = $1 ORDER BY user_id`, [marketId]);
     let refunded = 0;
     for (const p of positions) {
-      const refund = round2(p.spent);
+      // Fees come back too: nothing matured, so the lister earned nothing.
+      const refund = round2(p.spent + p.fees_paid);
       if (Math.abs(refund) >= 0.01) {
         await credit(q, p.user_id, refund, `Refund · ${m.title}`, marketId);
         refunded++;
       } else await recordNetWorth(q, p.user_id);
     }
-    await q.query(`UPDATE positions SET yes_shares = 0, no_shares = 0, spent = 0 WHERE market_id = $1`, [marketId]);
+    await q.query(`UPDATE positions SET yes_shares = 0, no_shares = 0, spent = 0, fees_paid = 0 WHERE market_id = $1`, [marketId]);
+    await q.query(`UPDATE markets SET fees_held = 0 WHERE id = $1`, [marketId]);
     await systemMessage(q, m.group_id, "system", opts.text, marketId, opts.actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,

@@ -3,6 +3,7 @@ import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
 import { callableBy, getMarket, isClosed, price } from "@/lib/markets";
 import { maxStake } from "@/lib/economy";
+import { tradeFee } from "@/lib/markets";
 import { findSimilar } from "@/lib/memory";
 import { now } from "@/lib/clock";
 import { SETTLE_WINDOW_MS } from "@/lib/safety";
@@ -68,6 +69,9 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       maxStake: maxStake(u.balance),
       canTrade: !closed && !(isSubject && m.kind === "bet"),
       canShort: !isSubject,
+      // Bets are locked once placed; stocks pay a small fee after the first free trade.
+      canSell: m.kind === "stock",
+      fee: await tradeFee(db, m, user.id),
       canResolve: open && !proposed && !isSubject && (m.creator_id === user.id || new Date(m.resolves_at) <= now()),
       canConfirm: proposed && !isSubject && m.proposed_by !== user.id,
       canVeto: open && isSubject,

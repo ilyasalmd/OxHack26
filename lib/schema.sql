@@ -173,7 +173,18 @@ CREATE TABLE IF NOT EXISTS chain_ops (
 CREATE INDEX IF NOT EXISTS chain_ops_status_idx ON chain_ops (status, id);
 
 -- Opt-in per group: members' apps may send a few filtered, redacted chat snippets to the AI.
-ALTER TABLE groups ADD COLUMN IF NOT EXISTS ai_reads_chat boolean NOT NULL DEFAULT false;
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS ai_reads_chat boolean NOT NULL DEFAULT true;
+-- Chat reading is on unless a group turns it off. Groups made before that was the default are
+-- switched on once; the flag row stops it happening again, so a group that opts out stays out.
+ALTER TABLE groups ALTER COLUMN ai_reads_chat SET DEFAULT true;
+CREATE TABLE IF NOT EXISTS app_flags (name text PRIMARY KEY);
+UPDATE groups SET ai_reads_chat = true WHERE NOT EXISTS (SELECT 1 FROM app_flags WHERE name = 'chat_default_on');
+INSERT INTO app_flags (name) VALUES ('chat_default_on') ON CONFLICT DO NOTHING;
+
+-- Stock trading fee: after a trader's first free trade on a stock, each trade pays a small fee that
+-- is held on the market and paid to whoever listed it at maturity (refunded to payers if it is voided).
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS fees_held double precision NOT NULL DEFAULT 0;
+ALTER TABLE positions ADD COLUMN IF NOT EXISTS fees_paid double precision NOT NULL DEFAULT 0;
 -- The snippets the AI judged relevant when pricing a market, kept so everyone can see what was used.
 ALTER TABLE markets ADD COLUMN IF NOT EXISTS chat_context jsonb;
 

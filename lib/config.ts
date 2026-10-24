@@ -14,6 +14,10 @@ export const ECONOMY = {
   // ...and nobody can trade below this floor, so nobody is ever wiped out.
   balanceFloor: 50,
   minTrade: 1,
+  // Stocks: your first trade on each one is free; every trade after that pays this to whoever
+  // listed it, held until maturity. The lister trades their own stock free.
+  stockFee: 0.5,
+  freeTrades: 1,
 };
 
 export const MARKET = {

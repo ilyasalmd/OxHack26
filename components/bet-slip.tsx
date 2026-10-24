@@ -17,6 +17,9 @@ type Props = {
   maxStake: number;
   floor: number;
   ticker: string;
+  /** Fee this trade pays to the lister (0 when free), and who that is. */
+  fee?: number;
+  lister?: string;
   busy: boolean;
   err: string;
   onPlace: (side: Side, amount: number) => void;
@@ -26,7 +29,7 @@ type Props = {
  * One slip for every trade. A bet reads like a bookmaker's: pick Yes or No, type a stake, see what
  * it returns, one tap. A stock reads like a broker's: Buy or Short, the price, what the shares pay.
  */
-export function BetSlip({ market, book, side, onSide, canShort, balance, maxStake, floor, ticker, busy, err, onPlace }: Props) {
+export function BetSlip({ market, book, side, onSide, canShort, balance, maxStake, floor, ticker, fee = 0, lister, busy, err, onPlace }: Props) {
   const [amount, setAmount] = useState(Math.min(10, Math.max(1, Math.floor(maxStake))));
   const [raw, setRaw] = useState(String(Math.min(10, Math.max(1, Math.floor(maxStake)))));
   useEffect(() => setRaw(String(amount)), [amount]);
@@ -40,7 +43,7 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
   const ok = amount >= 1 && amount <= max;
   const shares = ok ? sharesForAmount(book, side, amount) : 0;
   const after = ok ? priceYes(applyShares(book, side, shares)) : pYes;
-  const profit = shares - amount;
+  const profit = shares - amount - fee;
   const show = (p: number) => (stock ? fmt(p * 100, 1) : pct(p));
 
   function type(v: string) {
@@ -97,10 +100,15 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
         </div>
       </div>
 
+      {stock && !number && (
+        <p className="px-1 text-xs text-mute">
+          {fee > 0 ? `Includes a ${fee} ${ticker} fee to ${lister ?? "the lister"} (your first trade here was free).` : `Your first trade here is free; later trades pay 0.5 ${ticker} to ${lister ?? "the lister"}.`}
+        </p>
+      )}
       {max < 1 && <p className="text-sm text-down">You&apos;re at the safety floor ({floor} {ticker} stays untouched). Your weekly allowance tops you up.</p>}
       {err && <p className="text-sm text-down">{err}</p>}
       <Button variant={side === "yes" ? "up" : "down"} className="w-full !py-3.5 text-[17px]" disabled={busy || !ok} onClick={() => onPlace(side, amount)}>
-        {busy ? "Placing…" : stock && !number ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount, 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
+        {busy ? "Placing…" : stock && !number ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount + fee, fee ? 1 : 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
       </Button>
       <p className="text-center text-[11px] text-mute">Each share pays 1 {ticker} if you&apos;re right, nothing if not. Price {show(price)} per share now.</p>
     </div>
