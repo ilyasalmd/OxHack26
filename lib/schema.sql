@@ -205,3 +205,6 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_salt text;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS enc_private_key_recovery text;
 -- Deleted accounts keep their row (trades and positions point at it) but are scrubbed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+
+-- When the group last asked the AI to re-mark its stocks (rate limit).
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS last_reprice_at timestamptz;

@@ -154,6 +154,14 @@ async function main() {
     }
   }
 
+  // Nobody can call a market the way that pays them, so the first friend (creator first) who can, does.
+  async function settle(members: string[], first: string, subject: string | null | undefined, id: number, outcome: boolean) {
+    for (const who of [first, ...members.filter((m) => m !== first && m !== subject)]) {
+      const ok = await resolveMarket(users[who], id, outcome, "", { waitForMemory: true }).then(() => true, () => false);
+      if (ok) return;
+    }
+  }
+
   // Recurring situations, settled before today, so the AI has a track record per person.
   const perWeek = GROUPS.flatMap((s) => s.templates.map((x) => x.perWeek)).reduce((a, b) => a + b, 0);
   const scale = TARGET_SETTLED / (perWeek * (DAYS / 7) * 0.92);
@@ -179,7 +187,7 @@ async function main() {
         traders.forEach((who, i) => add(open + ((i + 1) / (traders.length + 1)) * tpl.hours * HOUR * 0.85, () => (holder.id ? act(who, holder.id, tpl.p) : Promise.resolve())));
         const outcome = rnd() < tpl.p;
         add(close + HOUR, async () => {
-          if (holder.id) await resolveMarket(users[creator], holder.id, outcome, "", { waitForMemory: true }).catch(() => {});
+          if (holder.id) await settle(c.spec.members, creator, tpl.subject, holder.id, outcome);
         });
         add(close + HOUR + 4 * 60e3, () => speak(c, pick(outcome ? tpl.yes : tpl.no), close + HOUR + 4 * 60e3, tpl.subject));
       }
@@ -206,7 +214,7 @@ async function main() {
         add(when, () => (holder.id ? act(who, holder.id, truth) : Promise.resolve()));
       }
       if (settled) add(end, async () => {
-        if (holder.id) await resolveMarket(users[s.by], holder.id, s.outcome!, "", { waitForMemory: true }).catch(() => {});
+        if (holder.id) await settle(c.spec.members, s.by, s.subject, holder.id, s.outcome!);
       });
     }
   }

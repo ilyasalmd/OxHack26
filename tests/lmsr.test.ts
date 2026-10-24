@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyShares, bookAt, cost, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount } from "../lib/lmsr";
-import { maxStake } from "../lib/economy";
+import { maxStake, mayCall } from "../lib/economy";
 
 const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
 
@@ -50,4 +50,19 @@ test("stake cap keeps a floor so nobody is wiped out", () => {
   assert.equal(maxStake(500), 125);
   assert.equal(maxStake(60), 10);
   assert.equal(maxStake(40), 0);
+});
+
+test("nobody can resolve a market the way that pays them", () => {
+  const long = { yes_shares: 40, no_shares: 0 };
+  const mostlyShort = { yes_shares: 10, no_shares: 30 };
+  // Before the deadline: strictly no calling your own way.
+  assert.equal(mayCall(true, long, [null], false), false);
+  assert.equal(mayCall(false, long, [null], false), true);
+  // Net position counts: mostly short can call YES.
+  assert.equal(mayCall(true, mostlyShort, [], false), true);
+  // After the deadline a friend with no stake exists, so the long holder still can't call YES...
+  assert.equal(mayCall(true, long, [null, long], true), false);
+  // ...but if every friend is long too, someone has to be able to settle it.
+  assert.equal(mayCall(true, long, [long, long], true), true);
+  assert.equal(mayCall(true, long, [long, long], false), false);
 });

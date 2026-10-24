@@ -38,7 +38,7 @@ type Detail = {
   trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string }[];
   position: { yes_shares: number; no_shares: number; spent: number } | null;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canResolve: boolean; canConfirm: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -310,8 +310,11 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             </p>
             {d.me.canConfirm && (
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button variant="up" disabled={busy} onClick={() => act("confirm")}>Confirm</Button>
+                <Button variant="up" disabled={busy || !(proposal.outcome ? d.me.canResolveYes : d.me.canResolveNo)} onClick={() => act("confirm")}>Confirm</Button>
                 <Button variant="ghost" disabled={busy} onClick={() => setConfirming("dispute")}>Dispute</Button>
+                {!(proposal.outcome ? d.me.canResolveYes : d.me.canResolveNo) && (
+                  <p className="col-span-2 text-xs text-mute">You&apos;d gain from this result, so someone without that stake has to confirm it. You can still dispute it.</p>
+                )}
               </div>
             )}
           </section>
@@ -436,9 +439,12 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           <p className="text-xs text-mute">Trading closes now. Another member (not the person it&apos;s about) confirms or disputes your call. If nobody does, it settles as you proposed after {SETTLE_WINDOW_HOURS} hours. A dispute calls the situation off and refunds everyone.</p>
           <Input placeholder="What happened? (optional, saved to group memory)" value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="grid grid-cols-2 gap-2">
-            <Button variant="up" disabled={busy} onClick={() => resolve(true)}>YES, it happened</Button>
-            <Button variant="down" disabled={busy} onClick={() => resolve(false)}>NO</Button>
+            <Button variant="up" disabled={busy || !d.me.canResolveYes} onClick={() => resolve(true)}>YES, it happened</Button>
+            <Button variant="down" disabled={busy || !d.me.canResolveNo} onClick={() => resolve(false)}>NO</Button>
           </div>
+          {!(d.me.canResolveYes && d.me.canResolveNo) && (
+            <p className="text-xs text-mute">You have a stake in this, so a friend without one has to call it your way.</p>
+          )}
           {err && <p className="text-sm text-down">{err}</p>}
           <Link href={`/g/${m.group_id}`} className="block text-center text-sm text-mute">Back to chat</Link>
         </div>

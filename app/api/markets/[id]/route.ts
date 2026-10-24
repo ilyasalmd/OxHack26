@@ -1,7 +1,7 @@
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
-import { getMarket, isClosed, price } from "@/lib/markets";
+import { callableBy, getMarket, isClosed, price } from "@/lib/markets";
 import { maxStake } from "@/lib/economy";
 import { findSimilar } from "@/lib/memory";
 import { now } from "@/lib/clock";
@@ -39,6 +39,7 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const { similar } = await findSimilar(db, m.group_id, m.title, m.subject_id);
   const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [user.id]);
   const closed = isClosed(m);
+  const callable = await callableBy(db, m, user.id);
   const isSubject = m.subject_id === user.id;
   const open = m.status === "open";
   const proposed = open && m.proposed_outcome != null;
@@ -72,6 +73,9 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       canVeto: open && isSubject,
       canReport: m.creator_id !== user.id || isSubject,
       reported: !!mine,
+      // You can't call it the way that pays you.
+      canResolveYes: callable.yes,
+      canResolveNo: callable.no,
       isSubject,
     },
   };

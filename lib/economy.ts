@@ -76,3 +76,19 @@ export async function applyAllowance(q: Q, userId: number) {
 export function maxStake(balance: number) {
   return Math.max(0, round2(Math.min(balance * ECONOMY.maxStakeFraction, balance - ECONOMY.balanceFloor)));
 }
+
+type Holding = { yes_shares: number; no_shares: number } | null | undefined;
+
+/** How much more this position pays if the market resolves this way rather than the other. */
+export function edgeInOutcome(pos: Holding, outcome: boolean) {
+  if (!pos) return 0;
+  const d = pos.yes_shares - pos.no_shares;
+  return outcome ? d : -d;
+}
+
+/** Nobody calls a market the way that pays them. Before the deadline that's strict; after it, someone with a
+ * stake may call it only if every other eligible friend has the same stake, so a market can't get stuck. */
+export function mayCall(outcome: boolean, mine: Holding, others: Holding[], pastDeadline: boolean) {
+  const free = (p: Holding) => edgeInOutcome(p, outcome) <= 0.005;
+  return free(mine) || (pastDeadline && !others.some(free));
+}
