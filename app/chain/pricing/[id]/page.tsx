@@ -35,7 +35,7 @@ type OpenRecord = {
     subjectProfile: { answers: number; digest: string } | null;
   };
   parsed: { probability: number; rationale: string; kind: string; title: string; resolutionRule: string; chatUsed: { who: string; age: string; text: string; why: string }[] };
-  maths: { rule: string; aiProb: number; baseRate: number | null; effectiveSamples: number; weight: number; openProb: number; liquidity?: number };
+  maths: { rule: string; aiProb: number; baseRate: number | null; effectiveSamples: number; weight: number; openProb: number; liquidity?: number; evidence?: number; trust?: number; aiShrunk?: number; lowData?: boolean };
 };
 type RepriceRecord = {
   provider: string;
@@ -181,9 +181,15 @@ function Opening({ rec, anchor }: { rec: Rec; anchor: Data["anchor"] }) {
 
       <Block title="How the opening price was set">
         <div className="rounded-xl bg-white/[.04] p-4 font-mono text-[13px] leading-relaxed">
+          {r.maths.trust != null && r.maths.aiShrunk != null && (
+            <>
+              <div>evidence = {r.maths.evidence}, trust = {r.maths.trust.toFixed(3)}</div>
+              <div>AI&apos; = 0.5 + {r.maths.trust.toFixed(3)} × ({r.maths.aiProb.toFixed(3)} − 0.5) = {r.maths.aiShrunk.toFixed(3)}</div>
+            </>
+          )}
           <div>weight = {r.maths.baseRate == null ? "0 (no history)" : `0.3 × min(1, ${r.maths.effectiveSamples.toFixed(2)} / 3) = ${r.maths.weight.toFixed(3)}`}</div>
           <div>
-            open = {(1 - r.maths.weight).toFixed(3)} × {r.maths.aiProb.toFixed(3)} + {r.maths.weight.toFixed(3)} × {(r.maths.baseRate ?? 0).toFixed(3)} = <span className="text-brand">{r.maths.openProb.toFixed(4)}</span>
+            open = {(1 - r.maths.weight).toFixed(3)} × {(r.maths.aiShrunk ?? r.maths.aiProb).toFixed(3)} + {r.maths.weight.toFixed(3)} × {(r.maths.baseRate ?? 0).toFixed(3)} = <span className="text-brand">{r.maths.openProb.toFixed(4)}</span>
           </div>
         </div>
         <p className="mt-2 text-sm text-mute">The AI already sees the history in its prompt. This blend gives the history a direct vote too, so one odd answer can&apos;t move the price far.</p>
@@ -270,7 +276,13 @@ function Steps({ r }: { r: OpenRecord }) {
       title: "The opening price",
       body:
         r.maths.weight === 0 ? (
-          <>With no history to blend in, the bet opened at Gemma&apos;s number: <b>{pct(r.maths.openProb, 1)}</b>.</>
+          r.maths.trust != null && r.maths.trust < 1 ? (
+            <>
+              With {r.maths.lowData ? "nothing about this in the chat yet" : "only a little to go on"}, Gemma was working mostly from general knowledge, so its answer only counts for {Math.round(r.maths.trust * 100)}% of its distance from 50/50. The bet opened at <b>{pct(r.maths.openProb, 1)}</b>, and the first trades can move it quickly.
+            </>
+          ) : (
+            <>With no history to blend in, the bet opened at Gemma&apos;s number: <b>{pct(r.maths.openProb, 1)}</b>.</>
+          )
         ) : (
           <>
             Gemma already saw the history, but the history also gets a direct {Math.round(r.maths.weight * 100)}% vote, so one odd answer can&apos;t move the price far. Blending

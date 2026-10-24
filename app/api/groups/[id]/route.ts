@@ -11,7 +11,8 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
   const id = await idParam(ctx);
   await requireMember(id, user.id);
   const after = Number(req.nextUrl.searchParams.get("after") ?? 0) || 0;
-  // `read`: the newest message this app has on screen with the chat in view.
+  // `read`: the newest message this app has on screen with the chat in view (anything above the
+  // newest message means all of it).
   const read = Number(req.nextUrl.searchParams.get("read") ?? 0) || 0;
   const db = await getDb();
   const [group] = await db.query(
@@ -26,6 +27,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
      WHERE gm.group_id = $1 ORDER BY u.balance DESC`,
     [id, user.id]
   );
+  const [prefs] = await db.query<{ wallpaper: string | null; muted: boolean }>(`SELECT wallpaper, muted FROM group_members WHERE group_id = $1 AND user_id = $2`, [id, user.id]);
   const [myKey] = await db.query(
     `SELECT k.wrapped_key, w.public_key AS wrapper_public_key FROM group_keys k JOIN users w ON w.id = k.wrapped_by WHERE k.group_id = $1 AND k.user_id = $2`,
     [id, user.id]
@@ -50,7 +52,8 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
     await db.query(
       `UPDATE group_members gm SET delivered_upto = GREATEST(gm.delivered_upto, LEAST(GREATEST($3::bigint, $4::bigint), x.top)), read_upto = GREATEST(gm.read_upto, LEAST($4::bigint, x.top))
        FROM (SELECT coalesce(max(id), 0) AS top FROM messages WHERE group_id = $1) x
-       WHERE gm.group_id = $1 AND gm.user_id = $2`,
+       WHERE gm.group_id = $1 AND gm.user_id = $2
+         AND (gm.read_upto < LEAST($4::bigint, x.top) OR gm.delivered_upto < LEAST(GREATEST($3::bigint, $4::bigint), x.top))`,
       [id, user.id, newest, read]
     );
   const markets = await db.query<MarketRow>(`SELECT * FROM markets WHERE group_id = $1 ORDER BY created_at DESC`, [id]);
@@ -59,6 +62,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
     members,
     former,
     myKey: myKey ?? null,
+    prefs: prefs ?? { wallpaper: null, muted: false },
     messages,
     typing: whoIsTyping(id, user.id),
     markets: markets.map((m) => ({

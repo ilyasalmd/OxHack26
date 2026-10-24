@@ -159,12 +159,12 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
                 <ChatMark g={g} size={48} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`truncate text-[15px] ${g.open_markets > 0 ? "font-semibold text-white" : "font-medium text-white/85"}`}>{chatName(g)}</span>
+                    <span className={`truncate text-[15px] ${g.unread > 0 && !active ? "font-semibold text-white" : "font-medium text-white/85"}`}>{chatName(g)}</span>
                     {g.last && <span className="ml-auto text-[11px] text-mute">{ago(g.last.created_at, me.clock.now)}</span>}
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1 truncate text-[13px] text-mute"><LastLine g={g} /></div>
-                    {g.open_markets > 0 && <span className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-semibold text-black tabular">{g.open_markets > 99 ? "99+" : g.open_markets}</span>}
+                    {g.unread > 0 && !active && <span className={`flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular ${g.muted ? "bg-white/15 text-white/70" : "bg-brand text-black"}`} aria-label={`${g.unread} unread`}>{g.unread > 99 ? "99+" : g.unread}</span>}
                   </div>
                 </div>
               </Link>

@@ -30,6 +30,12 @@ export const MARKET = {
   stockThresholdDays: 21,
   // How much weight the history base rate gets against the AI when we have data.
   historyWeight: 0.3,
+  // Cold start: with no history, profile answers or chat to go on, the AI is working from general
+  // knowledge, so its answer only gets this share of its distance from 50/50. Trust grows to full
+  // at fullEvidence pieces of evidence, and a low-data book is this much thinner so trades move it faster.
+  coldTrust: 0.5,
+  fullEvidence: 3,
+  lowDataLiquidity: 0.6,
   // A group can ask the AI to re-mark its stocks at most this often (app clock), so
   // nobody can pump prices by calling it over and over with made-up mood scores.
   repriceCooldownMs: 6 * 3600 * 1000,

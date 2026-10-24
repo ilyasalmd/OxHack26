@@ -99,6 +99,9 @@ export type Preview = {
   openProb: number;
   baseRate: number | null;
   baseRateN: number;
+  /** What the AI had besides general knowledge, and how much of it (below 1 is a cold start). */
+  signals: { profile: boolean; chat: number };
+  evidence: number;
   similar: Pick<Similar, "id" | "title" | "outcome" | "summary" | "similarity" | "ai_prob" | "crowd_prob" | "created_at">[];
   subject: { id: number; display_name: string; username: string } | null;
   vector: number[] | null;
@@ -144,10 +147,13 @@ export async function previewSituation(groupId: number, input: SituationInput, c
   // The poster asked for a number but nothing numeric came back: say so instead of quietly listing a yes/no.
   if (input.answer === "number" && analysis.answer !== "number") throw new HttpError(400, "Couldn't work out a line for that. Type one under \"The line\" and try again.");
   // The AI already saw the base rate; we still blend a little so history keeps a direct vote.
-  const { openProb } = openingMaths(analysis.probability, history.baseRate, history.n);
+  const signals = { profile: !!subjectProfile, chat: chatShared.length };
+  const { openProb, evidence } = openingMaths(analysis.probability, history.baseRate, history.n, signals);
   const value: Preview = {
     analysis,
     openProb,
+    signals,
+    evidence,
     baseRate: history.baseRate,
     baseRateN: history.n,
     similar: similar.map(({ id, title, outcome, summary, similarity, ai_prob, crowd_prob, created_at }) => ({ id, title, outcome, summary, similarity, ai_prob, crowd_prob, created_at })),
@@ -175,17 +181,18 @@ export async function createMarket(user: User, groupId: number, input: Situation
   const p = await previewSituation(groupId, input, user.id);
   const db = await getDb();
   const a = p.analysis;
-  const b = a.kind === "stock" ? MARKET.stockLiquidity : MARKET.betLiquidity;
+  // Little to go on: a thinner book, so the first few trades can correct the opening price.
+  const b = (a.kind === "stock" ? MARKET.stockLiquidity : MARKET.betLiquidity) * (p.evidence < 1 ? MARKET.lowDataLiquidity : 1);
   const bk = bookAt(b, p.openProb);
   const ts = now();
   const id = await db.tx(async (q) => {
     const [m] = await q.query<{ id: number }>(
       `INSERT INTO markets (group_id, creator_id, subject_id, kind, decay, title, description, category, resolution_rule,
-        ai_prob, base_rate, base_rate_n, open_prob, ai_rationale, ai_source, b, q_yes, q_no, created_at, resolves_at, last_decay_at, chat_context, answer, line, unit)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$19,$21,$22,$23,$24) RETURNING id`,
+        ai_prob, base_rate, base_rate_n, open_prob, ai_rationale, ai_source, b, q_yes, q_no, created_at, resolves_at, last_decay_at, chat_context, answer, line, unit, evidence)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$19,$21,$22,$23,$24,$25) RETURNING id`,
       [groupId, user.id, p.subject?.id ?? null, a.kind, a.decay, a.title, input.description ?? "", a.category, a.resolutionRule,
         a.probability, p.baseRate, p.baseRateN, p.openProb, a.rationale, a.source, b, bk.qYes, bk.qNo, ts, new Date(input.resolvesAt),
-        p.chatShared.length ? JSON.stringify({ shared: p.chatShared.length, used: a.chatUsed }) : null, a.answer, a.line, a.unit]
+        p.chatShared.length ? JSON.stringify({ shared: p.chatShared.length, used: a.chatUsed }) : null, a.answer, a.line, a.unit, p.evidence]
     );
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'open')`, [m.id, ts, p.openProb]);
     const { trace: _trace, ...parsed } = a;
@@ -205,7 +212,7 @@ export async function createMarket(user: User, groupId: number, input: Situation
         subjectProfile: p.inputs.profile,
       },
       parsed,
-      maths: { ...openingMaths(a.probability, p.baseRate, p.baseRateN), liquidity: b },
+      maths: { ...openingMaths(a.probability, p.baseRate, p.baseRateN, p.signals), liquidity: b },
     }, ts);
     await systemMessage(q, groupId, "market", `${a.kind === "stock" ? "listed a stock" : "opened a bet"}: ${a.title}`, m.id, user.id);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [

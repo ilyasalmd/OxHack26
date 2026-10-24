@@ -90,7 +90,7 @@ export default function Chats() {
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[15px] text-mute">
                     <span className="truncate"><LastLine g={g} /></span>
-                    {g.open_markets > 0 && <span className="ml-auto flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-semibold text-black tabular">{g.open_markets > 99 ? "99+" : g.open_markets}</span>}
+                    {g.unread > 0 && <span className={`ml-auto flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-semibold tabular ${g.muted ? "bg-white/15 text-white/70" : "bg-brand text-black"}`} aria-label={`${g.unread} unread`}>{g.unread > 99 ? "99+" : g.unread}</span>}
                   </div>
                 </div>
               </Link>

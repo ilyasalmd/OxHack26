@@ -1,5 +1,6 @@
 import { getDb } from "@/lib/db";
 import { route } from "@/lib/auth";
+import { isAdminUsername } from "@/lib/config";
 import { netWorth } from "@/lib/economy";
 import { priceYes } from "@/lib/lmsr";
 import { explorer, onChainBalance, solanaConfig } from "@/lib/solana";
@@ -14,7 +15,9 @@ export const GET = route(async (_req, user) => {
     [user.id]
   );
   const ledger = await db.query(`SELECT ts, delta, balance_after, reason, market_id FROM ledger WHERE user_id = $1 ORDER BY id DESC LIMIT 40`, [user.id]);
-  const chain = await db.query<{ id: number; kind: string; amount: number; status: string; signature: string | null; error: string | null; created_at: Date }>(
+  // The chain side (wallet address, mints, burns, signatures) is shown to the admin only.
+  const admin = isAdminUsername(user.username);
+  const chain = !admin ? [] : await db.query<{ id: number; kind: string; amount: number; status: string; signature: string | null; error: string | null; created_at: Date }>(
     `SELECT id, kind, amount, status, signature, error, created_at FROM chain_ops WHERE user_id = $1 ORDER BY id DESC LIMIT 20`,
     [user.id]
   );
@@ -39,7 +42,7 @@ export const GET = route(async (_req, user) => {
       };
     }),
     ledger,
-    wallet: user.wallet_pubkey
+    wallet: admin && user.wallet_pubkey
       ? {
           address: user.wallet_pubkey,
           url: explorer(user.wallet_pubkey, "address"),

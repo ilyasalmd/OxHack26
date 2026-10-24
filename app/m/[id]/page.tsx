@@ -31,7 +31,7 @@ type Person = { id: number; display_name: string; username: string; color: strin
 type Detail = {
   market: {
     id: number; group_id: number; kind: "bet" | "stock"; answer: "yesno" | "number"; line: number | null; unit: string; actual: number | null; decay: string; title: string; description: string; category: string; resolution_rule: string;
-    ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string;
+    ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string; evidence: number | null;
     chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
     b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number;
   };
@@ -339,7 +339,12 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
         {positionCard && <div className="mt-5 lg:hidden">{positionCard}</div>}
 
-        <Fold title="Why this price" summary={<><Badge tone="brand">{m.ai_source === "ollama" ? "Gemma" : "Stats model"}</Badge>{m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}</>}>
+        <Fold title="Why this price" summary={<>{m.evidence != null && m.evidence < 1 && <Badge tone="mute">Low data</Badge>}<Badge tone="brand">{m.ai_source === "ollama" ? "Gemma" : "Stats model"}</Badge>{m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}</>}>
+          {m.evidence != null && m.evidence < 1 && (
+            <p className="mb-2 rounded-xl bg-white/[.04] px-3 py-2 text-[13px] text-white/80">
+              <b>Low data.</b> There&apos;s no history, profile or chat about this yet, so this is based on general knowledge. It opened closer to 50/50 than the AI said, and trades move it faster than usual.
+            </p>
+          )}
           <p className="text-mute">{m.ai_rationale}</p>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-xl bg-ink p-2"><div className="text-xs text-mute">AI</div><div className="font-semibold tabular">{pct(m.ai_prob)}</div></div>

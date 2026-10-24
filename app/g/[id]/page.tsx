@@ -26,6 +26,7 @@ import { selectSnippets, type Snippet } from "@/lib/chat-context";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
 import { sides, typeLabel } from "@/lib/labels";
 import { formatOdds, useOddsFormat } from "@/lib/odds";
+import { WALLPAPERS, wallpaperStyle } from "@/lib/wallpapers";
 
 export type Member = {
   id: number;
@@ -99,11 +100,57 @@ type Feed = {
   /** People who wrote in the chat and have since left: name and colour only. */
   former: { id: number; username: string; display_name: string; color: string }[];
   myKey: { wrapped_key: string; wrapper_public_key: string } | null;
+  /** Your own settings for this chat. */
+  prefs?: { wallpaper: string | null; muted: boolean };
   messages: Msg[];
   markets: MarketLite[];
   typing?: { id: number; mode: "text" | "voice" }[];
   now: string;
 };
+
+type ChatKey = { key: CryptoKey; raw: Uint8Array };
+
+async function decryptWith(k: ChatKey | null, msgs: Msg[]) {
+  return Promise.all(
+    msgs.map(async (m) => {
+      if (m.kind !== "chat" || !k || !m.ciphertext || !m.iv) return m;
+      const payload = await decryptPayload(k.key, m.iv, m.ciphertext);
+      return { ...m, payload, text: payload?.t ?? null };
+    })
+  );
+}
+
+// Chats this tab has opened or fetched ahead, so switching chats draws the new one at once
+// instead of an empty wall while it loads. The live poll takes over from there.
+type Cached = { feed: Omit<Feed, "messages">; messages: Msg[]; lastId: number; key: ChatKey | null };
+const chatCache = new Map<number, Cached>();
+const fetching = new Set<number>();
+let cacheOwner = 0;
+/** The cache belongs to one account: logging in as someone else in this tab starts it afresh. */
+function cacheFor(userId: number) {
+  if (cacheOwner !== userId) {
+    chatCache.clear();
+    cacheOwner = userId;
+  }
+  return chatCache;
+}
+
+/** Fetches a chat in the background (feed, key and decrypted history) for an instant open. */
+async function prefetchChat(userId: number, id: number, identity: CryptoKey | null) {
+  const chatCache = cacheFor(userId);
+  if (chatCache.has(id) || fetching.has(id)) return;
+  fetching.add(id);
+  try {
+    const { messages, ...feed } = await api<Feed>(`/api/groups/${id}?after=0&read=0`);
+    registerPhotos(feed.members);
+    const key = identity && feed.myKey ? await groupKey(id, identity, feed.myKey).catch(() => null) : null;
+    if (cacheOwner === userId && !chatCache.has(id)) chatCache.set(id, { feed, messages: sortMsgs(await decryptWith(key, messages)), lastId: messages.at(-1)?.id ?? 0, key });
+  } catch {
+    // Prefetching is a nicety: the chat still loads normally when opened.
+  } finally {
+    fetching.delete(id);
+  }
+}
 
 const PANELS = ["Markets", "Board", "Insights"] as const;
 type Panel = (typeof PANELS)[number];
@@ -114,8 +161,9 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const router = useRouter();
   // A phone shows the chat alone (markets live in their own tab); a laptop shows a panel beside it.
   const [panel, setPanel] = useState<Panel>("Markets");
-  const [feed, setFeed] = useState<Omit<Feed, "messages"> | null>(null);
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const [cached] = useState(() => (me ? cacheFor(me.user.id).get(id) : undefined));
+  const [feed, setFeed] = useState<Omit<Feed, "messages"> | null>(cached?.feed ?? null);
+  const [messages, setMessages] = useState<Msg[]>(cached?.messages ?? []);
   const [dropped, setDropped] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [viewing, setViewing] = useState<Msg | null>(null);
@@ -126,11 +174,12 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [reporting, setReporting] = useState<Msg | null>(null);
   const [err, setErr] = useState("");
   const [keyFailed, setKeyFailed] = useState(false);
-  const lastId = useRef(0);
+  const lastId = useRef(cached?.lastId ?? 0);
   const polling = useRef(false);
+  const markedRead = useRef(false);
   const msgsRef = useRef<Msg[]>([]);
   msgsRef.current = messages;
-  const keyRef = useRef<{ key: CryptoKey; raw: Uint8Array } | null>(null);
+  const keyRef = useRef<ChatKey | null>(cached?.key ?? null);
   const bottom = useRef<HTMLDivElement>(null);
   // The server's clock minus ours (the admin's demo clock runs ahead), so a new bubble gets the right time.
   const skew = useRef(0);
@@ -140,24 +189,43 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     if (!loading && !me) router.replace(`/?next=/g/${id}`);
   }, [loading, me, router, id]);
 
-  const decryptAll = useCallback(async (msgs: Msg[]) => {
-    const k = keyRef.current;
-    return Promise.all(
-      msgs.map(async (m) => {
-        if (m.kind !== "chat" || !k || !m.ciphertext || !m.iv) return m;
-        const payload = await decryptPayload(k.key, m.iv, m.ciphertext);
-        return { ...m, payload, text: payload?.t ?? null };
-      })
-    );
-  }, []);
+  const decryptAll = useCallback((msgs: Msg[]) => decryptWith(keyRef.current, msgs), []);
+
+  // Keep this chat's latest state for the next time it's opened (sent messages only).
+  useEffect(() => {
+    if (feed && me) cacheFor(me.user.id).set(id, { feed, messages: messages.filter((m) => !m.pending), lastId: lastId.current, key: keyRef.current });
+  }, [id, feed, messages, me]);
+
+  // Once this chat is up, fetch the others quietly, one at a time, so switching to them is instant.
+  const loaded = !!feed;
+  useEffect(() => {
+    if (!loaded || !me) return;
+    let stop = false;
+    (async () => {
+      for (const g of me.groups.slice(0, 12)) {
+        if (stop) return;
+        if (g.id !== id) await prefetchChat(me.user.id, g.id, identity);
+      }
+    })();
+    return () => {
+      stop = true;
+    };
+    // The list of chats changes on every session refresh; fetching ahead once per open is enough.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loaded, id, identity]);
 
   const poll = useCallback(async () => {
     if (polling.current) return;
     polling.current = true;
     try {
-      // With the chat on screen, everything we've shown counts as read.
-      const read = document.visibilityState === "visible" ? lastId.current : 0;
-      const f = await api<Feed>(`/api/groups/${id}?after=${lastId.current}&read=${read}`);
+      // With the chat on screen, everything in it counts as read, including what this fetch brings.
+      const visible = document.visibilityState === "visible";
+      const f = await api<Feed>(`/api/groups/${id}?after=${lastId.current}&read=${visible ? Number.MAX_SAFE_INTEGER : 0}`);
+      // Clear this chat's unread badge in the chat list straight away rather than on the next refresh.
+      if (visible && !markedRead.current) {
+        markedRead.current = true;
+        refresh();
+      }
       const { messages: fresh, ...rest } = f;
       skew.current = Date.parse(f.now) - Date.now();
       registerPhotos(f.members);
@@ -202,7 +270,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     } finally {
       polling.current = false;
     }
-  }, [id, identity, decryptAll, setIdentity]);
+  }, [id, identity, decryptAll, setIdentity, refresh]);
 
   useEffect(() => {
     if (!me) return;
@@ -338,7 +406,11 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     return (
       <main className="flex min-h-dvh flex-col lg:min-h-full">
         <TopBar back="/chats" title={<div className="flex items-center gap-3"><GroupMark name={known?.name ?? ""} size={36} /><div><div className="font-semibold leading-tight">{known?.name ?? ""}</div><div className="text-xs text-mute">{err || (known ? `${known.members} members` : "")}</div></div></div>} />
-        <div className="chat-wall flex-1" />
+        <div className="chat-wall flex flex-1 flex-col justify-end gap-3 px-4 pb-24 lg:px-8" aria-hidden>
+          {[62, 44, 70, 38, 56].map((w, k) => (
+            <div key={k} className={`h-11 animate-pulse rounded-2xl bg-white/[.05] ${k % 2 ? "self-end" : "ml-11"}`} style={{ width: `${w}%`, maxWidth: 420 }} />
+          ))}
+        </div>
       </main>
     );
   }
@@ -420,7 +492,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           {identity && !feed.myKey && (
             <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> Waiting for a friend&apos;s app to share the chat key with you. Markets work in the meantime.</p>
           )}
-          <div className="chat-wall thin-scroll flex-1 overflow-y-auto">
+          <div className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper)}>
             <div className="mx-auto max-w-3xl px-3 py-3 lg:px-6 lg:py-5">
               {runs(messages).map((r, i, all) => {
                 const first = Array.isArray(r) ? r[0] : r;
@@ -964,6 +1036,45 @@ function GroupProfile({ feed, groupId, groupKey, onChange, say }: { feed: Omit<F
   );
 }
 
+/** Your own look for this chat: a background and mute. Saved for you only, on every device. */
+function ChatLook({ feed, groupId, onChange }: { feed: Omit<Feed, "messages">; groupId: number; onChange: () => void }) {
+  const [wall, setWall] = useState<string | null>(feed.prefs?.wallpaper ?? null);
+  const [muted, setMuted] = useState(!!feed.prefs?.muted);
+  async function save(next: { wallpaper?: string | null; muted?: boolean }) {
+    if (next.wallpaper !== undefined) setWall(next.wallpaper);
+    if (next.muted !== undefined) setMuted(next.muted);
+    await api(`/api/groups/${groupId}/prefs`, { method: "PUT", body: next }).catch(() => {});
+    onChange();
+  }
+  const swatches = [{ id: null, label: "Default" }, ...WALLPAPERS.map((w) => ({ id: w.id as string | null, label: w.label }))];
+  return (
+    <div>
+      <div className="mb-2 text-sm font-semibold">Background</div>
+      <div className="grid grid-cols-4 gap-2">
+        {swatches.map((w) => (
+          <button
+            key={w.label}
+            type="button"
+            onClick={() => save({ wallpaper: w.id })}
+            aria-pressed={wall === w.id}
+            className={`chat-wall flex aspect-[3/4] items-end rounded-xl p-1.5 text-[11px] font-medium ring-2 transition ${wall === w.id ? "ring-brand" : "ring-transparent hover:ring-white/20"}`}
+            style={wallpaperStyle(w.id)}
+          >
+            <span className="rounded-md bg-black/40 px-1.5 py-0.5">{w.label}</span>
+          </button>
+        ))}
+      </div>
+      <label className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-line px-3.5 py-3 text-sm">
+        <span>
+          <span className="block font-medium">Mute this chat</span>
+          <span className="text-xs text-mute">Unread messages show a grey badge instead of a bright one.</span>
+        </span>
+        <input type="checkbox" checked={muted} onChange={(e) => save({ muted: e.target.checked })} className="h-5 w-5 accent-[var(--color-brand)]" />
+      </label>
+    </div>
+  );
+}
+
 function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChange }: { open: boolean; onClose: () => void; feed: Omit<Feed, "messages">; groupId: number; keyRef: React.RefObject<{ key: CryptoKey; raw: Uint8Array } | null>; identity: CryptoKey | null; onChange: () => void }) {
   const [ctx, setCtx] = useState(feed.group.ai_context);
   const [username, setUsername] = useState("");
@@ -1045,6 +1156,7 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
             </form>
           </>
         )}
+        <ChatLook feed={feed} groupId={groupId} onChange={onChange} />
         <div className="grid grid-cols-2 gap-2 lg:hidden">
           <Link href={`/markets?g=${groupId}`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Markets</Link>
           <Link href={`/g/${groupId}/stats`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Leaderboard and insights</Link>

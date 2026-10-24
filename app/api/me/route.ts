@@ -18,11 +18,14 @@ export const GET = route(async (_req, user) => {
     [user.id]
   );
   const groups = await db.query(
-    `SELECT g.id, g.name, g.emoji, g.invite_code, g.is_dm, g.photo_id::int AS photo_id,
+    `SELECT g.id, g.name, g.emoji, g.invite_code, g.is_dm, g.photo_id::int AS photo_id, gm.muted,
        (SELECT row_to_json(p) FROM (SELECT u.id, u.username, u.display_name, u.color, u.public_key, ${AVATAR_COLS("u", "$1")}
          FROM group_members o JOIN users u ON u.id = o.user_id WHERE g.is_dm AND o.group_id = g.id AND o.user_id <> $1 LIMIT 1) p) AS peer,
        (SELECT count(*) FROM group_members x WHERE x.group_id = g.id)::int AS members,
        (SELECT count(*) FROM markets m WHERE m.group_id = g.id AND m.status = 'open')::int AS open_markets,
+       -- Unread: other people's messages and new bets since you last had the chat open (not history from before you joined).
+       (SELECT count(*) FROM messages x WHERE x.group_id = g.id AND x.id > gm.read_upto AND x.created_at > gm.joined_at
+          AND x.kind IN ('chat', 'market') AND x.user_id IS DISTINCT FROM $1)::int AS unread,
        (SELECT row_to_json(t) FROM (SELECT x.kind, x.body, x.created_at, x.user_id, x.ciphertext, x.iv, u.display_name AS author
          FROM messages x LEFT JOIN users u ON u.id = x.user_id WHERE x.group_id = g.id ORDER BY x.id DESC LIMIT 1) t) AS last,
        (SELECT row_to_json(k) FROM (SELECT gk.wrapped_key, w.public_key AS wrapper_public_key
@@ -58,22 +61,24 @@ export const GET = route(async (_req, user) => {
         [user.id]
       )
     : [];
+  // Wallet addresses and anything else about the chain are for the admin only.
+  const admin = isAdminUsername(user.username);
   return {
-    user,
+    user: admin ? user : { ...user, wallet_pubkey: null },
     netWorth: await netWorth(db, user.id),
     maxStake: maxStake(user.balance),
     nextAllowanceAt: new Date(new Date(u.last_allowance_at).getTime() + ECONOMY.allowancePeriodMs),
     groups,
     pendingKeys,
     photo: { avatarId: photo.avatar_id, key: photo.avatar_key, missing: photoMissing },
-    account: { hasRecovery: u.has_recovery, isAdmin: isAdminUsername(user.username), profilePending: !!prof && !prof.done },
+    account: { hasRecovery: u.has_recovery, isAdmin: admin, profilePending: !!prof && !prof.done },
     clock: { now: now(), offsetMs: clockOffset() },
     config: {
       currency: CURRENCY,
       economy: ECONOMY,
       demo: DEMO_MODE,
       ai: AI.enabled,
-      solana: !!solanaConfig(),
+      solana: admin && !!solanaConfig(),
       timescale: db.timescale,
       db: db.driver,
     },

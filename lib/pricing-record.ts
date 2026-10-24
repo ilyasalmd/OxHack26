@@ -16,14 +16,24 @@ export function profileCommitment(profile: string | undefined) {
   return { answers: profile.split("\n").length, digest: mac(`profile:${profile}`) };
 }
 
-/** How the opening price follows from the AI's answer and the group's history. */
-export function openingMaths(aiProb: number, baseRate: number | null, n: number) {
+/** What the AI had to go on besides general knowledge. */
+export type Signals = { profile: boolean; chat: number };
+
+/** How the opening price follows from the AI's answer, the group's history and how much evidence there was. */
+export function openingMaths(aiProb: number, baseRate: number | null, n: number, signals: Signals = { profile: false, chat: 0 }) {
+  const evidence = n + (signals.profile ? 1 : 0) + Math.min(1, signals.chat / 3);
+  const trust = MARKET.coldTrust + (1 - MARKET.coldTrust) * Math.min(1, evidence / MARKET.fullEvidence);
+  const aiShrunk = 0.5 + trust * (aiProb - 0.5);
   const weight = baseRate == null ? 0 : MARKET.historyWeight * Math.min(1, n / 3);
-  const raw = (1 - weight) * aiProb + weight * (baseRate ?? 0);
+  const raw = (1 - weight) * aiShrunk + weight * (baseRate ?? 0);
   const openProb = Math.min(MARKET.maxProb, Math.max(MARKET.minProb, raw));
   return {
-    rule: `weight = ${MARKET.historyWeight} x min(1, n / 3) when there is a base rate, else 0; open = (1 - weight) x AI + weight x base rate, clamped to ${MARKET.minProb}..${MARKET.maxProb}`,
+    rule: `evidence = similar past situations + 1 for profile answers + up to 1 for chat; trust = ${MARKET.coldTrust} + ${1 - MARKET.coldTrust} x min(1, evidence / ${MARKET.fullEvidence}); AI' = 0.5 + trust x (AI - 0.5); weight = ${MARKET.historyWeight} x min(1, n / 3) when there is a base rate, else 0; open = (1 - weight) x AI' + weight x base rate, clamped to ${MARKET.minProb}..${MARKET.maxProb}`,
     aiProb,
+    evidence: +evidence.toFixed(2),
+    trust: +trust.toFixed(3),
+    aiShrunk,
+    lowData: evidence < 1,
     baseRate,
     effectiveSamples: n,
     weight,
