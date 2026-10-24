@@ -4,7 +4,7 @@ import { HttpError } from "./auth";
 import { mac, sign, verify } from "./secret";
 
 export const USERNAME = /^[a-z0-9_]{3,20}$/;
-export const RESERVED = new Set(["admin", "support", "friendstocks", "root", "system", "null", "undefined", "me", "settings", "api"]);
+export const RESERVED = new Set(["admin", "support", "friendstocks", "friendstakes", "root", "system", "null", "undefined", "me", "settings", "api"]);
 export const RENAME_COOLDOWN_MS = 7 * 86_400_000;
 /** How long an old username stays reserved (and redirects) after a rename or deletion. */
 export const NAME_HOLD_MS = 30 * 86_400_000;

@@ -1,12 +1,12 @@
 import type { Metadata } from "next";
 import { H, LegalPage, UL } from "@/components/legal";
 
-export const metadata: Metadata = { title: "Terms · Friend Stocks" };
+export const metadata: Metadata = { title: "Terms · FriendStakes" };
 
 export default function Terms() {
   return (
     <LegalPage title="Terms of use" updated="Draft of 24 October 2026">
-      <p>Friend Stocks is a game for groups of friends. You post &ldquo;situations&rdquo; about things you or your friends might do (&ldquo;Jake is late to Friday dinner&rdquo;) and trade coins on whether they happen. These terms are the rules of the game. They are short on purpose.</p>
+      <p>FriendStakes is a game for groups of friends. You post &ldquo;situations&rdquo; about things you or your friends might do (&ldquo;Jake is late to Friday dinner&rdquo;) and trade coins on whether they happen. These terms are the rules of the game. They are short on purpose.</p>
 
       <H>1. Coins are play money</H>
       <UL>
@@ -41,7 +41,7 @@ export default function Terms() {
       </UL>
 
       <H>7. Our right to act</H>
-      <p>We can remove situations, messages or accounts that break these terms, and we may change or reset the game&apos;s balances and data. Friend Stocks is an early product provided as it is, with no promise that it will always be available or error-free, and we are not liable for losses, which for play money means losing coins.</p>
+      <p>We can remove situations, messages or accounts that break these terms, and we may change or reset the game&apos;s balances and data. FriendStakes is an early product provided as it is, with no promise that it will always be available or error-free, and we are not liable for losses, which for play money means losing coins.</p>
 
       <H>8. Changes and contact</H>
       <p>We may update these terms and will say so in the app when we do. Questions or reports: <span className="text-white">[contact email to be added]</span>.</p>

@@ -8,7 +8,7 @@ const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
-  title: "Friend Stocks",
+  title: "FriendStakes",
   description: "Group chats where friends hold each other accountable with prediction markets.",
 };
 

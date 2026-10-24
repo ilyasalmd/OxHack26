@@ -1,15 +1,15 @@
 import type { Metadata } from "next";
 import { H, LegalPage, UL } from "@/components/legal";
 
-export const metadata: Metadata = { title: "Privacy · Friend Stocks" };
+export const metadata: Metadata = { title: "Privacy · FriendStakes" };
 
 export default function Privacy() {
   return (
     <LegalPage title="Privacy notice" updated="Draft of 24 October 2026">
-      <p>This explains what Friend Stocks keeps, who else sees it, and what you can do about it. The short version: the words in your group chats are end-to-end encrypted, but the situations you trade on are not, and some of what the game does is public on a blockchain.</p>
+      <p>This explains what FriendStakes keeps, who else sees it, and what you can do about it. The short version: the words in your group chats are end-to-end encrypted, but the situations you trade on are not, and some of what the game does is public on a blockchain.</p>
 
       <H>Who is responsible</H>
-      <p><span className="text-white">[Name of the person or company running Friend Stocks]</span>. Contact: <span className="text-white">[contact email to be added]</span>.</p>
+      <p><span className="text-white">[Name of the person or company running FriendStakes]</span>. Contact: <span className="text-white">[contact email to be added]</span>.</p>
 
       <H>What the server stores</H>
       <UL>
@@ -45,7 +45,7 @@ export default function Privacy() {
       <p>Go to Settings and choose Delete account. That signs you out everywhere, removes you from your groups and scrubs your name, username, password hash, keys and wallet secret. Your past trades, positions and messages stay in your groups under &ldquo;Deleted user&rdquo; because the markets have to keep adding up, and messages stay unreadable to us. Anything already written to the blockchain stays there. Open situations about you are not kept going after you leave.</p>
 
       <H>Your rights</H>
-      <p>You can ask to see, correct or delete what we hold about you, or object to how we use it, by writing to <span className="text-white">[contact email to be added]</span>. If you&apos;re in the UK or EU you can also complain to your data protection authority. You must be 18 or over to use Friend Stocks, so we don&apos;t knowingly hold data about children.</p>
+      <p>You can ask to see, correct or delete what we hold about you, or object to how we use it, by writing to <span className="text-white">[contact email to be added]</span>. If you&apos;re in the UK or EU you can also complain to your data protection authority. You must be 18 or over to use FriendStakes, so we don&apos;t knowingly hold data about children.</p>
     </LegalPage>
   );
 }

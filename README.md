@@ -1,4 +1,4 @@
-# Friend Stocks
+# FriendStakes
 
 **Your group chat, now with a stock market.** Friends post situations about each other ("Jake is late to Friday dinner", "Priya graduates with a First"), the AI prices them from the group's own history, and everyone goes long or short with play money. Built for OxHack 2026 (theme: **TIME**).
 

@@ -17,30 +17,7 @@ export function BrandMark({ size = 96, className = "" }: { size?: number; classN
 export function Wordmark({ className = "", delay = 0.15 }: { className?: string; delay?: number }) {
   return (
     <h1 className={`${s.rise} font-black lowercase leading-none tracking-[-0.055em] ${className}`} style={{ animationDelay: `${delay}s` }}>
-      friendstocks
+      friendstakes
     </h1>
-  );
-}
-
-/** A floating odds token: where it sits (in %), its tilt, and whether it is solid. */
-export type Chip = { t: string; x: number; y: number; r: number; f: number; solid?: boolean; d: number };
-
-/** Odds, sides and handles drifting behind the brand. Decoration only. */
-export function Floaters({ chips }: { chips: Chip[] }) {
-  return (
-    <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
-      {chips.map((c, i) => (
-        <span key={c.t} className={`absolute ${s.chipIn}`} style={{ left: `${c.x}%`, top: `${c.y}%`, animationDelay: `${0.3 + i * 0.08}s` }}>
-          <span
-            className={`${s.float} block whitespace-nowrap rounded-full px-[0.9em] py-[0.4em] font-bold tracking-tight tabular ${
-              c.solid ? "bg-black text-brand" : "border-2 border-black/15 text-black/40"
-            }`}
-            style={{ fontSize: c.f, "--r": `${c.r}deg`, "--d": `${c.d}s` } as React.CSSProperties}
-          >
-            {c.t}
-          </span>
-        </span>
-      ))}
-    </div>
   );
 }

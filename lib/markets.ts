@@ -183,7 +183,7 @@ export async function createMarket(user: User, groupId: number, input: Situation
     await systemMessage(q, groupId, "market", `${a.kind === "stock" ? "listed a stock" : "opened a bet"}: ${a.title}`, m.id, user.id);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       m.id,
-      JSON.stringify({ app: "friend-stocks", v: 1, ev: "open", market: m.id, group: groupId, kind: a.kind, p: +p.openProb.toFixed(4), resolves: input.resolvesAt.slice(0, 10) }),
+      JSON.stringify({ app: "friendstakes", v: 1, ev: "open", market: m.id, group: groupId, kind: a.kind, p: +p.openProb.toFixed(4), resolves: input.resolvesAt.slice(0, 10) }),
       ts,
     ]);
     return m.id;
@@ -335,7 +335,7 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     await systemMessage(q, m.group_id, "resolution", `resolved ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
-      JSON.stringify({ app: "friend-stocks", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4) }),
+      JSON.stringify({ app: "friendstakes", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4) }),
       now(),
     ]);
     return out;
@@ -438,7 +438,7 @@ export async function voidMarket(marketId: number, opts: { reason: "veto" | "dis
     await systemMessage(q, m.group_id, "system", opts.text, marketId, opts.actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
-      JSON.stringify({ app: "friend-stocks", v: 1, ev: "void", market: marketId }),
+      JSON.stringify({ app: "friendstakes", v: 1, ev: "void", market: marketId }),
       ts,
     ]);
     return { voided: true, refunded };

@@ -71,7 +71,7 @@ async function send(op: Op) {
       tx.add(createBurnInstruction(ata, cfg.mint, owner, toUnits(op.amount!)));
       signers.push(ownerKp);
     }
-    if (op.memo) tx.add(memoIx(`friend-stocks: ${op.memo}`, cfg.payer.publicKey));
+    if (op.memo) tx.add(memoIx(`friendstakes: ${op.memo}`, cfg.payer.publicKey));
   }
   return sendAndConfirmTransaction(cfg.connection, tx, signers, { commitment: "confirmed" });
 }

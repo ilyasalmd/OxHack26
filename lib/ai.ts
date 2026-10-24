@@ -163,7 +163,7 @@ export async function analyzeSituation(input: {
   const snippets = input.snippets ?? [];
   const want = input.want ?? {};
   const days = (input.resolvesAt.getTime() - input.now.getTime()) / 86400000;
-  const prompt = `You are the pricing desk of "Friend Stocks", a play-money prediction market inside a friends' group chat.
+  const prompt = `You are the pricing desk of "FriendStakes", a play-money prediction market inside a friends' group chat.
 Friends post situations about each other. Decide how to list this one and its fair probability.
 ${want.answer === "number" ? `
 THE POSTER WANTS A NUMBER QUESTION. Turn the situation into "how much / how many" (minutes late, pints, hours, marks, messages, times it happens...), set "answer" to "number", "unit" to that quantity's unit and "line" to ${want.line != null ? `exactly ${want.line}` : "your median guess as a round number"}. "line" must be a number, never null.

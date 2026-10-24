@@ -3,7 +3,8 @@ import Link from "next/link";
 import { useEffect, useId, useState } from "react";
 import { api } from "@/components/api";
 import { Check, ChevronLeft, Key } from "@/components/icons";
-import { BrandMark, Floaters, Wordmark, type Chip } from "./brand";
+import { BrandMark, Wordmark } from "./brand";
+import { DotField } from "./dots";
 import s from "./landing.module.css";
 
 /**
@@ -46,27 +47,6 @@ const primary =
 
 const clean = (v: string) => v.trim().toLowerCase().replace(/^@/, "");
 
-const PHONE_CHIPS: Chip[] = [
-  { t: "74%", x: 7, y: 7, r: -9, f: 22, solid: true, d: 6 },
-  { t: "Long", x: 66, y: 5, r: 8, f: 16, d: 7.5 },
-  { t: "@jake", x: 62, y: 17, r: -5, f: 15, d: 8 },
-  { t: "+120", x: 10, y: 19, r: 6, f: 17, solid: true, d: 6.8 },
-  { t: "Short", x: 6, y: 59, r: -7, f: 15, d: 7.2 },
-  { t: "31%", x: 70, y: 57, r: 7, f: 20, solid: true, d: 6.4 },
-  { t: "closes 21:00", x: 30, y: 68, r: 3, f: 14, d: 8.4 },
-];
-
-const DESK_CHIPS: Chip[] = [
-  { t: "74%", x: 9, y: 14, r: -9, f: 38, solid: true, d: 6 },
-  { t: "Long", x: 22, y: 37, r: 7, f: 22, d: 7.5 },
-  { t: "@maya", x: 6, y: 60, r: -5, f: 20, d: 8.2 },
-  { t: "+120", x: 19, y: 79, r: 6, f: 28, solid: true, d: 6.8 },
-  { t: "Short", x: 77, y: 12, r: 8, f: 22, d: 7.2 },
-  { t: "31%", x: 85, y: 33, r: -7, f: 32, solid: true, d: 6.4 },
-  { t: "closes 21:00", x: 72, y: 58, r: -3, f: 18, d: 8.6 },
-  { t: "Yes", x: 84, y: 80, r: 9, f: 26, solid: true, d: 7 },
-];
-
 /** Screen state for one layout. Back steps slide the other way. */
 function useScreens(initial: Screen, err: string, setErr: (v: string) => void) {
   const [screen, setScreen] = useState<Screen>(initial);
@@ -108,7 +88,7 @@ export function PhoneAuth(p: AuthProps) {
   if (screen === "welcome") {
     return (
       <div className="relative flex min-h-dvh flex-col overflow-hidden bg-brand px-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] pt-[env(safe-area-inset-top)] text-black">
-        <Floaters chips={PHONE_CHIPS} />
+        <DotField spacing={24} />
         <div className="relative flex flex-1 flex-col items-center justify-center py-10 text-center">
           <BrandMark size={104} />
           <Wordmark className="mt-7 text-[46px]" />
@@ -153,7 +133,7 @@ export function DeskAuth(p: AuthProps) {
   const { screen, go, anim, step } = useScreens("login", p.err, p.setErr);
   return (
     <div className="relative hidden min-h-dvh flex-col items-center justify-center overflow-hidden bg-brand px-6 py-10 text-black lg:flex [@media(max-height:820px)]:py-6">
-      <Floaters chips={DESK_CHIPS} />
+      <DotField spacing={28} />
       <div className="relative flex w-full max-w-[400px] flex-col items-center">
         <BrandMark size={84} className="[@media(max-height:820px)]:![--s:60px]" />
         <Wordmark className="mt-6 text-[54px] [@media(max-height:820px)]:mt-4 [@media(max-height:820px)]:text-[44px]" />

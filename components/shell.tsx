@@ -135,7 +135,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
     <aside className="hidden w-[300px] shrink-0 flex-col border-r border-line bg-panel lg:flex">
       <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
         <Logo />
-        <span className="font-semibold tracking-tight">Friend Stocks</span>
+        <span className="font-semibold tracking-tight">FriendStakes</span>
       </div>
 
       <div className="mx-3 rounded-2xl border border-line bg-ink transition hover:border-white/15">

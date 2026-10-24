@@ -55,7 +55,7 @@ export const GET = route(async (_req, user) => {
       ok: !s.err,
       kind,
       amount,
-      memo: memo?.replace(/^friend-stocks: /, "") ?? null,
+      memo: memo?.replace(/^(friendstakes|friend-stocks): /, "") ?? null,
       fee: tx?.meta ? tx.meta.fee / 1e9 : null,
       owner,
       who: who ? { name: who.display_name, color: who.color } : null,

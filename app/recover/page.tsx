@@ -55,7 +55,7 @@ export default function Recover() {
       <div className="w-full max-w-sm">
         <Link href="/" className="mb-10 flex items-center gap-2.5">
           <Logo size={28} />
-          <span className="font-semibold tracking-tight">Friend Stocks</span>
+          <span className="font-semibold tracking-tight">FriendStakes</span>
         </Link>
 
         {newCode ? (

@@ -1,4 +1,4 @@
-// Seed content for Friend Stocks: three months of believable chat, bets and long-term situations.
+// Seed content for FriendStakes: three months of believable chat, bets and long-term situations.
 // Content only. The seed engine lives elsewhere.
 
 export type Person = { username: string; name: string; color: string; skill: number; boldness: number };

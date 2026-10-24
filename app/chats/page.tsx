@@ -42,7 +42,7 @@ export default function Chats() {
   async function share() {
     const url = `${location.origin}/u/${me!.user.username}`;
     try {
-      if (navigator.share) await navigator.share({ title: "Add me on Friend Stocks", text: `I'm @${me!.user.username} on Friend Stocks`, url });
+      if (navigator.share) await navigator.share({ title: "Add me on FriendStakes", text: `I'm @${me!.user.username} on FriendStakes`, url });
       else {
         await navigator.clipboard.writeText(url);
         setCopied(true);
