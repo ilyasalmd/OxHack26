@@ -263,6 +263,8 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       shares = Math.min(input.amount, held);
       if (!(shares > 1e-6)) throw new HttpError(400, "No shares to sell");
       coins = proceedsForShares(bk, input.side, shares);
+      // Without this, tiny sells that return almost nothing still pay the fee and push you under the floor.
+      if (fee > 0 && u.balance + coins - fee < ECONOMY.balanceFloor - 1e-9) throw new HttpError(400, `That sale doesn't cover the ${fee} fee without taking you under the ${ECONOMY.balanceFloor} safety floor`);
       bk = applyShares(bk, input.side, -shares);
     }
     const after = priceYes(bk);

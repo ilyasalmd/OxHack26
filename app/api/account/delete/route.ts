@@ -27,6 +27,8 @@ export const POST = route(async (req, user) => {
       await q.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1, NULL, 'system', $2, $3)`, [g.group_id, `${user.display_name} left`, now()]);
     await q.query(`DELETE FROM group_members WHERE user_id = $1`, [user.id]);
     await q.query(`DELETE FROM group_keys WHERE user_id = $1`, [user.id]);
+    // The optional "about you" answers are personal and nothing else depends on them.
+    await q.query(`DELETE FROM profiles WHERE user_id = $1`, [user.id]);
     await revokeSessions(q, user.id);
     // The name is held for 30 days like a rename, so nobody can take it to pose as them.
     await q.query(`INSERT INTO username_history (user_id, old_username, changed_at) VALUES ($1,$2,$3)`, [user.id, user.username, t]);

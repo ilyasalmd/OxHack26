@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { selectSnippets } from "../lib/chat-context";
+import { redact, selectSnippets } from "../lib/chat-context";
 
 const members = [
   { id: 1, username: "jake", display_name: "Jake" },
@@ -33,4 +33,9 @@ test("hides names, emails and phone numbers", () => {
 test("caps the number of snippets", () => {
   const many = Array.from({ length: 50 }, (_, i) => ({ text: `jake late again ${i}`, authorId: 2, at: at(i) }));
   assert.equal(selectSnippets({ messages: many, members, subjectId: 1, title: "Jake late", now: at(0), limit: 20 }).length, 20);
+});
+
+test("hides a first name on its own when the display name is longer", () => {
+  const people = [{ id: 1, username: "jthompson", display_name: "Jake Thompson" }];
+  assert.equal(redact("Jake is going to be late again", people, 1, new Map()), "[SUBJECT] is going to be late again");
 });
