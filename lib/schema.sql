@@ -171,6 +171,8 @@ CREATE TABLE IF NOT EXISTS chain_ops (
   created_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chain_ops_status_idx ON chain_ops (status, id);
+-- The same op republished on public Solana devnet by `npm run solana:devnet`.
+ALTER TABLE chain_ops ADD COLUMN IF NOT EXISTS devnet_signature text;
 
 -- Opt-in per group: members' apps may send a few filtered, redacted chat snippets to the AI.
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS ai_reads_chat boolean NOT NULL DEFAULT true;

@@ -14,6 +14,7 @@ type Chain =
       network: { cluster: string; label: string; version: string; slot: number; epoch: number; tps: number | null };
       token: { mint: string; url: string; supply: number; decimals: number; authority: string };
       txs: Tx[];
+      devnet: { mintUrl: string; published: number; total: number } | null;
     };
 
 const short = (s: string, n = 4) => `${s.slice(0, n)}…${s.slice(-n)}`;
@@ -116,6 +117,13 @@ export default function ChainPage() {
                     <Row k="Network">{c.network.label}</Row>
                   </dl>
                 </section>
+                {c.devnet && (
+                  <section className="rounded-2xl border border-line bg-panel p-4 text-sm leading-relaxed text-mute">
+                    <h2 className="mb-2 font-semibold text-white">Public copy on Solana devnet</h2>
+                    <p>{c.devnet.published} of {c.devnet.total} transactions are also on public devnet, so anyone can check them without this server.</p>
+                    <a href={c.devnet.mintUrl} target="_blank" rel="noreferrer" className="mt-3 inline-flex items-center gap-1 text-brand">The token on Solana Explorer <ArrowUpRight size={12} /></a>
+                  </section>
+                )}
                 <section className="rounded-2xl border border-line bg-panel p-4 text-sm leading-relaxed text-mute">
                   <h2 className="mb-2 font-semibold text-white">What goes on-chain</h2>
                   <p>When you stake, the app burns that many {ticker} from your wallet. When you win or get your weekly allowance, it mints them back. Each one carries a short memo saying why.</p>

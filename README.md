@@ -32,6 +32,8 @@ Everything here is free; none of it needs a card.
   - **Local validator (no faucet, no limits):** `brew install solana`, then `solana-test-validator --ledger .data/solana-ledger --quiet` in its own terminal, `solana -u localhost airdrop 50 <payer address>`, and add `SOLANA_RPC_URL=http://127.0.0.1:8899` and `SOLANA_CLUSTER=localnet` to `.env.local` before `npm run solana:setup`.
   - **Devnet:** request devnet SOL for the payer address at faucet.solana.com (the RPC airdrop is often rate limited), then rerun `npm run solana:setup`.
 
+  - **Public copy on devnet:** `npm run solana:devnet` republishes every transaction the local chain confirmed to public devnet (same amounts, memos and pricing hashes) with its own payer and token, so anyone can check them on explorer.solana.com. The first run prints the payer address to fund at faucet.solana.com. The Chain pages then link each transaction to its devnet copy.
+
   Restart the app, and every stake (burn), payout or allowance (mint) shows up in each person's wallet on the Portfolio page, and on the admin's **Chain** page, which reads the transactions straight from the Solana RPC.
 - **Gemma (the AI):** runs on your own machine through Ollama, so there is no API key and nothing leaves the machine. `brew install ollama`, then `ollama pull gemma4:12b` and `ollama pull embeddinggemma-2:270m`, and set `AI_PROVIDER=ollama` and `OLLAMA_MODEL=gemma4:12b` (or `gemma4:26b` on a bigger Mac). If Ollama isn't running, the app falls back to the statistical model.
 

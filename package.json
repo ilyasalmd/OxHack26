@@ -8,6 +8,7 @@
     "start": "next start",
     "seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
     "ai:eval": "tsx --env-file-if-exists=.env.local scripts/ai-eval.ts",
+    "solana:devnet": "tsx --env-file-if-exists=.env.local scripts/devnet-publish.ts",
     "demo:join": "tsx --env-file-if-exists=.env.local scripts/demo-join.ts",
     "seed:fast": "rm -rf .data/seed-pglite && DATABASE_URL=pglite PGLITE_DIR=.data/seed-pglite tsx --env-file-if-exists=.env.local scripts/seed.ts && tsx --env-file-if-exists=.env.local scripts/push-seed.ts",
     "solana:setup": "tsx --env-file-if-exists=.env.local scripts/solana-setup.ts",

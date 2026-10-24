@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db";
 import { HttpError, route } from "@/lib/auth";
-import { explorer, solanaConfig } from "@/lib/solana";
+import { devnetConfig, explorer, solanaConfig } from "@/lib/solana";
 import { describeTx } from "@/lib/chain";
 import { isAdminUsername } from "@/lib/config";
 
@@ -37,6 +37,12 @@ export const GET = route(async (_req, user) => {
     return { ...t, who: who ? { name: who.display_name, color: who.color } : null };
   });
 
+  // The public devnet copy from `npm run solana:devnet`, when this server has published one.
+  const dev = cfg.cluster === "devnet" ? null : devnetConfig();
+  const [copied] = dev?.mint
+    ? await db.query<{ done: number; total: number }>(`SELECT count(devnet_signature)::int AS done, count(*)::int AS total FROM chain_ops WHERE status = 'confirmed'`)
+    : [];
+
   const cluster = cfg.cluster;
   return {
     enabled: true as const,
@@ -56,5 +62,6 @@ export const GET = route(async (_req, user) => {
       authority: cfg.payer.publicKey.toBase58(),
     },
     txs,
+    devnet: dev?.mint && copied ? { mintUrl: explorer(dev.mint.toBase58(), "address", "devnet"), published: copied.done, total: copied.total } : null,
   };
 });

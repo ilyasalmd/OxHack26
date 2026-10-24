@@ -10,7 +10,8 @@ import { getDb } from "./db";
 import { seal, unseal } from "./secret";
 import { CURRENCY } from "./config";
 
-// Every balance change in the app is mirrored to an SPL token on Solana devnet:
+// Every balance change in the app is mirrored to an SPL token on Solana (a local validator by
+// default, or public devnet with SOLANA_CLUSTER=devnet):
 // stakes burn tokens, payouts and allowances mint them, and market opens and
 // resolutions are written as memos. The database stays the source of truth so
 // the app never waits on the chain; a background worker drains the outbox.
@@ -22,23 +23,44 @@ function parseKey(s: string) {
   return Keypair.fromSecretKey(t.startsWith("[") ? Uint8Array.from(JSON.parse(t)) : bs58.decode(t));
 }
 
-export function solanaConfig() {
+const RPC: Record<string, string> = {
+  localnet: "http://127.0.0.1:8899",
+  devnet: "https://api.devnet.solana.com",
+  testnet: "https://api.testnet.solana.com",
+  "mainnet-beta": "https://api.mainnet-beta.solana.com",
+};
+const clusterName = () => process.env.SOLANA_CLUSTER || "localnet";
+export const rpcUrl = () => process.env.SOLANA_RPC_URL || RPC[clusterName()] || RPC.localnet;
+
+export type ChainConfig = { connection: Connection; payer: Keypair; mint: PublicKey; cluster: string };
+
+export function solanaConfig(): ChainConfig | null {
   const secret = process.env.SOLANA_PAYER_SECRET;
   const mint = process.env.SOLANA_MINT;
   if (!secret || !mint) return null;
+  return { connection: new Connection(rpcUrl(), "confirmed"), payer: parseKey(secret), mint: new PublicKey(mint), cluster: clusterName() };
+}
+
+/**
+ * The public devnet copy, published by `npm run solana:devnet` next to whichever chain the app
+ * runs on. Its payer and mint are separate settings so the local demo keeps working unchanged.
+ */
+export function devnetConfig(): Omit<ChainConfig, "mint"> & { mint: PublicKey | null } | null {
+  const secret = process.env.SOLANA_DEVNET_PAYER_SECRET;
+  if (!secret) return null;
+  const mint = process.env.SOLANA_DEVNET_MINT;
   return {
-    connection: new Connection(process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com", "confirmed"),
+    connection: new Connection(process.env.SOLANA_DEVNET_RPC_URL || RPC.devnet, "confirmed"),
     payer: parseKey(secret),
-    mint: new PublicKey(mint),
-    cluster: process.env.SOLANA_CLUSTER ?? "devnet",
+    mint: mint ? new PublicKey(mint) : null,
+    cluster: "devnet",
   };
 }
 
 // A local validator (SOLANA_CLUSTER=localnet) shows in the same explorer as a custom cluster.
-export const explorer = (sigOrAddr: string, type: "tx" | "address" = "tx") => {
-  const cluster = process.env.SOLANA_CLUSTER ?? "devnet";
-  const q = cluster === "localnet" ? `cluster=custom&customUrl=${encodeURIComponent(process.env.SOLANA_RPC_URL ?? "http://localhost:8899")}` : `cluster=${cluster}`;
-  return `https://explorer.solana.com/${type}/${sigOrAddr}?${q}`;
+export const explorer = (sigOrAddr: string, type: "tx" | "address" = "tx", cluster = clusterName()) => {
+  const q = cluster === "localnet" ? `cluster=custom&customUrl=${encodeURIComponent(rpcUrl())}` : cluster === "mainnet-beta" ? "" : `cluster=${cluster}`;
+  return `https://explorer.solana.com/${type}/${sigOrAddr}${q ? `?${q}` : ""}`;
 };
 
 /** Custodial devnet wallet per user. In production you'd connect Phantom instead. */
@@ -51,10 +73,10 @@ const toUnits = (amount: number) => BigInt(Math.round(amount * 10 ** CURRENCY.de
 const memoIx = (text: string, signer: PublicKey) =>
   new TransactionInstruction({ programId: MEMO_PROGRAM, keys: [{ pubkey: signer, isSigner: true, isWritable: false }], data: Buffer.from(text.slice(0, 500), "utf8") });
 
-type Op = { id: number; kind: "mint" | "burn" | "memo"; amount: number | null; memo: string | null; wallet_pubkey: string | null; wallet_secret_enc: string | null };
+export type Op = { id: number; kind: "mint" | "burn" | "memo"; amount: number | null; memo: string | null; wallet_pubkey: string | null; wallet_secret_enc: string | null };
 
-async function send(op: Op) {
-  const cfg = solanaConfig()!;
+/** Sends one queued op to the given chain and returns its signature. */
+export async function sendOp(cfg: ChainConfig, op: Op) {
   const tx = new Transaction();
   const signers = [cfg.payer];
   if (op.kind === "memo") {
@@ -90,7 +112,7 @@ export async function drainChainOps(limit = 10) {
     );
     for (const op of ops) {
       try {
-        const sig = await send(op);
+        const sig = await sendOp(solanaConfig()!, op);
         await db.query(`UPDATE chain_ops SET status = 'confirmed', signature = $2, attempts = attempts + 1 WHERE id = $1`, [op.id, sig]);
       } catch (e) {
         const msg = (e as Error).message.slice(0, 300);

@@ -1,6 +1,6 @@
 import { getDb } from "@/lib/db";
 import { HttpError, route } from "@/lib/auth";
-import { solanaConfig } from "@/lib/solana";
+import { explorer, solanaConfig } from "@/lib/solana";
 import { describeTx } from "@/lib/chain";
 import { isAdminUsername } from "@/lib/config";
 
@@ -26,8 +26,8 @@ export const GET = route<SigCtx>(async (_req, user, ctx) => {
   const t = describeTx({ signature: sig, slot: tx.slot, blockTime: tx.blockTime ?? null, err: tx.meta?.err ?? null }, tx, mint, supply.value.decimals);
 
   const db = await getDb();
-  const [op] = await db.query<{ kind: string; amount: number | null; memo: string | null; created_at: string; market_id: number | null; title: string | null; mkind: string | null; status: string | null; user_id: number | null }>(
-    `SELECT c.kind, c.amount, c.memo, c.created_at, c.market_id, m.title, m.kind AS mkind, m.status, c.user_id
+  const [op] = await db.query<{ kind: string; amount: number | null; memo: string | null; created_at: string; market_id: number | null; title: string | null; mkind: string | null; status: string | null; user_id: number | null; devnet_signature: string | null }>(
+    `SELECT c.kind, c.amount, c.memo, c.created_at, c.devnet_signature, c.market_id, m.title, m.kind AS mkind, m.status, c.user_id
      FROM chain_ops c LEFT JOIN markets m ON m.id = c.market_id WHERE c.signature = $1 LIMIT 1`,
     [sig]
   );
@@ -55,6 +55,7 @@ export const GET = route<SigCtx>(async (_req, user, ctx) => {
           kind: op.kind,
           memo: op.memo,
           queuedAt: op.created_at,
+          devnetUrl: op.devnet_signature ? explorer(op.devnet_signature, "tx", "devnet") : null,
           market: op.market_id ? { id: op.market_id, title: op.title, kind: op.mkind, status: op.status } : null,
         }
       : null,

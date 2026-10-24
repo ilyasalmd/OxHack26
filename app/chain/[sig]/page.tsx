@@ -25,7 +25,7 @@ type Detail = {
   programs: string[];
   token: { mint: string; decimals: number };
   network: string;
-  event: { kind: string; memo: string | null; queuedAt: string; market: { id: number; title: string | null; kind: string | null; status: string | null } | null } | null;
+  event: { kind: string; memo: string | null; queuedAt: string; devnetUrl: string | null; market: { id: number; title: string | null; kind: string | null; status: string | null } | null } | null;
 };
 
 const KIND: Record<Detail["kind"], { label: string; tone: string; sign: string; what: string }> = {
@@ -92,6 +92,16 @@ export default function ChainTxPage() {
                 </div>
                 <ArrowUpRight size={16} className="shrink-0 text-mute" />
               </Link>
+            )}
+
+            {d.event?.devnetUrl && (
+              <a href={d.event.devnetUrl} target="_blank" rel="noreferrer" className="mt-2 flex items-center gap-3 rounded-2xl bg-panel px-4 py-3.5 hover:bg-white/[.06]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-mute">Public copy</div>
+                  <div className="text-[15px] font-medium">The same transaction on Solana devnet, checkable by anyone</div>
+                </div>
+                <ArrowUpRight size={16} className="shrink-0 text-mute" />
+              </a>
             )}
 
             <Field label="Signature" value={d.signature} mono copy />

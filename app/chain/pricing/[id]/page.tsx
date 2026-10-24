@@ -13,7 +13,7 @@ type Rec = { id: number; kind: "open" | "reprice"; sha256: string; createdAt: st
 type Data = {
   market: { id: number; title: string; kind: string; group: string; aiProb: number; openProb: number; source: string; createdAt: string };
   records: Rec[];
-  anchor: { status: string; signature: string | null; memoHash: string | null } | null;
+  anchor: { status: string; signature: string | null; memoHash: string | null; devnetUrl: string | null } | null;
 };
 type Similar = { title: string; outcome: boolean; similarity: number };
 type OpenRecord = {
@@ -127,6 +127,11 @@ function Opening({ rec, anchor }: { rec: Rec; anchor: Data["anchor"] }) {
                 <Link href={`/chain/${anchor.signature}`} className="inline-flex items-center gap-1 text-white hover:underline">
                   Open the transaction <ArrowUpRight size={13} />
                 </Link>
+              )}
+              {anchor.devnetUrl && (
+                <a href={anchor.devnetUrl} target="_blank" rel="noreferrer" className="ml-3 inline-flex items-center gap-1 text-white hover:underline">
+                  Check it on public Solana devnet <ArrowUpRight size={13} />
+                </a>
               )}
             </div>
           </>

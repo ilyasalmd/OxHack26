@@ -1,5 +1,5 @@
 /**
- * One-off: create the in-game SPL token on Solana devnet and print the env vars.
+ * One-off: create the in-game SPL token on the chain SOLANA_CLUSTER picks (localnet unless set).
  *
  *   npm run solana:setup
  *
@@ -11,9 +11,9 @@ import fs from "node:fs";
 import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { createMint } from "@solana/spl-token";
 import bs58 from "bs58";
-import { explorer } from "../lib/solana";
+import { explorer, rpcUrl } from "../lib/solana";
 
-const rpc = process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
+const rpc = rpcUrl();
 const conn = new Connection(rpc, "confirmed");
 
 async function main() {
