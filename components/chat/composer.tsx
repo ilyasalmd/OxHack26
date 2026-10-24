@@ -140,6 +140,8 @@ export function Composer({
           <div className="relative min-w-0 flex-1">
             <input
               ref={input}
+              name="message"
+              autoComplete="off"
               value={draft}
               onChange={(e) => {
                 setDraft(e.target.value);
@@ -180,7 +182,7 @@ export function Composer({
           <div className="space-y-3">
             <img src={img.url} alt="" className="mx-auto max-h-[55dvh] rounded-xl object-contain" />
             <form onSubmit={(e) => { e.preventDefault(); sendImage(); }} className="flex gap-2">
-              <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Add a caption" className="h-[42px] min-w-0 flex-1 rounded-full bg-white/[.07] px-4 outline-none placeholder:text-mute focus:bg-white/[.1]" autoFocus />
+              <input autoComplete="off" value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Add a caption" className="h-[42px] min-w-0 flex-1 rounded-full bg-white/[.07] px-4 outline-none placeholder:text-mute focus:bg-white/[.1]" autoFocus />
               <Button className="flex items-center gap-1.5 !rounded-full"><Send size={16} /> Send</Button>
             </form>
             <p className="flex items-center gap-1.5 text-xs text-mute"><Lock size={12} /> Encrypted on this device before it&apos;s sent. Location and camera details are removed.</p>

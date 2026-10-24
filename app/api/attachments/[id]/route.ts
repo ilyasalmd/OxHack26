@@ -4,12 +4,14 @@ import { HttpError, requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
 
 // Hands back the encrypted bytes to members of the chat it belongs to. A profile photo goes to
-// anyone who shares a chat with its owner. Either way it's ciphertext; the key is never here.
+// anyone who shares a chat with its owner, and a chat background photo only to whoever chose it.
+// Either way it's ciphertext; the key is never here.
 export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const id = await idParam(ctx);
   const db = await getDb();
-  const [a] = await db.query<{ owner_id: number; group_id: number | null; data: Uint8Array }>(`SELECT owner_id, group_id, data FROM attachments WHERE id = $1`, [id]);
+  const [a] = await db.query<{ owner_id: number; group_id: number | null; kind: string; data: Uint8Array }>(`SELECT owner_id, group_id, kind, data FROM attachments WHERE id = $1`, [id]);
   if (!a) throw new HttpError(404, "Not found");
+  if (a.kind === "wallpaper" && a.owner_id !== user.id) throw new HttpError(403, "Not shared with you");
   if (a.group_id != null) await requireMember(a.group_id, user.id);
   else if (a.owner_id !== user.id) {
     const [shared] = await db.query(

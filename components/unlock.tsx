@@ -34,7 +34,8 @@ export function UnlockPrompt() {
   return (
     <form onSubmit={unlock} className="m-4 space-y-3 rounded-2xl border border-line bg-panel p-4 lg:mx-auto lg:max-w-md">
       <p className="text-sm">Enter your password to unlock your encrypted chats on this device.</p>
-      <Input type="password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="password" />
+      <input type="text" name="username" autoComplete="username" value={me.user.username} readOnly hidden />
+      <Input type="password" autoComplete="current-password" value={pw} onChange={(e) => setPw(e.target.value)} placeholder="password" />
       {err && <p className="text-sm text-down">{err}</p>}
       <Button className="w-full" disabled={busy}>{busy ? "Unlocking…" : "Unlock"}</Button>
     </form>

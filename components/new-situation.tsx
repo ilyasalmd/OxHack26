@@ -175,7 +175,7 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
               <div className="mt-2 rounded-2xl border border-line bg-ink p-3">
                 <div className="text-[13px] font-medium">The line</div>
                 <div className="mt-1 flex items-center gap-2">
-                  <input inputMode="decimal" value={line} onChange={(e) => setLine(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder="AI picks" aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none placeholder:font-normal placeholder:text-white/25" />
+                  <input autoComplete="off" inputMode="decimal" value={line} onChange={(e) => setLine(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder="AI picks" aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none placeholder:font-normal placeholder:text-white/25" />
                   <span className="text-sm text-mute">Leave it blank and the AI sets a line that makes it a fair 50/50.</span>
                 </div>
               </div>
@@ -298,7 +298,7 @@ function PreviewPane({ preview, busy, err, who, whenLabel, chosen, onType, onLin
             <span className="text-xs text-mute">{chosen === "number" && preview.analysis.line != null && !draftMoved ? "" : "AI's median guess"}</span>
           </div>
           <div className="mt-2 flex items-center gap-2">
-            <input inputMode="decimal" value={lineDraft} onChange={(e) => setLineDraft(e.target.value.replace(/[^0-9.,-]/g, ""))} aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none" />
+            <input autoComplete="off" inputMode="decimal" value={lineDraft} onChange={(e) => setLineDraft(e.target.value.replace(/[^0-9.,-]/g, ""))} aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none" />
             {a.unit && <span className="text-sm text-mute">{a.unit}</span>}
             <Button variant="ghost" className="ml-auto" disabled={busy || !draftMoved} onClick={() => onLine(lineDraft)}>Move the line</Button>
           </div>
@@ -318,7 +318,7 @@ function PreviewPane({ preview, busy, err, who, whenLabel, chosen, onType, onLin
           <div className="mt-2 rounded-2xl border border-line bg-ink p-3">
             <div className="text-[13px] font-medium">Set the line yourself</div>
             <div className="mt-2 flex items-center gap-2">
-              <input inputMode="decimal" value={lineDraft} onChange={(e) => setLineDraft(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder="e.g. 15" aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none placeholder:font-normal placeholder:text-white/25" />
+              <input autoComplete="off" inputMode="decimal" value={lineDraft} onChange={(e) => setLineDraft(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder="e.g. 15" aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none placeholder:font-normal placeholder:text-white/25" />
               <Button variant="ghost" className="ml-auto" disabled={busy || lineDraft === ""} onClick={() => onLine(lineDraft)}>Price it</Button>
             </div>
           </div>

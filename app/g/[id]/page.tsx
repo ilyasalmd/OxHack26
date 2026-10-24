@@ -15,7 +15,7 @@ import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
 import { Board, Insights } from "@/components/group-stats";
 import { decryptPayload, encryptMessage, forgetIdentities, type Attachment, type Payload } from "@/lib/e2ee";
-import { primeAttachment, registerPhotos, squarePhoto, uploadEncrypted, useAttachment } from "@/components/media";
+import { primeAttachment, registerPhotos, shrinkImage, squarePhoto, uploadEncrypted, useAttachment } from "@/components/media";
 import { Composer, type PickedImage } from "@/components/chat/composer";
 import { VoiceNote, type Recording } from "@/components/chat/voice";
 import { ImageBubble, Lightbox } from "@/components/chat/image";
@@ -27,7 +27,7 @@ import { selectSnippets, type Snippet } from "@/lib/chat-context";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
 import { sides, typeLabel } from "@/lib/labels";
 import { formatOdds, useOddsFormat } from "@/lib/odds";
-import { WALLPAPERS, wallpaperStyle } from "@/lib/wallpapers";
+import { WALLPAPERS, photoWallpaper, wallpaperStyle } from "@/lib/wallpapers";
 
 export type Member = {
   id: number;
@@ -141,6 +141,9 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   // The server's clock minus ours (the admin's demo clock runs ahead), so a new bubble gets the right time.
   const skew = useRef(0);
   const retries = useRef(new Map<string, () => void>());
+  // Your own photo as this chat's background, decrypted on this device.
+  const wallPhoto = photoWallpaper(feed?.prefs?.wallpaper);
+  const wallUrl = useAttachment(wallPhoto?.id, keyRef.current?.key, "image/jpeg");
 
   useEffect(() => {
     if (!loading && !me) router.replace(`/?next=/g/${id}`);
@@ -449,7 +452,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           {identity && !feed.myKey && (
             <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> Waiting for a friend&apos;s app to share the chat key with you. Markets work in the meantime.</p>
           )}
-          <div className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper)}>
+          <div className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper, wallUrl === "error" ? null : wallUrl)}>
             <div className="mx-auto max-w-3xl px-3 py-3 lg:px-6 lg:py-5">
               {runs(messages).map((r, i, all) => {
                 const first = Array.isArray(r) ? r[0] : r;
@@ -989,20 +992,100 @@ function GroupProfile({ feed, groupId, groupKey, onChange, say }: { feed: Omit<F
 }
 
 /** Your own look for this chat: a background and mute. Saved for you only, on every device. */
-function ChatLook({ feed, groupId, onChange }: { feed: Omit<Feed, "messages">; groupId: number; onChange: () => void }) {
+function ChatLook({ feed, groupId, chatKey, onChange }: { feed: Omit<Feed, "messages">; groupId: number; chatKey: CryptoKey | null; onChange: () => void }) {
   const [wall, setWall] = useState<string | null>(feed.prefs?.wallpaper ?? null);
   const [muted, setMuted] = useState(!!feed.prefs?.muted);
+  // A photo picked from this device, shown here to darken before it's encrypted and saved.
+  const [picked, setPicked] = useState<{ url: string; bytes: Uint8Array } | null>(null);
+  const photo = photoWallpaper(wall);
+  const [dim, setDim] = useState(photo?.dim ?? 35);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const pick = useRef<HTMLInputElement>(null);
+  const photoUrl = useAttachment(photo?.id, chatKey, "image/jpeg");
   async function save(next: { wallpaper?: string | null; muted?: boolean }) {
     if (next.wallpaper !== undefined) setWall(next.wallpaper);
     if (next.muted !== undefined) setMuted(next.muted);
-    await api(`/api/groups/${groupId}/prefs`, { method: "PUT", body: next }).catch(() => {});
+    await api(`/api/groups/${groupId}/prefs`, { method: "PUT", body: next }).catch((e) => setErr(e.message));
     onChange();
   }
+  async function choose(file: File | undefined) {
+    if (!file) return;
+    setErr("");
+    try {
+      // Redrawn on a canvas first: smaller, and without the photo's location or camera details.
+      const img = await shrinkImage(file, 1600, 0.8);
+      setPicked({ url: URL.createObjectURL(img.blob), bytes: img.bytes });
+    } catch (e) {
+      setErr((e as Error).message);
+    }
+  }
+  async function usePicked() {
+    if (!picked || !chatKey) return;
+    setBusy(true);
+    setErr("");
+    try {
+      // Encrypted with the chat's key on this device; the server only lets you download it back.
+      const id = await uploadEncrypted("wallpaper", null, chatKey, picked.bytes);
+      primeAttachment(id, picked.url);
+      await save({ wallpaper: `photo:${id}:${dim}` });
+      setPicked(null);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
   const swatches = [{ id: null, label: "Default" }, ...WALLPAPERS.map((w) => ({ id: w.id as string | null, label: w.label }))];
+  const preview = picked?.url ?? (photo && photoUrl !== "error" ? photoUrl : null);
   return (
     <div>
       <div className="mb-2 text-sm font-semibold">Background</div>
+      {picked || photo ? (
+        <div className="mb-3 rounded-xl border border-line p-3">
+          <div className="chat-wall flex aspect-[16/10] flex-col justify-end gap-1.5 rounded-lg p-3" style={wallpaperStyle(`photo:0:${dim}`, preview)}>
+            <span className="max-w-[70%] self-start rounded-2xl bg-[#1f2126] px-3 py-1.5 text-xs">Can you still read this?</span>
+            <span className="max-w-[70%] self-end rounded-2xl bg-brand px-3 py-1.5 text-xs text-black">Looks good</span>
+          </div>
+          <label className="mt-3 flex items-center gap-3 text-xs text-mute">
+            Darken
+            <input
+              type="range"
+              min={0}
+              max={80}
+              step={5}
+              value={dim}
+              onChange={(e) => setDim(Number(e.target.value))}
+              onPointerUp={() => !picked && photo && dim !== photo.dim && save({ wallpaper: `photo:${photo.id}:${dim}` })}
+              onKeyUp={() => !picked && photo && dim !== photo.dim && save({ wallpaper: `photo:${photo.id}:${dim}` })}
+              className="flex-1 accent-[var(--color-brand)]"
+              aria-label="Darken the photo"
+            />
+          </label>
+          {picked ? (
+            <div className="mt-3 flex gap-2">
+              <Button className="flex-1" onClick={usePicked} disabled={busy || !chatKey}>{busy ? "Saving…" : "Use this photo"}</Button>
+              <Button variant="ghost" onClick={() => setPicked(null)} disabled={busy}>Cancel</Button>
+            </div>
+          ) : (
+            <div className="mt-3 flex gap-4 text-sm">
+              <button type="button" onClick={() => pick.current?.click()} className="font-medium hover:underline">Choose another photo</button>
+              <button type="button" onClick={() => save({ wallpaper: null })} className="text-mute hover:text-white">Remove</button>
+            </div>
+          )}
+        </div>
+      ) : null}
       <div className="grid grid-cols-4 gap-2">
+        <button
+          type="button"
+          onClick={() => pick.current?.click()}
+          disabled={!chatKey}
+          className={`flex aspect-[3/4] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed text-[11px] font-medium ring-2 transition disabled:opacity-40 ${photo ? "border-transparent ring-brand" : "border-white/20 ring-transparent hover:border-white/40"}`}
+          title={chatKey ? "Choose a photo from this device" : "Unlock your chats first"}
+        >
+          <Camera size={18} />
+          Photo
+        </button>
         {swatches.map((w) => (
           <button
             key={w.label}
@@ -1016,6 +1099,8 @@ function ChatLook({ feed, groupId, onChange }: { feed: Omit<Feed, "messages">; g
           </button>
         ))}
       </div>
+      <input ref={pick} type="file" accept="image/*" hidden onChange={(e) => { void choose(e.target.files?.[0]); e.target.value = ""; }} />
+      {err && <p className="mt-2 text-sm text-down">{err}</p>}
       <label className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-line px-3.5 py-3 text-sm">
         <span>
           <span className="block font-medium">Mute this chat</span>
@@ -1110,7 +1195,7 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
             </form>
           </>
         )}
-        <ChatLook feed={feed} groupId={groupId} onChange={onChange} />
+        <ChatLook feed={feed} groupId={groupId} chatKey={keyRef.current?.key ?? null} onChange={onChange} />
         <div className="grid grid-cols-2 gap-2 lg:hidden">
           <Link href={`/markets?g=${groupId}`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Markets</Link>
           <Link href={`/g/${groupId}/stats`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Leaderboard and insights</Link>

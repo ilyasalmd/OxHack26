@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS attachments (
   id bigserial PRIMARY KEY,
   owner_id int NOT NULL REFERENCES users(id),
   group_id int REFERENCES groups(id),   -- null for a profile photo
-  kind text NOT NULL,                   -- 'voice' | 'image' | 'group_photo' | 'avatar'
+  kind text NOT NULL,                   -- 'voice' | 'image' | 'group_photo' | 'avatar' | 'wallpaper'
   data bytea NOT NULL,
   size int NOT NULL,
   created_at timestamptz NOT NULL

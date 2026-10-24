@@ -71,6 +71,7 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
         </div>
         <div className="mt-1 flex items-baseline gap-2">
           <input
+            autoComplete="off"
             inputMode="numeric"
             pattern="[0-9]*"
             value={raw}

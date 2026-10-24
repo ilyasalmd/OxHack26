@@ -14,8 +14,21 @@ export const WALLPAPERS = [
 export type WallpaperId = (typeof WALLPAPERS)[number]["id"];
 export const isWallpaper = (id: unknown): id is WallpaperId => WALLPAPERS.some((w) => w.id === id);
 
-/** Inline style for a chat's wall; null keeps the default dotted wall. */
-export function wallpaperStyle(id: string | null | undefined): React.CSSProperties | undefined {
+/** Your own photo as the background: "photo:<attachment id>:<how much to darken it, 0 to 80>". */
+export function photoWallpaper(id: string | null | undefined) {
+  const m = /^photo:(\d+):(\d{1,2})$/.exec(id ?? "");
+  return m && Number(m[2]) <= 80 ? { id: Number(m[1]), dim: Number(m[2]) } : null;
+}
+
+/** Inline style for a chat's wall; null keeps the default dotted wall. A photo needs its decrypted URL. */
+export function wallpaperStyle(id: string | null | undefined, photoUrl?: string | null): React.CSSProperties | undefined {
+  const photo = photoWallpaper(id);
+  if (photo) {
+    const shade = `linear-gradient(rgba(0, 0, 0, ${photo.dim / 100}), rgba(0, 0, 0, ${photo.dim / 100}))`;
+    return photoUrl
+      ? { backgroundColor: "#131417", backgroundImage: `${shade}, url("${photoUrl}")`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "scroll" }
+      : { backgroundColor: "#131417", backgroundImage: "none" };
+  }
   const w = WALLPAPERS.find((x) => x.id === id);
   if (!w) return undefined;
   return { backgroundImage: `${DOTS}, ${w.base.startsWith("#") ? `linear-gradient(${w.base}, ${w.base})` : w.base}`, backgroundSize: "22px 22px, cover", backgroundAttachment: "local, scroll" };

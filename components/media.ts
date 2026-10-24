@@ -5,7 +5,7 @@ import { decryptBytes, encryptBytes, importGroupKey, unwrapGroupKey } from "@/li
 // Encrypted files on the device: upload after encrypting, download and decrypt into a blob URL.
 // Decrypted copies only ever live in this tab's memory.
 
-export type UploadKind = "voice" | "image" | "group_photo" | "avatar";
+export type UploadKind = "voice" | "image" | "group_photo" | "avatar" | "wallpaper";
 
 export async function uploadEncrypted(kind: UploadKind, groupId: number | null, key: CryptoKey, data: Uint8Array) {
   const sealed = await encryptBytes(key, data);
@@ -149,10 +149,10 @@ export async function shrinkImage(file: Blob, max = 1600, quality = 0.82) {
   return { blob, bytes: new Uint8Array(await blob.arrayBuffer()), w, h };
 }
 
-/** A square crop from the centre, for profile and group photos. */
-export async function squarePhoto(file: Blob, size = 384) {
+/** A square crop from the centre, for profile and group photos. `zoom` above 1 crops in closer. */
+export async function squarePhoto(file: Blob, size = 384, zoom = 1) {
   const bmp = await createImageBitmap(file);
-  const side = Math.min(bmp.width, bmp.height);
+  const side = Math.min(bmp.width, bmp.height) / Math.max(1, zoom);
   const c = document.createElement("canvas");
   c.width = c.height = size;
   c.getContext("2d")!.drawImage(bmp, (bmp.width - side) / 2, (bmp.height - side) / 2, side, side, 0, 0, size, size);

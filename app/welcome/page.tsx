@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { ChevronLeft } from "@/components/icons";
+import { ProfilePhoto } from "@/components/profile-photo";
 import { PROFILE_MAX, PROFILE_QUESTIONS } from "@/lib/profile-questions";
 
 /**
@@ -69,6 +70,9 @@ export default function Welcome() {
             <li className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />Only the AI reads your answers. Friends never see them.</li>
             <li className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />Change or delete them any time in Settings.</li>
           </ul>
+          <div className="mt-8">
+            <ProfilePhoto size={56} withHelp />
+          </div>
           <button type="button" onClick={() => setI(0)} className="mt-auto h-14 w-full rounded-full bg-brand text-[17px] font-semibold text-black transition active:scale-[.98]">Start</button>
         </section>
       ) : (
@@ -103,6 +107,7 @@ export default function Welcome() {
           ) : (
             <input
               autoFocus
+              autoComplete="off"
               value={value}
               maxLength={PROFILE_MAX}
               placeholder={q.placeholder}

@@ -10,7 +10,7 @@ import { ATTACHMENT_LIMITS, isAttachmentKind } from "@/lib/chat";
 export const POST = route(async (req, user) => {
   const kind = req.nextUrl.searchParams.get("kind");
   if (!isAttachmentKind(kind)) throw new HttpError(400, "Unknown attachment kind");
-  const groupId = kind === "avatar" ? null : Number(req.nextUrl.searchParams.get("group"));
+  const groupId = kind === "avatar" || kind === "wallpaper" ? null : Number(req.nextUrl.searchParams.get("group"));
   if (groupId !== null) {
     if (!Number.isInteger(groupId)) throw new HttpError(400, "Which chat is this for?");
     await requireMember(groupId, user.id);

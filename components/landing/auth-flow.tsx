@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "@/components/api";
 import { Check, ChevronLeft, Key } from "@/components/icons";
 import { BrandMark, Wordmark } from "./brand";
@@ -358,8 +358,21 @@ function LoginStep({ username, setUsername, password, setPassword, busy, err, su
   const uid = useId();
   const pid = useId();
   const [show, setShow] = useState(false);
+  // Saved details may fill in the fields, but only your own press of Log in (or Return) signs in.
+  // Safari can submit a login form by itself right after filling it; that submit is ignored.
+  const pressed = useRef(0);
+  const press = (e: React.SyntheticEvent) => {
+    if (e.nativeEvent.isTrusted) pressed.current = Date.now();
+  };
   return (
-    <form className="flex flex-col" onSubmit={(e) => submit(e, "login")}>
+    <form
+      className="flex flex-col"
+      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && press(e)}
+      onSubmit={(e) => {
+        if (Date.now() - pressed.current > 1500) return e.preventDefault();
+        submit(e, "login");
+      }}
+    >
       <h2 className="text-[30px] font-bold leading-tight tracking-tight lg:text-[26px]">Welcome back</h2>
       <p className="mt-2 text-[15px] text-black/55">Log in to unlock your chats.</p>
       <div className="relative mt-7">
@@ -371,7 +384,7 @@ function LoginStep({ username, setUsername, password, setPassword, busy, err, su
         <ShowToggle show={show} setShow={setShow} />
       </div>
       <ErrorLine err={err} />
-      <button className={`${primary} mt-5`} disabled={busy}>{busy ? "Unlocking…" : "Log in"}</button>
+      <button className={`${primary} mt-5`} disabled={busy} onPointerDown={press}>{busy ? "Unlocking…" : "Log in"}</button>
       <Link href={`/recover${username ? `?username=${encodeURIComponent(clean(username))}` : ""}`} className="mt-4 self-center text-sm font-semibold text-black/60 transition hover:text-black">Forgot password?</Link>
     </form>
   );

@@ -91,7 +91,8 @@ export function Button({ variant = "primary", className = "", ...p }: React.Butt
 }
 
 export function Input(p: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...p} className={`w-full rounded-xl border border-line bg-ink px-3.5 py-2.5 outline-none placeholder:text-mute focus:border-white/40 ${p.className ?? ""}`} />;
+  // Off unless a field asks for it: otherwise Safari offers saved passwords in ordinary text boxes.
+  return <input autoComplete="off" {...p} className={`w-full rounded-xl border border-line bg-ink px-3.5 py-2.5 outline-none placeholder:text-mute focus:border-white/40 ${p.className ?? ""}`} />;
 }
 
 export function TopBar({ title, back, right, backOnDesktop = false }: { title: React.ReactNode; back?: string; right?: React.ReactNode; backOnDesktop?: boolean }) {

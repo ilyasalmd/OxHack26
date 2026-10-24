@@ -684,6 +684,7 @@ function AboutYou() {
                 </span>
               ) : (
                 <input
+                  autoComplete="off"
                   value={v}
                   maxLength={PROFILE_MAX}
                   placeholder={q.placeholder}

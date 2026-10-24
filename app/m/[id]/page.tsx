@@ -444,7 +444,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               <label className="block rounded-2xl border border-line bg-ink p-4">
                 <span className="text-xs text-mute">What was the actual number?</span>
                 <div className="mt-1 flex items-baseline gap-2">
-                  <input inputMode="decimal" value={actual} onChange={(e) => setActual(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder={String(m.line)} aria-label="Actual value" className="w-full min-w-0 bg-transparent !text-[32px] font-semibold leading-none tracking-tight tabular outline-none placeholder:text-white/20" />
+                  <input autoComplete="off" inputMode="decimal" value={actual} onChange={(e) => setActual(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder={String(m.line)} aria-label="Actual value" className="w-full min-w-0 bg-transparent !text-[32px] font-semibold leading-none tracking-tight tabular outline-none placeholder:text-white/20" />
                   {m.unit && <span className="text-lg text-mute">{m.unit}</span>}
                 </div>
                 <p className="mt-2 text-xs text-mute">The line is {fmtLine(m.line!, m.unit)}. Over it pays {lbl.yes}, {fmtLine(m.line!, m.unit)} or under pays {lbl.no}.</p>

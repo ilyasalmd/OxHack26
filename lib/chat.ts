@@ -8,6 +8,8 @@ export const ATTACHMENT_LIMITS = {
   image: 3_000_000,
   group_photo: 600_000,
   avatar: 400_000,
+  // A chat background from your own photos: only you can download it.
+  wallpaper: 900_000,
 } as const;
 export type AttachmentKind = keyof typeof ATTACHMENT_LIMITS;
 export const isAttachmentKind = (k: string | null): k is AttachmentKind => !!k && k in ATTACHMENT_LIMITS;
