@@ -5,7 +5,7 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR || ".next",
   // Native/WASM server deps stay out of the bundle.
   serverExternalPackages: ["@electric-sql/pglite", "pg", "@solana/web3.js", "@solana/spl-token", "bcryptjs"],
-  outputFileTracingIncludes: { "/api/**": ["./lib/schema.sql"] },
+  outputFileTracingIncludes: { "/api/**": ["./lib/schema*.sql"] },
   poweredByHeader: false,
   devIndicators: false,
   async headers() {

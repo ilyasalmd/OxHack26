@@ -9,3 +9,4 @@ next-env.d.ts
 solana-*.json
 .next-a/
 .next-b/
+.next-*/

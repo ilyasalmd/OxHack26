@@ -18,7 +18,8 @@ const g = globalThis as unknown as { __fsDb?: Promise<Db> };
 
 async function connect(): Promise<Db> {
   const url = process.env.DATABASE_URL;
-  if (url) {
+  // DATABASE_URL=pglite forces the embedded database even when .env.local names a server.
+  if (url && url !== "pglite") {
     const { Pool } = await import("pg");
     const tls = /sslmode=require|tsdb\.cloud|timescale\.com/.test(url);
     const pool = new Pool({
@@ -73,8 +74,10 @@ async function connect(): Promise<Db> {
 }
 
 async function migrate(db: Db) {
-  const schema = fs.readFileSync(path.join(process.cwd(), "lib", "schema.sql"), "utf8");
-  await db.exec(schema);
+  // schema.sql first, then any schema-*.sql additions in name order.
+  const dir = path.join(process.cwd(), "lib");
+  const files = ["schema.sql", ...fs.readdirSync(dir).filter((f) => /^schema-.+\.sql$/.test(f)).sort()];
+  for (const f of files) await db.exec(fs.readFileSync(path.join(dir, f), "utf8"));
   if (db.driver !== "postgres") return;
   const [ext] = await db.query(`SELECT 1 AS ok FROM pg_available_extensions WHERE name = 'timescaledb'`);
   if (!ext) return;
