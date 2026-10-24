@@ -84,6 +84,15 @@ export default function ChainTxPage() {
                 <ArrowUpRight size={16} className="shrink-0 text-mute" />
               </Link>
             )}
+            {d.event?.market && d.event.kind === "memo" && (
+              <Link href={`/chain/pricing/${d.event.market.id}`} className="mt-2 flex items-center gap-3 rounded-2xl bg-panel px-4 py-3.5 hover:bg-white/[.06]">
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs text-mute">Pricing record</div>
+                  <div className="text-[15px] font-medium">How the AI set this price, and the hash in this memo</div>
+                </div>
+                <ArrowUpRight size={16} className="shrink-0 text-mute" />
+              </Link>
+            )}
 
             <Field label="Signature" value={d.signature} mono copy />
             <Field label="Slot" value={d.slot.toLocaleString("en-GB")} />

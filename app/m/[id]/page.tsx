@@ -11,7 +11,7 @@ import { TimeMachine } from "@/components/timemachine";
 import { proceedsForShares, type Side } from "@/lib/lmsr";
 import { fmtLine, priceMeaning, sides, typeLabel } from "@/lib/labels";
 import { formatOdds, useOddsFormat } from "@/lib/odds";
-import { Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
+import { ArrowUpRight, Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
 
@@ -371,6 +371,12 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             <div className="text-xs font-semibold uppercase tracking-wider text-mute">Resolution rule</div>
             <p className="mt-1">{m.resolution_rule}</p>
           </div>
+          {me.account?.isAdmin && (
+            <Link href={`/chain/pricing/${m.id}`} className="mt-3 flex items-center justify-between rounded-xl bg-ink px-3 py-2.5 text-sm hover:bg-white/[.06]">
+              <span>Admin: the full prompt, raw reply and hash</span>
+              <ArrowUpRight size={14} className="text-mute" />
+            </Link>
+          )}
           {isStock && (
             <p className="mt-3 text-xs text-mute">
               Stocks trade like a maturing bond: each long share pays 1 {c.ticker} (shown as 100) if it happens by {new Date(m.resolves_at).toLocaleDateString("en-GB")}.

@@ -234,3 +234,17 @@ CREATE TABLE IF NOT EXISTS profiles (
   done boolean NOT NULL DEFAULT false,
   updated_at timestamptz NOT NULL
 );
+
+-- One row per AI pricing decision (a market opening, or a batch re-mark of stocks): the inputs,
+-- the prompt with private profile answers blanked, the model's raw reply and the maths, as the
+-- exact JSON text that was hashed. The hash also goes in the market's on-chain "open" memo.
+CREATE TABLE IF NOT EXISTS pricing_records (
+  id serial PRIMARY KEY,
+  group_id int NOT NULL REFERENCES groups(id),
+  market_ids int[] NOT NULL,
+  kind text NOT NULL,
+  record text NOT NULL,
+  sha256 text NOT NULL,
+  created_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pricing_records_markets ON pricing_records USING gin (market_ids);

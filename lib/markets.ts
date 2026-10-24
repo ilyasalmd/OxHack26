@@ -6,6 +6,8 @@ import { sides } from "./labels";
 import { analyzeSituation, repriceStocks, summarizeOutcome, embed, type Analysis } from "./ai";
 import { evidenceFor, type Similar } from "./memory";
 import { profileForPrompt, type ProfileAnswers } from "./profile-questions";
+import { openingMaths, profileCommitment, saveRecord, traceFields } from "./pricing-record";
+import type { Trace } from "./ai";
 import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount, type Book, type Side } from "./lmsr";
 import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
@@ -102,6 +104,8 @@ export type Preview = {
   vector: number[] | null;
   /** Exactly what this request sent to the AI from the chat (empty unless the group opted in). */
   chatShared: Snippet[];
+  /** Everything else the AI was given, for the pricing record. */
+  inputs: { groupContext: string; mood: number | null; subjectRecord: string | null; profile: ReturnType<typeof profileCommitment> };
 };
 
 export async function previewSituation(groupId: number, input: SituationInput, creatorId?: number): Promise<Preview> {
@@ -123,13 +127,14 @@ export async function previewSituation(groupId: number, input: SituationInput, c
   const chatShared = grp?.ai_reads_chat ? (input.chatSnippets ?? []).slice(0, 20) : [];
   const { history, similar, vector } = await evidenceFor(db, groupId, title, subject?.id ?? null);
   const [prof] = subject ? await db.query<{ answers: ProfileAnswers }>(`SELECT answers FROM profiles WHERE user_id = $1`, [subject.id]) : [];
+  const subjectProfile = profileForPrompt(prof?.answers);
   const analysis = await analyzeSituation({
     title,
     description: input.description ?? "",
     resolvesAt,
     now: now(),
     subjectName: subject?.display_name ?? null,
-    subjectProfile: profileForPrompt(prof?.answers),
+    subjectProfile,
     groupContext: grp?.ai_context ?? "",
     mood: input.mood ?? null,
     history,
@@ -139,8 +144,7 @@ export async function previewSituation(groupId: number, input: SituationInput, c
   // The poster asked for a number but nothing numeric came back: say so instead of quietly listing a yes/no.
   if (input.answer === "number" && analysis.answer !== "number") throw new HttpError(400, "Couldn't work out a line for that. Type one under \"The line\" and try again.");
   // The AI already saw the base rate; we still blend a little so history keeps a direct vote.
-  const w = history.baseRate == null ? 0 : MARKET.historyWeight * Math.min(1, history.n / 3);
-  const openProb = Math.min(MARKET.maxProb, Math.max(MARKET.minProb, (1 - w) * analysis.probability + w * (history.baseRate ?? 0)));
+  const { openProb } = openingMaths(analysis.probability, history.baseRate, history.n);
   const value: Preview = {
     analysis,
     openProb,
@@ -150,6 +154,7 @@ export async function previewSituation(groupId: number, input: SituationInput, c
     subject,
     vector,
     chatShared,
+    inputs: { groupContext: grp?.ai_context ?? "", mood: input.mood ?? null, subjectRecord: history.subjectRecord ?? null, profile: profileCommitment(subjectProfile) },
   };
   previewCache.set(key, { at: Date.now(), value });
   return value;
@@ -183,10 +188,29 @@ export async function createMarket(user: User, groupId: number, input: Situation
         p.chatShared.length ? JSON.stringify({ shared: p.chatShared.length, used: a.chatUsed }) : null, a.answer, a.line, a.unit]
     );
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'open')`, [m.id, ts, p.openProb]);
+    const { trace: _trace, ...parsed } = a;
+    const hash = await saveRecord(q, groupId, [m.id], "open", {
+      market: m.id,
+      ...traceFields(a.trace),
+      inputs: {
+        situation: input.title,
+        details: input.description ?? "",
+        resolvesAt: input.resolvesAt,
+        subject: p.subject ? `@${p.subject.username}` : null,
+        posterAsked: { kind: input.kind ?? "auto", answer: input.answer ?? "auto", line: input.line ?? null },
+        groupContext: p.inputs.groupContext,
+        chatMood: p.inputs.mood,
+        chatSnippets: p.chatShared,
+        history: { baseRate: p.baseRate, effectiveSamples: p.baseRateN, subjectRecord: p.inputs.subjectRecord, similar: p.similar.map((x) => ({ title: x.title, outcome: x.outcome, similarity: +x.similarity.toFixed(3) })) },
+        subjectProfile: p.inputs.profile,
+      },
+      parsed,
+      maths: openingMaths(a.probability, p.baseRate, p.baseRateN),
+    }, ts);
     await systemMessage(q, groupId, "market", `${a.kind === "stock" ? "listed a stock" : "opened a bet"}: ${a.title}`, m.id, user.id);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       m.id,
-      JSON.stringify({ app: "friendstakes", v: 1, ev: "open", market: m.id, group: groupId, kind: a.kind, p: +p.openProb.toFixed(4), resolves: input.resolvesAt.slice(0, 10) }),
+      JSON.stringify({ app: "friendstakes", v: 1, ev: "open", market: m.id, group: groupId, kind: a.kind, p: +p.openProb.toFixed(4), resolves: input.resolvesAt.slice(0, 10), h: hash }),
       ts,
     ]);
     return m.id;
@@ -578,7 +602,8 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
      WHERE m.group_id = $1 AND m.kind = 'stock' AND m.status = 'open' AND m.proposed_outcome IS NULL AND m.resolves_at > $2`,
     [groupId, now()]
   );
-  const updates = await repriceStocks({
+  const trace: Trace = { provider: "none", model: "", prompt: "", raw: null, ms: 0 };
+  const repriceInputs = {
     today: now(),
     groupContext: grp?.ai_context ?? "",
     stocks: stocks.map((m) => ({
@@ -591,7 +616,8 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
       history: m.ai_rationale,
       snippets: chat?.[m.id]?.slice(0, 8),
     })),
-  });
+  };
+  const updates = await repriceStocks(repriceInputs, trace);
   const applied: { id: number; title: string; from: number; to: number; reason: string }[] = [];
   for (const u of updates) {
     const m = stocks.find((s) => s.id === u.id);
@@ -605,6 +631,13 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
     await db.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'ai')`, [m.id, now(), to]);
     applied.push({ id: m.id, title: m.title, from, to, reason: u.reason });
   }
+  if (stocks.length)
+    await saveRecord(db, groupId, stocks.map((m) => m.id), "reprice", {
+      ...traceFields(trace),
+      inputs: { groupContext: repriceInputs.groupContext, stocks: repriceInputs.stocks },
+      parsed: updates,
+      maths: { rule: "Each stock moves to the AI's probability, capped at 15 points per re-mark; moves under half a point are skipped", applied },
+    }, now());
   if (applied.length)
     await systemMessage(
       db,

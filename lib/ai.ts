@@ -51,7 +51,10 @@ async function ollama<T>(path: string, body: object, timeoutMs: number): Promise
 // Models whose Ollama build has no constrained decoding (e.g. Gemma 4): they get the schema in the prompt instead.
 const noFormat = new Set<string>();
 
-async function askOllama<T>(prompt: string, schema: object, timeoutMs: number): Promise<T> {
+/** What one model call actually saw and said, kept for the pricing record. */
+export type Trace = { provider: string; model: string; prompt: string; raw: string | null; ms: number; error?: string };
+
+async function askOllama<T>(prompt: string, schema: object, timeoutMs: number, trace?: Trace): Promise<T> {
   const model = AI.model;
   const constrained = !noFormat.has(model);
   const content = constrained
@@ -65,21 +68,28 @@ async function askOllama<T>(prompt: string, schema: object, timeoutMs: number): 
       timeoutMs
     );
     const text = res.message.content;
+    if (trace) trace.raw = text;
     return JSON.parse(constrained ? text : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as T;
   } catch (e) {
     if (constrained && /structured output is unavailable/i.test((e as Error).message)) {
       noFormat.add(model);
-      return askOllama<T>(prompt, schema, timeoutMs);
+      return askOllama<T>(prompt, schema, timeoutMs, trace);
     }
     throw e;
   }
 }
 
 /** The prompt's answer as JSON matching `schema`, or null so the caller can fall back. */
-export async function askJson<T>(prompt: string, schema: object, timeoutMs = AI.provider === "ollama" ? 45000 : 12000): Promise<T | null> {
+export async function askJson<T>(prompt: string, schema: object, timeoutMs = AI.provider === "ollama" ? 45000 : 12000, trace?: Trace): Promise<T | null> {
   if (!ready()) return null;
+  const t0 = Date.now();
+  if (trace) Object.assign(trace, { provider: AI.provider, model: AI.model });
   try {
-    if (AI.provider === "ollama") return await askOllama<T>(prompt, schema, timeoutMs);
+    if (AI.provider === "ollama") {
+      const out = await askOllama<T>(prompt, schema, timeoutMs, trace);
+      if (trace) trace.ms = Date.now() - t0;
+      return out;
+    }
     const res = await Promise.race([
       gemini().models.generateContent({
         model: AI.model,
@@ -93,8 +103,10 @@ export async function askJson<T>(prompt: string, schema: object, timeoutMs = AI.
       }),
       timeout(timeoutMs),
     ]);
+    if (trace) Object.assign(trace, { raw: res.text ?? null, ms: Date.now() - t0 });
     return JSON.parse(res.text ?? "null") as T;
   } catch (e) {
+    if (trace) Object.assign(trace, { ms: Date.now() - t0, error: (e as Error).message.slice(0, 200) });
     failed(`${AI.provider} call failed, using fallback`, e);
     return null;
   }
@@ -141,6 +153,8 @@ export type Analysis = {
   source: "gemini" | "ollama" | "heuristic";
   /** Snippets the AI kept as relevant, with its reason. Everything else was ignored. */
   chatUsed: (Snippet & { why: string })[];
+  /** The exact model call, with the subject's private profile answers blanked out of the prompt. */
+  trace?: Trace;
 };
 
 export const CATEGORIES = ["punctuality", "football", "sport", "work", "uni", "relationships", "friendship", "fitness", "social", "other"];
@@ -165,7 +179,12 @@ export async function analyzeSituation(input: {
   const snippets = input.snippets ?? [];
   const want = input.want ?? {};
   const days = (input.resolvesAt.getTime() - input.now.getTime()) / 86400000;
-  const prompt = `You are the pricing desk of "FriendStakes", a play-money prediction market inside a friends' group chat.
+  // The profile goes in through a placeholder so the stored copy of the prompt can leave it out.
+  const PROFILE_SLOT = "\u0000PROFILE\u0000";
+  const profileBlock = input.subjectProfile
+    ? `What ${input.subjectName ?? "they"} told the app about themselves (self-reported, may be optimistic; private, so never quote or mention it in the rationale, just let it inform the probability):\n${input.subjectProfile}\n`
+    : "";
+  const template = `You are the pricing desk of "FriendStakes", a play-money prediction market inside a friends' group chat.
 Friends post situations about each other. Decide how to list this one and its fair probability.
 ${want.answer === "number" ? `
 THE POSTER WANTS A NUMBER QUESTION. Turn the situation into "how much / how many" (minutes late, pints, hours, marks, messages, times it happens...), set "answer" to "number", "unit" to that quantity's unit and "line" to ${want.line != null ? `exactly ${want.line}` : "your median guess as a round number"}. "line" must be a number, never null.
@@ -176,7 +195,7 @@ THE POSTER WANTS A PLAIN YES/NO QUESTION: "answer" is "yesno" and "line" is null
 Situation: "${input.title}"
 Details: ${input.description || "(none)"}
 About: ${input.subjectName ?? "nobody specific"}
-${input.subjectProfile ? `What ${input.subjectName ?? "they"} told the app about themselves (self-reported, may be optimistic; private, so never quote or mention it in the rationale, just let it inform the probability):\n${input.subjectProfile}\n` : ""}Today: ${day(input.now)}; resolves on ${day(input.resolvesAt)} (${days.toFixed(1)} days away).
+${PROFILE_SLOT}Today: ${day(input.now)}; resolves on ${day(input.resolvesAt)} (${days.toFixed(1)} days away).
 Group context the friends chose to share (term dates, fixtures, deadlines): ${input.groupContext || "(none)"}
 ${input.mood != null ? `Aggregate chat mood about the subject, computed on-device (-1 negative .. +1 positive): ${input.mood.toFixed(2)}` : ""}
 Past resolved situations in this group that look similar (${input.history.n.toFixed(1)} effective samples, base rate ${input.history.baseRate == null ? "n/a" : (input.history.baseRate * 100).toFixed(0) + "%"}):
@@ -194,6 +213,15 @@ Rules:
 - title: tidy the situation into a short market question (max 70 chars). For a number question, phrase the over/under in it, e.g. "Jake is more than 15 minutes late to dinner".
 - rationale: one or two friendly sentences citing the evidence used.
 - usefulSnippets: only the chat snippets that genuinely change the odds (plans, excuses, admissions, schedules, track record), each with a short reason. Ignore banter, jokes and anything off-topic. Empty if none.`;
+  const prompt = template.replace(PROFILE_SLOT, profileBlock);
+  const lines = input.subjectProfile ? input.subjectProfile.split("\n").length : 0;
+  const trace: Trace = {
+    provider: "none",
+    model: "",
+    prompt: template.replace(PROFILE_SLOT, lines ? `[${lines} private answer${lines === 1 ? "" : "s"} from ${input.subjectName ?? "the subject"}'s own profile went here. Only the AI sees them.]\n` : ""),
+    raw: null,
+    ms: 0,
+  };
 
   const out = await askJson<Omit<Analysis, "source">>(prompt, {
     type: "object",
@@ -214,14 +242,14 @@ Rules:
       },
     },
     required: ["title", "kind", "answer", "line", "unit", "decay", "category", "probability", "rationale", "resolutionRule", "usefulSnippets"],
-  });
+  }, undefined, trace);
   if (out && Number.isFinite(out.probability)) {
     const { usefulSnippets, ...rest } = out as typeof out & { usefulSnippets?: { i: number; why: string }[] };
     const chatUsed = (usefulSnippets ?? []).filter((u) => snippets[u.i]).slice(0, 8).map((u) => ({ ...snippets[u.i], why: u.why }));
-    return applyWants({ ...rest, probability: clampP(out.probability), source: AI.provider as "gemini" | "ollama", chatUsed }, want);
+    return applyWants({ ...rest, probability: clampP(out.probability), source: AI.provider as "gemini" | "ollama", chatUsed, trace }, want);
   }
   const h = heuristicAnalysis(input.title, days, input.history);
-  return applyWants(snippets.length ? applySnippetTilt(h, snippets) : h, want);
+  return applyWants({ ...(snippets.length ? applySnippetTilt(h, snippets) : h), trace }, want);
 }
 
 /** The poster's choices win over the AI's, whatever the model answered. */
@@ -318,9 +346,9 @@ export type RepriceInput = {
 /** "Saturday 2026-10-24": small models get weekdays wrong when left to work them out. */
 const day = (d: Date) => `${d.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" })} ${d.toISOString().slice(0, 10)}`;
 
-export async function repriceStocks(input: { today: Date; groupContext: string; stocks: RepriceInput[] }) {
+export async function repriceStocks(input: { today: Date; groupContext: string; stocks: RepriceInput[] }, trace?: Trace) {
   if (!input.stocks.length) return [];
-  const out = await askJson<{ updates: { id: number; probability: number; reason: string }[] }>(
+  const prompt =
     `You re-mark long-term "stocks" in a friends' play-money prediction market. Each pays out if the outcome happens by maturity.
 Today: ${day(input.today)}
 Group context (term dates, fixtures, deadlines): ${input.groupContext || "(none)"}
@@ -332,7 +360,10 @@ ${input.stocks
         (s.snippets?.length ? `\n  shared chat snippets ([SUBJECT] = the subject; ignore anything off-topic):\n${s.snippets.map((c) => `  · ${c.age}, ${c.who}: ${c.text}`).join("\n")}` : "")
   )
   .join("\n")}
-Give each reason in under 15 words.`,
+Give each reason in under 15 words.`;
+  if (trace) Object.assign(trace, { prompt });
+  const out = await askJson<{ updates: { id: number; probability: number; reason: string }[] }>(
+    prompt,
     {
       type: "object",
       properties: {
@@ -346,7 +377,9 @@ Give each reason in under 15 words.`,
         },
       },
       required: ["updates"],
-    }
+    },
+    undefined,
+    trace
   );
   if (out?.updates) return out.updates.map((u) => ({ ...u, probability: clampP(u.probability), source: AI.provider as "gemini" | "ollama" }));
   // Fallback: nudge by mood only.
