@@ -9,7 +9,7 @@ import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, pct, timeLeft } from "@/components/ui";
 import { GroupMark } from "@/components/shell";
-import { Chart, Check, Flag, Hourglass, Key, Lock, Plus, Send, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
+import { Chart, Check, Close, Flag, Hourglass, Key, Lock, Plus, Send, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
 import { Board, Insights } from "@/components/group-stats";
@@ -67,6 +67,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [messages, setMessages] = useState<Msg[]>([]);
   const [draft, setDraft] = useState("");
   const [newOpen, setNewOpen] = useState(false);
+  // Laptop: markets, board and insights live in a panel beside the chat, closed until asked for.
+  const [sideOpen, setSideOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reporting, setReporting] = useState<Msg | null>(null);
   const [err, setErr] = useState("");
@@ -218,6 +220,9 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           <Link href={`/markets?g=${id}`} className="flex items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1.5 text-sm font-semibold text-brand lg:hidden" aria-label="Open this chat's markets">
             <TrendUp size={14} /> {live} live
           </Link>
+          <button onClick={() => setSideOpen((v) => !v)} className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold lg:flex ${sideOpen ? "bg-white text-black" : "bg-brand/15 text-brand hover:bg-brand/25"}`} aria-pressed={sideOpen} title="Markets, leaderboard and insights for this chat">
+            <TrendUp size={14} /> {live} live
+          </button>
           <button onClick={() => setSettingsOpen(true)} className="hidden rounded-md p-2 text-mute hover:bg-white/5 hover:text-white lg:block" title="Chat settings">
             <Settings size={17} />
           </button>
@@ -286,13 +291,14 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           </form>
         </section>
 
-        <aside className="hidden min-h-0 w-full flex-col lg:flex lg:w-[400px] lg:border-l lg:border-line lg:bg-panel/50 xl:w-[440px]">
+        <aside className={`${sideOpen ? "lg:flex" : "hidden"} hidden min-h-0 w-full flex-col lg:w-[400px] lg:border-l lg:border-line lg:bg-panel/50 xl:w-[440px]`}>
           <nav className="hidden h-[57px] shrink-0 items-center gap-1 border-b border-line px-3 lg:flex">
             {PANELS.map((t) => (
               <button key={t} onClick={() => setPanel(t)} className={`rounded-lg px-3 py-1.5 text-sm ${panel === t ? "bg-white/[.08] text-white" : "text-mute hover:text-white"}`}>
                 {t}
               </button>
             ))}
+            <button onClick={() => setSideOpen(false)} className="ml-auto rounded-md p-1.5 text-mute hover:bg-white/5 hover:text-white" aria-label="Close panel"><Close size={16} /></button>
           </nav>
           <div className="thin-scroll flex-1 overflow-y-auto">
             {panel === "Markets" && <MarketList markets={feed.markets} members={members} now={feed.now} />}
