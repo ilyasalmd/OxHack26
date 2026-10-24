@@ -90,6 +90,51 @@ test("someone the result would pay can't confirm it", async () => {
   assert.equal(await status(id), "open");
 });
 
+const ageDeadline = (id: number, hours: number) =>
+  db.query(`UPDATE markets SET resolves_at = now() - make_interval(hours => $2) WHERE id = $1`, [id, hours]);
+
+test("every situation gets an answer: unclaimed for 3 days, it settles the way the market leans", async () => {
+  const id = await open("Bob makes it to the 9am");
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 80 });
+  await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 10 });
+  await ageDeadline(id, 71);
+  await mk.settleUnclaimed(db);
+  assert.equal(await status(id), "open", "still inside the 3 days");
+  await ageDeadline(id, 73);
+  await mk.settleUnclaimed(db);
+  const m = await mk.getMarket(db, id);
+  assert.equal(m.status, "resolved");
+  assert.equal(m.outcome, true);
+});
+
+test("unclaimed and too close to call, or never traded, it's called off and refunded", async () => {
+  const id = await open("Cara finds her keys");
+  const start = await balance(people.bob);
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 1 });
+  await ageDeadline(id, 73);
+  await mk.settleUnclaimed(db);
+  const m = await mk.getMarket(db, id);
+  assert.equal(m.status, "void");
+  assert.equal(m.void_reason, "unclaimed");
+  assert.ok(Math.abs((await balance(people.bob)) - start) < 0.01, "the stake comes back");
+  const quiet = await open("Nobody trades this");
+  await ageDeadline(quiet, 73);
+  await mk.settleUnclaimed(db);
+  assert.equal(await status(quiet), "void");
+});
+
+test("an early claim nobody confirmed by the deadline settles a day after it, like any proposal", async () => {
+  const id = await open("Alice hands in the form");
+  await mk.proposeResult(people.bob, id, true, PROOF);
+  await db.query(`UPDATE markets SET proposed_at = now() - interval '2 days' WHERE id = $1`, [id]);
+  await ageDeadline(id, 23);
+  await mk.finaliseProposals(db);
+  assert.equal(await status(id), "open");
+  await ageDeadline(id, 25);
+  await mk.finaliseProposals(db);
+  assert.equal(await status(id), "resolved");
+});
+
 test("the subject can't confirm a result about themselves", async () => {
   const id = await open("Bob gets to the gym three times", "bob");
   await mk.proposeResult(people.alice, id, true, PROOF);

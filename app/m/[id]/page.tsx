@@ -13,7 +13,7 @@ import { fmtLine, priceMeaning, sides, typeLabel } from "@/lib/labels";
 import { formatOdds, useOddsFormat } from "@/lib/odds";
 import { ArrowUpRight, Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
-import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
+import { SETTLE_WINDOW_HOURS, maturityRule } from "@/lib/safety";
 import { groupKey } from "@/components/groupkeys";
 import { primeAttachment, shrinkImage, uploadEncrypted, useAttachment } from "@/components/media";
 
@@ -35,7 +35,7 @@ type Detail = {
     id: number; group_id: number; kind: "bet" | "stock"; answer: "yesno" | "number"; line: number | null; unit: string; actual: number | null; decay: string; title: string; description: string; category: string; resolution_rule: string;
     ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string; evidence: number | null;
     chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
-    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number;
+    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | "unclaimed" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number;
   };
   creator: Person;
   subject: Person | null;
@@ -298,6 +298,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               {m.void_reason === "veto" && `${d.subject?.display_name ?? "The person it was about"} called it off.`}
               {m.void_reason === "dispute" && "The proposed result was disputed."}
               {m.void_reason === "reports" && "Members reported it."}
+              {m.void_reason === "unclaimed" && "Nobody called it within 3 days of the deadline, and the market was too close to call."}
               {!m.void_reason && "It was voided."} Everyone was refunded what they spent, so nobody wins or loses.
             </p>
           </section>
@@ -400,6 +401,8 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           <div className="mt-3 border-t border-line pt-3">
             <div className="text-xs font-semibold uppercase tracking-wider text-mute">Resolution rule</div>
             <p className="mt-1">{m.resolution_rule}</p>
+            <div className="mt-3 text-xs font-semibold uppercase tracking-wider text-mute">What happens at maturity</div>
+            <p className="mt-1 text-mute">{maturityRule(lbl.yesShort, lbl.noShort)}</p>
           </div>
           {me.account?.isAdmin && (
             <Link href={`/chain/pricing/${m.id}`} className="mt-3 flex items-center justify-between rounded-xl bg-ink px-3 py-2.5 text-sm hover:bg-white/[.06]">

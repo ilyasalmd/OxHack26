@@ -5,6 +5,18 @@
 export const SETTLE_WINDOW_HOURS = 24;
 export const SETTLE_WINDOW_MS = SETTLE_WINDOW_HOURS * 3600_000;
 
+/** Every situation gets an answer: if nobody has put a result forward this long after the deadline,
+ * it settles the way the market leans. */
+export const MATURITY_FALLBACK_HOURS = 72;
+export const MATURITY_FALLBACK_MS = MATURITY_FALLBACK_HOURS * 3600_000;
+/** Within this many points of 50%, or with nobody trading, it's too close to call: void and refund. */
+export const TOO_CLOSE_TO_CALL = 0.05;
+
+/** What happens at maturity, in words, for the rules card and the terms. */
+export function maturityRule(yes = "YES", no = "NO") {
+  return `After the deadline, whoever posted it calls the result, and a day later anyone can (never the person it's about). It settles when another member confirms it, or after ${SETTLE_WINDOW_HOURS} hours with no dispute. A dispute calls it off and refunds everyone. If nobody calls it within ${MATURITY_FALLBACK_HOURS / 24} days of the deadline, it settles the way the market leans: above 50% the ${yes} side wins, below 50% the ${no} side does; if the market is within ${TOO_CLOSE_TO_CALL * 100} points of 50% or nobody traded, it's called off and everyone is refunded.`;
+}
+
 /** This many distinct members reporting a situation voids it (its subject alone is enough). */
 export const REPORTS_TO_VOID = 2;
 

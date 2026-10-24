@@ -77,10 +77,10 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
           note: m.proposed_note,
           by: people.find((p) => p.id === m.proposed_by) ?? null,
           at: m.proposed_at,
-          // An early "it already happened" waits for a confirmation instead of a timer.
-          early: m.proposed_early,
+          // An early "it already happened" waits for a confirmation until the deadline, then for the usual timer.
+          early: m.proposed_early && new Date(m.resolves_at) > now(),
           evidenceId: m.proposed_evidence,
-          settlesAt: m.proposed_early ? null : new Date(new Date(m.proposed_at as Date).getTime() + SETTLE_WINDOW_MS),
+          settlesAt: new Date(Math.max(new Date(m.proposed_at as Date).getTime(), new Date(m.resolves_at).getTime()) + SETTLE_WINDOW_MS),
         }
       : null,
     // This member's copy of the chat key, to open (or encrypt) a photo of evidence on this page.

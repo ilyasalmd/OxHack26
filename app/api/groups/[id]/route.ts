@@ -83,7 +83,8 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
       proposed_outcome: m.proposed_outcome,
       proposed_by: m.proposed_by,
       proposed_at: m.proposed_at,
-      proposed_early: m.proposed_early,
+      // Once the deadline passes, an early claim is handled like any other proposal.
+      proposed_early: m.proposed_early && new Date(m.resolves_at) > now(),
       void_reason: m.void_reason,
       closed: isClosed(m),
       price: price(m),

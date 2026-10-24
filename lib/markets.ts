@@ -12,7 +12,7 @@ import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter
 import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import type { Snippet } from "./chat-context";
-import { SETTLE_WINDOW_MS, topicProblem } from "./safety";
+import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, TOO_CLOSE_TO_CALL, topicProblem } from "./safety";
 
 export type MarketRow = {
   id: number;
@@ -50,7 +50,7 @@ export type MarketRow = {
   proposed_early: boolean;
   /** A photo attached as evidence (encrypted with the chat's key). */
   proposed_evidence: number | null;
-  void_reason: "veto" | "dispute" | "reports" | null;
+  void_reason: "veto" | "dispute" | "reports" | "unclaimed" | null;
   created_at: Date;
   resolves_at: Date;
   resolved_at: Date | null;
@@ -478,7 +478,8 @@ export async function confirmResult(user: User, marketId: number) {
 export async function disputeResult(user: User, marketId: number) {
   const m = await reviewer(user, marketId);
   // An early "it happened" that someone doesn't accept just goes away: it can still happen before the deadline.
-  if (m.proposed_early) {
+  // After the deadline it's an ordinary proposal, and a dispute calls the situation off.
+  if (m.proposed_early && new Date(m.resolves_at) > now()) {
     const db = await getDb();
     return db.tx(async (q) => {
       const [cleared] = await q.query(
@@ -510,7 +511,7 @@ const round2 = (x: number) => Math.round(x * 100) / 100;
  * sells), through credit() so the Solana mirror stays in step. Positions are zeroed. Safe to call
  * twice: only the call that flips the status refunds anyone.
  */
-export async function voidMarket(marketId: number, opts: { reason: "veto" | "dispute" | "reports"; actorId: number | null; text: string }) {
+export async function voidMarket(marketId: number, opts: { reason: "veto" | "dispute" | "reports" | "unclaimed"; actorId: number | null; text: string }) {
   const db = await getDb();
   return db.tx(async (q) => {
     const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
@@ -556,12 +557,13 @@ export async function callOffSituationsAbout(userId: number, displayName: string
 }
 
 /** A proposal nobody reviewed for 24 hours (app clock) settles as proposed. Called by the worker.
- * An early "it happened" never settles this way: it needs another member to confirm it. */
+ * An early "it happened" can't settle this way before the deadline: until then it needs another
+ * member to confirm it. If it's still waiting at the deadline, it's an ordinary proposal from then. */
 export async function finaliseProposals(q: Q) {
   // On the admin's demo clock, only the admin's own groups move forward.
   const ahead = aheadOfRealTime();
   const due = await q.query<MarketRow>(
-    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NOT NULL AND NOT proposed_early AND proposed_at <= $1
+    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NOT NULL AND GREATEST(proposed_at, resolves_at) <= $1
        AND ($2::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $2)) ORDER BY proposed_at`,
     [new Date(now().getTime() - SETTLE_WINDOW_MS), ahead?.userId ?? null]
   );
@@ -571,6 +573,39 @@ export async function finaliseProposals(q: Q) {
     } catch (e) {
       // Someone else (a confirm, a veto) got there first.
       if (!(e instanceof HttpError)) console.warn("[finalise]", (e as Error).message);
+    }
+  }
+}
+
+/**
+ * Every situation reaches an answer once it matures. If nobody has put a result forward within
+ * MATURITY_FALLBACK_HOURS of the deadline, it settles the way the market leans; when the market is
+ * too close to call, or nobody traded, it's called off and everyone is refunded. Called by the worker.
+ */
+export async function settleUnclaimed(q: Q) {
+  const ahead = aheadOfRealTime();
+  const due = await q.query<MarketRow>(
+    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NULL AND resolves_at <= $1
+       AND ($2::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $2)) ORDER BY resolves_at`,
+    [new Date(now().getTime() - MATURITY_FALLBACK_MS), ahead?.userId ?? null]
+  );
+  const days = MATURITY_FALLBACK_HOURS / 24;
+  for (const m of due) {
+    const p = priceYes(book(m));
+    const [{ n }] = await q.query<{ n: number }>(`SELECT count(*)::int AS n FROM trades WHERE market_id = $1`, [m.id]);
+    try {
+      if (!n || Math.abs(p - 0.5) < TOO_CLOSE_TO_CALL)
+        await voidMarket(m.id, {
+          reason: "unclaimed",
+          actorId: null,
+          text: `nobody called “${m.title}” within ${days} days of the deadline and ${n ? `the market was too close to call (${Math.round(p * 100)}%)` : "nobody traded it"}, so it was called off and everyone was refunded`,
+        });
+      else
+        await settle(m, p > 0.5, "", null, {
+          suffix: `nobody called it within ${days} days of the deadline, so it went the way the market leaned, at ${Math.round(p * 100)}%`,
+        });
+    } catch (e) {
+      if (!(e instanceof HttpError)) console.warn("[unclaimed]", (e as Error).message);
     }
   }
 }
@@ -622,6 +657,7 @@ async function rememberOutcome(m: MarketRow, outcome: boolean, crowd: number, pa
 /** Long-dated "by date X" stocks lose value as time passes with no news. */
 export async function runDecay(q: Q) {
   await finaliseProposals(q);
+  await settleUnclaimed(q);
   const ahead = aheadOfRealTime();
   const rows = await q.query<MarketRow>(
     `SELECT * FROM markets WHERE status = 'open' AND decay = 'hazard'
