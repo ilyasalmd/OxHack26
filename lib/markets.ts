@@ -12,7 +12,7 @@ import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter
 import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import type { Snippet } from "./chat-context";
-import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, TOO_CLOSE_TO_CALL, topicProblem } from "./safety";
+import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, TOO_CLOSE_TO_CALL, topicProblem, votesNeeded } from "./safety";
 
 export type MarketRow = {
   id: number;
@@ -364,7 +364,7 @@ export async function resolveMarket(user: User, marketId: number, outcome: boole
 }
 
 /** `caller`, when set, is the person whose say-so settles it now; they mustn't gain from this outcome (see callableBy). */
-async function settle(m: MarketRow, outcome: boolean, note: string, actorId: number | null, opts: { waitForMemory?: boolean; suffix?: string; caller?: number } = {}) {
+async function settle(m: MarketRow, outcome: boolean, note: string, actorId: number | null, opts: { waitForMemory?: boolean; suffix?: string; caller?: number; votes?: VoteState } = {}) {
   const marketId = m.id;
   const db = await getDb();
   const crowd = priceYes(book(m));
@@ -403,7 +403,9 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
       how: opts.suffix ?? "settled",
       note,
       proposedBy: m.proposed_by,
-      confirmedBy: opts.caller ?? null,
+      calledBy: opts.caller ?? null,
+      // Account numbers only. On the chain this whole record is just its hash.
+      votes: opts.votes ? { confirmedBy: opts.votes.confirms, rejectedBy: opts.votes.rejects, eligible: opts.votes.eligible.length, needed: opts.votes.needed } : null,
       evidence: proof ? sha256(Buffer.from(proof.data).toString("base64")) : null,
       crowd: +crowd.toFixed(4),
       terms: termsHash(m),
@@ -412,7 +414,7 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     await systemMessage(q, m.group_id, "resolution", `resolved ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
-      JSON.stringify({ app: "friendstakes", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4), h: settled }),
+      JSON.stringify({ app: "friendstakes", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4), ...(opts.votes ? { votes: `${opts.votes.confirms.length}/${opts.votes.eligible.length}` } : {}), h: settled }),
       now(),
     ]);
     return out;
@@ -465,13 +467,14 @@ export async function proposeResult(user: User, marketId: number, result: boolea
       `UPDATE markets SET proposed_outcome = $2, proposed_by = $3, proposed_at = $4, proposed_note = $5, proposed_early = $6, proposed_evidence = $7 WHERE id = $1`,
       [marketId, outcome, user.id, now(), note.slice(0, 200), early, evidenceId]
     );
+    await q.query(`DELETE FROM stake_votes WHERE market_id = $1`, [marketId]);
     await systemMessage(
       q,
       m.group_id,
       "system",
       early
-        ? `says “${m.title}” already happened${evidenceId != null ? " and added a photo" : ""}. It settles once another member checks the evidence and confirms it`
-        : `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. Another member can confirm or dispute it; with no reply it settles in 24 hours`,
+        ? `says “${m.title}” already happened${evidenceId != null ? " and added a photo" : ""}. It settles once most of the group checks the evidence and confirms it`
+        : `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. The group votes: it settles once most confirm, and with no majority against it settles in 24 hours`,
       marketId,
       user.id
     );
@@ -479,43 +482,95 @@ export async function proposeResult(user: User, marketId: number, result: boolea
   });
 }
 
-/** Someone who is neither the subject nor the proposer may settle or dispute a proposal. */
-async function reviewer(user: User, marketId: number) {
+export type VoteState = { eligible: number[]; needed: number; confirms: number[]; rejects: number[] };
+
+/**
+ * Who may vote on the proposed result and how the vote stands. Voters are the chat's own members
+ * (not quiet guests), minus the proposer, the person it's about, and anyone the proposed result
+ * would pay (the same rule as calling it, so friends on the same side can't wave it through).
+ */
+export async function voteState(q: Q, m: MarketRow): Promise<VoteState> {
+  if (m.proposed_outcome == null) return { eligible: [], needed: 0, confirms: [], rejects: [] };
+  const rows = await q.query<{ user_id: number; guest: boolean; yes_shares: number | null; no_shares: number | null }>(
+    `SELECT gm.user_id, gm.guest, p.yes_shares, p.no_shares FROM group_members gm
+     LEFT JOIN positions p ON p.market_id = $2 AND p.user_id = gm.user_id WHERE gm.group_id = $1`,
+    [m.group_id, m.id]
+  );
+  const holding = (r: (typeof rows)[number]) => (r.yes_shares != null ? { yes_shares: r.yes_shares, no_shares: r.no_shares ?? 0 } : null);
+  const past = new Date(m.resolves_at) <= now();
+  const eligible = rows
+    .filter((r) => !r.guest && r.user_id !== m.proposed_by && r.user_id !== m.subject_id)
+    .filter((r) => mayCall(m.proposed_outcome!, holding(r), rows.filter((o) => o.user_id !== r.user_id && o.user_id !== m.subject_id).map(holding), past))
+    .map((r) => r.user_id);
+  const votes = await q.query<{ user_id: number; confirm: boolean }>(`SELECT user_id, confirm FROM stake_votes WHERE market_id = $1 ORDER BY created_at`, [m.id]);
+  const counted = votes.filter((v) => eligible.includes(v.user_id));
+  return {
+    eligible,
+    needed: votesNeeded(eligible.length),
+    confirms: counted.filter((v) => v.confirm).map((v) => v.user_id),
+    rejects: counted.filter((v) => !v.confirm).map((v) => v.user_id),
+  };
+}
+
+/** Drops a proposed result: its votes go, and trading opens again if the deadline hasn't passed. */
+async function clearProposal(q: Q, m: MarketRow, text: string, actorId: number | null) {
+  const [cleared] = await q.query(
+    `UPDATE markets SET proposed_outcome = NULL, proposed_by = NULL, proposed_at = NULL, proposed_note = '', proposed_early = false, proposed_evidence = NULL
+      WHERE id = $1 AND status = 'open' AND proposed_outcome IS NOT NULL RETURNING id`,
+    [m.id]
+  );
+  if (!cleared) return false;
+  await q.query(`DELETE FROM stake_votes WHERE market_id = $1`, [m.id]);
+  await systemMessage(q, m.group_id, "system", text, m.id, actorId);
+  return true;
+}
+
+const tally = (v: VoteState) => ({ confirm: v.confirms.length, reject: v.rejects.length, eligible: v.eligible.length, needed: v.needed });
+
+/**
+ * One member's vote on the proposed result. Once more than half of the members who can vote
+ * confirm it, it settles; once more than half reject it, the claim is dropped (and trading opens
+ * again if the deadline hasn't passed). A member can change their vote until it's decided.
+ */
+export async function voteOnResult(user: User, marketId: number, confirm: boolean) {
   const db = await getDb();
-  const m = await getMarket(db, marketId);
-  assertOpen(m);
-  if (m.proposed_outcome == null) throw new HttpError(400, "Nobody has proposed a result yet");
-  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't confirm or dispute it. You can call the stake off instead.");
-  if (m.proposed_by === user.id) throw new HttpError(403, "You proposed this result, so another member has to review it");
-  await assertMember(db, m.group_id, user.id);
-  return m;
-}
-
-export async function confirmResult(user: User, marketId: number) {
-  const m = await reviewer(user, marketId);
-  // The confirmer can't be someone the result pays either, so two friends with the same bet can't wave it through.
-  assertMayCall(await callableBy(await getDb(), m, user.id), m.proposed_outcome!);
-  return settle(m, m.proposed_outcome!, m.proposed_note, user.id, { suffix: "confirmed", caller: user.id });
-}
-
-export async function disputeResult(user: User, marketId: number) {
-  const m = await reviewer(user, marketId);
-  // An early "it happened" that someone doesn't accept just goes away: it can still happen before the deadline.
-  // After the deadline it's an ordinary proposal, and a dispute calls the situation off.
-  if (m.proposed_early && new Date(m.resolves_at) > now()) {
-    const db = await getDb();
-    return db.tx(async (q) => {
-      const [cleared] = await q.query(
-        `UPDATE markets SET proposed_outcome = NULL, proposed_by = NULL, proposed_at = NULL, proposed_note = '', proposed_early = false, proposed_evidence = NULL
-          WHERE id = $1 AND status = 'open' AND proposed_early RETURNING id`,
-        [marketId]
-      );
-      if (cleared) await systemMessage(q, m.group_id, "system", `doesn't accept that “${m.title}” has happened yet, so trading is open again`, marketId, user.id);
-      return { reopened: !!cleared };
+  const out = await db.tx(async (q) => {
+    const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
+    if (!m) throw new HttpError(404, "Market not found");
+    assertOpen(m);
+    if (m.proposed_outcome == null) throw new HttpError(400, "Nobody has proposed a result yet");
+    if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't confirm or dispute it. You can call the stake off instead.");
+    if (m.proposed_by === user.id) throw new HttpError(403, "You proposed this result, so another member has to review it");
+    await assertMember(q, m.group_id, user.id);
+    const before = await voteState(q, m);
+    if (!before.eligible.includes(user.id)) {
+      const [g] = await q.query<{ guest: boolean }>(`SELECT guest FROM group_members WHERE group_id = $1 AND user_id = $2`, [m.group_id, user.id]);
+      if (g?.guest) throw new HttpError(403, "Only the chat's own members vote on results");
+      throw new HttpError(403, "You'd gain from this result, so the friends who wouldn't gain vote on it");
+    }
+    await q.query(
+      `INSERT INTO stake_votes (market_id, user_id, confirm, created_at) VALUES ($1,$2,$3,$4)
+       ON CONFLICT (market_id, user_id) DO UPDATE SET confirm = EXCLUDED.confirm, created_at = EXCLUDED.created_at`,
+      [marketId, user.id, confirm, now()]
+    );
+    const v = await voteState(q, m);
+    if (v.rejects.length >= v.needed) {
+      const reopen = new Date(m.resolves_at) > now();
+      await clearProposal(q, m, `Most of the group rejected that “${m.title}” ${m.proposed_early && reopen ? "has happened yet" : `went ${(m.proposed_outcome ? sides(m).yes : sides(m).no).toUpperCase()}`} (${v.rejects.length} of ${v.eligible.length}), so the claim was dropped${reopen ? " and trading is open again" : ""}`, null);
+      return { m, v, decided: "dropped" as const };
+    }
+    await systemMessage(q, m.group_id, "system", `${confirm ? "confirmed" : "rejected"} the result: ${v.confirms.length} of ${v.needed} confirmations needed`, marketId, user.id);
+    return { m, v, decided: v.confirms.length >= v.needed ? ("settle" as const) : null };
+  });
+  if (out.decided === "settle")
+    await settle(out.m, out.m.proposed_outcome!, out.m.proposed_note, null, { suffix: `${out.v.confirms.length} of ${out.v.eligible.length} confirmed`, votes: out.v }).catch((e) => {
+      if (!(e instanceof HttpError)) throw e;
     });
-  }
-  return voidMarket(marketId, { reason: "dispute", actorId: user.id, text: `disputed the result, so “${m.title}” is void and everyone was refunded` });
+  return { ...tally(out.v), decided: out.decided === "settle" ? "settled" : out.decided };
 }
+
+export const confirmResult = (user: User, marketId: number) => voteOnResult(user, marketId, true);
+export const disputeResult = (user: User, marketId: number) => voteOnResult(user, marketId, false);
 
 /** The person a situation is about can call it off any time before it settles. Idempotent. */
 export async function vetoMarket(user: User, marketId: number) {
@@ -593,7 +648,13 @@ export async function finaliseProposals(q: Q) {
   );
   for (const m of due) {
     try {
-      await settle(m, m.proposed_outcome!, m.proposed_note, m.proposed_by, { suffix: "no objections in 24h" });
+      // The vote ran out of time: the proposer's word stands unless more people rejected it than confirmed it.
+      const v = await voteState(q, m);
+      if (v.rejects.length > v.confirms.length) {
+        await clearProposal(q, m, `The vote on “${m.title}” ran out with more rejections than confirmations (${v.rejects.length} to ${v.confirms.length}), so the claim was dropped`, null);
+        continue;
+      }
+      await settle(m, m.proposed_outcome!, m.proposed_note, m.proposed_by, { suffix: v.confirms.length || v.rejects.length ? `vote ran out ${v.confirms.length}-${v.rejects.length}, so it stands` : "no objections in 24h", votes: v });
     } catch (e) {
       // Someone else (a confirm, a veto) got there first.
       if (!(e instanceof HttpError)) console.warn("[finalise]", (e as Error).message);

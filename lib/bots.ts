@@ -5,7 +5,7 @@ import { askJson } from "./ai";
 import { setTyping } from "./chat";
 import { creatorKey, SAMPLE_GROUPS } from "./demo";
 import { encryptMessage, importGroupKey, unwrapGroupKey } from "./e2ee";
-import { book, getMarket, trade } from "./markets";
+import { book, getMarket, trade, voteOnResult, voteState } from "./markets";
 import { priceYes } from "./lmsr";
 import { maxStake } from "./economy";
 import { PEOPLE } from "../scripts/seed-content";
@@ -91,6 +91,31 @@ async function runBots(marketId: number, posterId: number) {
   const [pos] = await db.query<{ yes_shares: number; no_shares: number }>(`SELECT yes_shares, no_shares FROM positions WHERE market_id = $1 AND user_id = $2`, [marketId, seller.b.id]);
   const held = pos ? (seller.side === "yes" ? pos.yes_shares : pos.no_shares) : 0;
   if (held > 2) await trade(asUser(seller.b), marketId, { side: seller.side, action: "sell", amount: Math.round(held * 0.4) }, { bot: true }).catch((e) => console.warn("[bots] sell", (e as Error).message));
+}
+
+/** Demo only: when someone proposes a result in a sample chat, the sample people who can vote do, over the next half minute. */
+export function startBotVotes(marketId: number) {
+  if (!DEMO_BOTS) return;
+  runVotes(marketId).catch((e) => console.warn("[bots] votes", (e as Error).message));
+}
+
+async function runVotes(marketId: number) {
+  const db = await getDb();
+  const m = await getMarket(db, marketId);
+  const [sample] = await db.query(`SELECT 1 FROM groups gr WHERE gr.id = $1 AND ${SAMPLE_GROUPS}`, [m.group_id]);
+  if (!sample) return;
+  const { eligible } = await voteState(db, m);
+  const voters = shuffle(
+    (await db.query<Bot>(`SELECT id, username, display_name, public_key, balance FROM users WHERE id = ANY($1::int[]) AND deleted_at IS NULL`, [eligible])).filter((b) => BOTS.has(b.username))
+  );
+  for (const b of voters) {
+    await sleep(4000 + Math.random() * 8000);
+    const now = await getMarket(db, marketId);
+    if (now.status !== "open" || now.proposed_outcome == null || now.proposed_at?.toString() !== m.proposed_at?.toString()) return;
+    // Mostly they agree with what a friend says happened; now and then someone pushes back.
+    const confirm = Math.random() < (m.proposed_early ? 0.8 : 0.85);
+    await voteOnResult(asUser(b), marketId, confirm).catch((e) => console.warn("[bots] vote", (e as Error).message));
+  }
 }
 
 async function stillOpen(marketId: number) {

@@ -1,7 +1,7 @@
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
-import { PROPOSE_GRACE_MS, callableBy, getMarket, isClosed, price } from "@/lib/markets";
+import { PROPOSE_GRACE_MS, callableBy, getMarket, isClosed, price, voteState } from "@/lib/markets";
 import { maxStake } from "@/lib/economy";
 import { tradeFee } from "@/lib/markets";
 import { findSimilar } from "@/lib/memory";
@@ -58,6 +58,9 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [user.id]);
   const closed = isClosed(m);
   const callable = await callableBy(db, m, user.id);
+  const vote = m.status === "open" && m.proposed_outcome != null ? await voteState(db, m) : null;
+  const voters = vote ? await db.query<{ id: number; display_name: string; color: string }>(`SELECT id, display_name, color FROM users WHERE id = ANY($1::int[])`, [[...vote.confirms, ...vote.rejects]]) : [];
+  const named = (ids: number[]) => ids.map((i) => voters.find((v) => v.id === i)).filter(Boolean);
   const isSubject = m.subject_id === user.id;
   const open = m.status === "open";
   const proposed = open && m.proposed_outcome != null;
@@ -81,6 +84,8 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
           early: m.proposed_early && new Date(m.resolves_at) > now(),
           evidenceId: m.proposed_evidence,
           settlesAt: new Date(Math.max(new Date(m.proposed_at as Date).getTime(), new Date(m.resolves_at).getTime()) + SETTLE_WINDOW_MS),
+          // The group's vote: it settles at `needed` confirmations and is dropped at `needed` rejections.
+          votes: vote ? { needed: vote.needed, eligible: vote.eligible.length, confirms: named(vote.confirms), rejects: named(vote.rejects) } : null,
         }
       : null,
     // This member's copy of the chat key, to open (or encrypt) a photo of evidence on this page.
@@ -103,7 +108,8 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       canResolve:
         open && !proposed && !isSubject && (new Date(m.resolves_at) > now() || m.creator_id === user.id || now().getTime() >= new Date(m.resolves_at).getTime() + PROPOSE_GRACE_MS),
       early: open && new Date(m.resolves_at) > now(),
-      canConfirm: proposed && !isSubject && m.proposed_by !== user.id,
+      canConfirm: !!vote?.eligible.includes(user.id),
+      myVote: vote?.confirms.includes(user.id) ? true : vote?.rejects.includes(user.id) ? false : null,
       canVeto: open && isSubject,
       canReport: m.creator_id !== user.id || isSubject,
       reported: !!mine,

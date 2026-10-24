@@ -61,6 +61,7 @@ export type MarketLite = {
   proposed_at: string | null;
   /** Said to have happened before the deadline, with evidence: settles only on a confirmation. */
   proposed_early?: boolean;
+  votes?: { needed: number; confirms: number; rejects: number; canVote: boolean; mine: boolean | null } | null;
   void_reason: string | null;
   closed: boolean;
   price: number;
@@ -820,7 +821,8 @@ function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const by = mk.proposed_by ? members.get(mk.proposed_by) : null;
-  const canReview = meId !== mk.subject_id && meId !== mk.proposed_by;
+  const v = mk.votes;
+  const canReview = !!v?.canVote;
   const settlesAt = mk.proposed_at ? new Date(mk.proposed_at).getTime() + SETTLE_WINDOW_HOURS * 3600e3 : 0;
   async function go(what: "confirm" | "dispute") {
     setBusy(true);
@@ -839,33 +841,41 @@ function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite;
       <div>
         <span className="text-mute">{by?.display_name ?? "Someone"} {mk.proposed_early ? "says it already happened: " : "proposed "}</span>
         <b className={mk.proposed_outcome ? "text-up" : "text-down"}>{(mk.proposed_outcome ? sides(mk).yes : sides(mk).no).toUpperCase()}</b>
-        <span className="text-mute">. {canReview ? (mk.proposed_early ? "Check the evidence before you confirm." : "Is that right?") : mk.proposed_by === meId ? "Waiting for another member." : "It's about you, so you can only call it off."}</span>
+        <span className="text-mute">. {canReview ? (mk.proposed_early ? "Check the evidence before you vote." : "Is that right?") : mk.proposed_by === meId ? "The group is voting on it." : meId === mk.subject_id ? "It's about you, so you can only call it off." : "You'd gain from it, so you don't vote."}</span>
       </div>
-      <div className="mt-0.5 text-xs text-mute">
+      {v && (
+        <div className="mt-2 flex items-center gap-2 text-xs">
+          <div className="flex h-1.5 flex-1 gap-1">
+            {Array.from({ length: Math.max(1, v.needed) }, (_, i) => <span key={i} className={`flex-1 rounded-full ${i < v.confirms ? "bg-up" : "bg-white/10"}`} />)}
+          </div>
+          <span className="shrink-0 text-mute tabular">{v.confirms} of {v.needed} confirmed{v.rejects ? ` · ${v.rejects} rejected` : ""}</span>
+        </div>
+      )}
+      <div className="mt-1 text-xs text-mute">
         {mk.proposed_early
-          ? "Only settles when another member confirms it."
+          ? "Settles once most of the group confirms it."
           : settlesAt > new Date(now).getTime()
-            ? `Settles on its own in ${timeLeft(new Date(settlesAt), now).replace(" left", "")} if nobody replies.`
+            ? `If the vote isn't decided, it settles in ${timeLeft(new Date(settlesAt), now).replace(" left", "")} unless more people reject it.`
             : "Settling any moment now."}
       </div>
       {canReview && mk.proposed_early && (
         <Link href={`/m/${mk.id}`} className="mt-2.5 block rounded-xl bg-white/[.07] py-2 text-center text-sm font-medium hover:bg-white/10">
-          See the evidence
+          See the evidence and vote
         </Link>
       )}
       {canReview && !mk.proposed_early &&
         (asking ? (
           <div className="mt-2.5 space-y-2">
-            <p className="text-xs text-mute">Disputing voids the stake for everyone and refunds every trade.</p>
+            <p className="text-xs text-mute">If most of the group rejects it, the claim is dropped and someone can propose the right result.</p>
             <div className="grid grid-cols-2 gap-2">
               <Button variant="ghost" className="!py-2 text-sm" disabled={busy} onClick={() => setAsking(false)}>Cancel</Button>
-              <Button variant="down" className="!py-2 text-sm" disabled={busy} onClick={() => go("dispute")}>Void and refund</Button>
+              <Button variant="down" className="!py-2 text-sm" disabled={busy} onClick={() => go("dispute")}>Reject it</Button>
             </div>
           </div>
         ) : (
           <div className="mt-2.5 grid grid-cols-2 gap-2">
-            <Button variant="up" className="!py-2 text-sm" disabled={busy} onClick={() => go("confirm")}>Confirm</Button>
-            <Button variant="ghost" className="!py-2 text-sm" disabled={busy} onClick={() => setAsking(true)}>Dispute</Button>
+            <Button variant="up" className="!py-2 text-sm" disabled={busy || v?.mine === true} onClick={() => go("confirm")}>{v?.mine === true ? "You confirmed" : "Confirm"}</Button>
+            <Button variant={v?.mine === false ? "down" : "ghost"} className="!py-2 text-sm" disabled={busy || v?.mine === false} onClick={() => setAsking(true)}>{v?.mine === false ? "You rejected" : "Reject"}</Button>
           </div>
         ))}
       {err && <p className="mt-2 text-xs text-down">{err}</p>}

@@ -2,7 +2,7 @@ import { z } from "zod";
 import { getDb } from "@/lib/db";
 import { HttpError, requireMember, route } from "@/lib/auth";
 import { body, idParam, type IdCtx } from "@/lib/http";
-import { price, isClosed, type MarketRow } from "@/lib/markets";
+import { price, isClosed, voteState, type MarketRow, type VoteState } from "@/lib/markets";
 import { now } from "@/lib/clock";
 import { AVATAR_COLS, whoIsTyping } from "@/lib/chat";
 
@@ -60,6 +60,9 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
          AND (gm.read_upto < LEAST($4::bigint, x.top) OR gm.delivered_upto < LEAST(GREATEST($3::bigint, $4::bigint), x.top))`,
       [id, user.id, newest, read]
     );
+  // The vote on each proposed result, for the card in the chat.
+  const votes = new Map<number, VoteState>();
+  for (const m of markets) if (m.status === "open" && m.proposed_outcome != null) votes.set(m.id, await voteState(db, m));
   return {
     group,
     members,
@@ -86,6 +89,9 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
       // Once the deadline passes, an early claim is handled like any other proposal.
       proposed_early: m.proposed_early && new Date(m.resolves_at) > now(),
       void_reason: m.void_reason,
+      votes: votes.has(m.id)
+        ? (({ eligible, needed, confirms, rejects }) => ({ needed, confirms: confirms.length, rejects: rejects.length, canVote: eligible.includes(user.id), mine: confirms.includes(user.id) ? true : rejects.includes(user.id) ? false : null }))(votes.get(m.id)!)
+        : null,
       closed: isClosed(m),
       price: price(m),
       open_prob: m.open_prob,

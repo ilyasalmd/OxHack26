@@ -39,14 +39,14 @@ type Detail = {
   };
   creator: Person;
   subject: Person | null;
-  proposal: { outcome: boolean; note: string; by: Person | null; at: string; early: boolean; evidenceId: number | null; settlesAt: string | null } | null;
+  proposal: { outcome: boolean; note: string; by: Person | null; at: string; early: boolean; evidenceId: number | null; settlesAt: string | null; votes: { needed: number; eligible: number; confirms: Person[]; rejects: Person[] } | null } | null;
   myKey: { wrapped_key: string; wrapper_public_key: string } | null;
   ticks: { ts: string; price: number; source: string }[];
   candles: { bucket: string; open: number; high: number; low: number; close: number; volume: number; n: number }[];
   trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string; bot?: boolean }[];
   position: { yes_shares: number; no_shares: number; spent: number } | null;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -208,7 +208,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             : "A bet is locked once placed and rides to the result."}{" "}
           At maturity the winning shares pay out. If only one person traded, they just get their money back.
         </li>
-        <li>If it&apos;s called off (by the person it&apos;s about, a dispute, reports, or a market too close to call), everyone gets back exactly what they put in, fees included.</li>
+        <li>If it&apos;s called off (by the person it&apos;s about, by reports, or because nobody called it and the market was too close to call), everyone gets back exactly what they put in, fees included.</li>
       </ul>
     </Fold>
   );
@@ -345,9 +345,30 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               {d.me.canConfirm
                 ? " Does that match what happened?"
                 : d.me.isSubject
-                  ? " It's about you, so you can't confirm or dispute it, but you can call it off."
-                  : " Another member has to confirm or dispute it."}
+                  ? " It's about you, so you don't vote on it, but you can call it off."
+                  : proposal.by?.id === me.user.id
+                    ? " The rest of the chat votes on it now."
+                    : " You'd gain from this result, so the friends who wouldn't gain vote on it."}
             </p>
+            {proposal.votes && (
+              <div className="mt-3 rounded-xl bg-ink p-3">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-semibold">{proposal.votes.confirms.length} of {proposal.votes.needed} confirmations</span>
+                  <span className="text-xs text-mute">{proposal.votes.eligible} can vote · {proposal.votes.needed} settles it or drops it</span>
+                </div>
+                <div className="mt-2 flex h-1.5 gap-1">
+                  {Array.from({ length: proposal.votes.needed }, (_, i) => (
+                    <span key={i} className={`flex-1 rounded-full ${i < proposal.votes!.confirms.length ? "bg-up" : "bg-white/10"}`} />
+                  ))}
+                </div>
+                {(proposal.votes.confirms.length > 0 || proposal.votes.rejects.length > 0) && (
+                  <p className="mt-2 text-xs text-mute">
+                    {proposal.votes.confirms.length > 0 && <>Confirmed: {proposal.votes.confirms.map((p) => p.display_name).join(", ")}. </>}
+                    {proposal.votes.rejects.length > 0 && <>Rejected: {proposal.votes.rejects.map((p) => p.display_name).join(", ")}.</>}
+                  </p>
+                )}
+              </div>
+            )}
             {proposal.evidenceId != null && (
               <div className="mt-3 overflow-hidden rounded-xl border border-line bg-ink">
                 {evidenceUrl && evidenceUrl !== "error" ? (
@@ -360,18 +381,16 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             )}
             <p className="mt-2 text-xs text-mute">
               {proposal.early
-                ? "It's before the deadline, so it only settles once another member checks this and confirms it. Disputing it opens trading again."
+                ? "It's before the deadline, so it only settles once most of the group checks this and confirms it. If most reject it, trading opens again."
                 : proposal.settlesAt && new Date(proposal.settlesAt).getTime() > now
-                  ? `If nobody replies, it settles as proposed in ${timeLeft(proposal.settlesAt, new Date(now)).replace(" left", "")}.`
-                  : "Nobody replied in time, so it is about to settle as proposed."}
+                  ? `If the vote isn't decided in ${timeLeft(proposal.settlesAt, new Date(now)).replace(" left", "")}, it settles as proposed unless more people rejected it than confirmed it.`
+                  : "The vote ran out of time, so it is about to settle as proposed unless more people rejected it."}
             </p>
             {d.me.canConfirm && (
               <div className="mt-3 grid grid-cols-2 gap-2">
-                <Button variant="up" disabled={busy || !(proposal.outcome ? d.me.canResolveYes : d.me.canResolveNo)} onClick={() => act("confirm")}>Confirm</Button>
-                <Button variant="ghost" disabled={busy} onClick={() => setConfirming("dispute")}>Dispute</Button>
-                {!(proposal.outcome ? d.me.canResolveYes : d.me.canResolveNo) && (
-                  <p className="col-span-2 text-xs text-mute">You&apos;d gain from this result, so someone who wouldn&apos;t gain has to confirm it. You can still dispute it.</p>
-                )}
+                <Button variant="up" disabled={busy || d.me.myVote === true} onClick={() => act("confirm")}>{d.me.myVote === true ? "You confirmed" : "Confirm"}</Button>
+                <Button variant={d.me.myVote === false ? "down" : "ghost"} disabled={busy || d.me.myVote === false} onClick={() => setConfirming("dispute")}>{d.me.myVote === false ? "You rejected" : "Reject"}</Button>
+                {d.me.myVote != null && <p className="col-span-2 text-xs text-mute">You can change your vote until the group decides.</p>}
               </div>
             )}
           </section>
@@ -507,9 +526,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         <div className="space-y-3">
           <p className="text-sm text-mute">{m.resolution_rule}</p>
           {d.me.early ? (
-            <p className="text-xs text-mute">It&apos;s before the deadline, so you can only say it already happened, and you need proof: say what happened, or add a photo. Trading pauses, and it settles only when another member (not the person it&apos;s about, and not someone it pays) checks it and confirms. If someone disputes it, trading opens again.</p>
+            <p className="text-xs text-mute">It&apos;s before the deadline, so you can only say it already happened, and you need proof: say what happened, or add a photo. Trading pauses while the rest of the chat votes (not the person it&apos;s about, and not anyone it pays). It settles once more than half of them confirm; if more than half reject it, trading opens again.</p>
           ) : (
-            <p className="text-xs text-mute">Trading closes now. Another member (not the person it&apos;s about) confirms or disputes your call. If nobody does, it settles as you proposed after {SETTLE_WINDOW_HOURS} hours. A dispute calls the stake off and refunds everyone.</p>
+            <p className="text-xs text-mute">Trading closes now and the rest of the chat votes (not the person it&apos;s about, and not anyone your call pays). It settles once more than half confirm, and your claim is dropped if more than half reject it. If the vote isn&apos;t decided within {SETTLE_WINDOW_HOURS} hours, it settles as you proposed unless more people rejected it than confirmed it.</p>
           )}
           {isNumber ? (
             <>
@@ -579,20 +598,20 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         </div>
       </Sheet>
 
-      <Sheet open={!!confirming} onClose={() => setConfirming(null)} title={confirming === "veto" ? "Call this one off?" : "Dispute this result?"}>
+      <Sheet open={!!confirming} onClose={() => setConfirming(null)} title={confirming === "veto" ? "Call this one off?" : "Reject this result?"}>
         <div className="space-y-4">
           <p className="text-sm text-mute">
             {confirming === "veto"
               ? "The stake is voided for everyone. Every trade is refunded in full, it leaves the live list, and the chat is told you called it off. You can't undo this."
               : d.proposal?.early
-                ? "You don't think it has happened yet. The claim is dropped and trading opens again; it can still happen before the deadline."
-                : "The stake is voided for everyone instead of settling. Every trade is refunded in full. You can't undo this."}
+                ? "You don't think it has happened yet. If most of the group agrees with you, the claim is dropped and trading opens again; it can still happen before the deadline."
+                : "You don't think that's the result. If most of the group agrees with you, the claim is dropped and someone can propose the right one."}
           </p>
           {err && <p className="text-sm text-down">{err}</p>}
           <div className="flex gap-2">
             <Button variant="ghost" className="flex-1" onClick={() => setConfirming(null)}>Cancel</Button>
             <Button variant="down" className="flex-[2]" disabled={busy} onClick={() => act(confirming === "veto" ? "veto" : "dispute")}>
-              {busy ? "Working…" : confirming === "veto" ? "Call it off" : d.proposal?.early ? "Not yet, reopen it" : "Dispute and refund"}
+              {busy ? "Working…" : confirming === "veto" ? "Call it off" : "Reject it"}
             </Button>
           </div>
         </div>
