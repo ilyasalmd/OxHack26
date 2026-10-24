@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { applyShares, priceYes, sharesForAmount, type Book, type Side } from "@/lib/lmsr";
 import { sides, type Sided } from "@/lib/labels";
+import { decimalOdds, formatOdds, useOddsFormat } from "@/lib/odds";
 import { Button, fmt, pct } from "./ui";
 
 /** Decimal odds, the way a bookmaker shows them: stake 1 returns this. */
@@ -30,6 +31,7 @@ type Props = {
  * it returns, one tap. A stock reads like a broker's: Buy or Short, the price, what the shares pay.
  */
 export function BetSlip({ market, book, side, onSide, canShort, balance, maxStake, floor, ticker, fee = 0, lister, busy, err, onPlace }: Props) {
+  const [f] = useOddsFormat();
   const [amount, setAmount] = useState(Math.min(10, Math.max(1, Math.floor(maxStake))));
   const [raw, setRaw] = useState(String(Math.min(10, Math.max(1, Math.floor(maxStake)))));
   useEffect(() => setRaw(String(amount)), [amount]);
@@ -58,8 +60,8 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2">
-        <Pick on={side === "yes"} tone="up" onClick={() => onSide("yes")} label={yesLabel} value={show(pYes)} sub={stock && !number ? "share price" : `odds ${odds(pYes)}`} />
-        <Pick on={side === "no"} tone="down" disabled={!canShort} onClick={() => canShort && onSide("no")} label={noLabel} value={show(1 - pYes)} sub={!canShort ? "not for you" : stock && !number ? "if it doesn't happen" : `odds ${odds(1 - pYes)}`} />
+        <Pick on={side === "yes"} tone="up" onClick={() => onSide("yes")} label={yesLabel} value={stock && !number ? show(pYes) : formatOdds(pYes, f)} sub={stock && !number ? "share price" : `${pct(pYes)} chance`} />
+        <Pick on={side === "no"} tone="down" disabled={!canShort} onClick={() => canShort && onSide("no")} label={noLabel} value={stock && !number ? show(1 - pYes) : formatOdds(1 - pYes, f)} sub={!canShort ? "not for you" : stock && !number ? "if it doesn't happen" : `${pct(1 - pYes)} chance`} />
       </div>
 
       <div className="rounded-2xl border border-line bg-ink p-4">
@@ -110,7 +112,7 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
       <Button variant={side === "yes" ? "up" : "down"} className="w-full !py-3.5 text-[17px]" disabled={busy || !ok} onClick={() => onPlace(side, amount)}>
         {busy ? "Placing…" : stock && !number ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount + fee, fee ? 1 : 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
       </Button>
-      <p className="text-center text-[11px] text-mute">Each share pays 1 {ticker} if you&apos;re right, nothing if not. Price {show(price)} per share now.</p>
+      <p className="text-center text-[11px] text-mute">{stock && !number ? `Each share pays 1 ${ticker} if it happens, nothing if not. Price ${show(price)} now.` : `Odds ${formatOdds(price, f)}: stake 1 returns ${decimalOdds(price)} if you're right.`}</p>
     </div>
   );
 }

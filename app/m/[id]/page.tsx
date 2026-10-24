@@ -9,6 +9,7 @@ import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, f
 import { TimeMachine } from "@/components/timemachine";
 import { proceedsForShares, type Side } from "@/lib/lmsr";
 import { fmtLine, priceMeaning, sides, typeLabel } from "@/lib/labels";
+import { formatOdds, useOddsFormat } from "@/lib/odds";
 import { Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
@@ -50,6 +51,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [hover, setHover] = useState<{ t: number; v: number } | null>(null);
   // The slip's side; on a phone it opens as a sheet, on a laptop it sits beside the chart.
   const [side, setSide] = useState<Side>("yes");
+  const [oddsFmt] = useOddsFormat();
   const [slipOpen, setSlipOpen] = useState(false);
   const [resolveOpen, setResolveOpen] = useState(false);
   const [note, setNote] = useState("");
@@ -297,13 +299,13 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           <div className="mt-5 grid grid-cols-2 gap-2 lg:hidden">
             <button onClick={() => { setSide("yes"); setSlipOpen(true); }} className="rounded-2xl bg-up px-4 py-3 text-left text-black transition active:scale-[.98]">
               <div className="text-sm font-semibold">{lbl.yes}</div>
-              <div className="text-2xl font-semibold tracking-tight tabular">{show(m.price)}</div>
-              {!isStock && <div className="text-[11px] text-black/60">odds {odds(m.price)}</div>}
+              <div className="text-2xl font-semibold tracking-tight tabular">{isStock && !isNumber ? show(m.price) : formatOdds(m.price, oddsFmt)}</div>
+              {!(isStock && !isNumber) && <div className="text-[11px] text-black/60">{pct(m.price)} chance</div>}
             </button>
             <button onClick={() => { setSide("no"); setSlipOpen(true); }} disabled={!d.me.canShort} className="rounded-2xl bg-down px-4 py-3 text-left text-white transition active:scale-[.98] disabled:opacity-40">
               <div className="text-sm font-semibold">{lbl.no}</div>
-              <div className="text-2xl font-semibold tracking-tight tabular">{show(1 - m.price)}</div>
-              {!isStock && <div className="text-[11px] text-white/60">odds {odds(1 - m.price)}</div>}
+              <div className="text-2xl font-semibold tracking-tight tabular">{isStock && !isNumber ? show(1 - m.price) : formatOdds(1 - m.price, oddsFmt)}</div>
+              {!(isStock && !isNumber) && <div className="text-[11px] text-white/60">{pct(1 - m.price)} chance</div>}
             </button>
           </div>
         )}

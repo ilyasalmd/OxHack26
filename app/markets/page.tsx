@@ -4,7 +4,7 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
-import { odds } from "@/components/bet-slip";
+import { formatOdds, useOddsFormat } from "@/lib/odds";
 import { Change, LiveNumber, fmt, pct, timeLeft } from "@/components/ui";
 import { Timer, TrendUp } from "@/components/icons";
 import { fmtLine } from "@/lib/labels";
@@ -108,7 +108,8 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 
 /** One line per situation: what it is, when it settles, and the number that matters. */
 function Row({ s, now, showGroup }: { s: Situation; now: string; showGroup: boolean }) {
-  const stock = s.kind === "stock";
+  const [f] = useOddsFormat();
+  const stock = s.kind === "stock" && s.answer !== "number";
   const move = Math.round(s.change * 1000) / 10;
   return (
     <Link href={`/m/${s.id}`} className="flex items-center gap-3.5 px-5 py-3 active:bg-white/5 lg:rounded-2xl lg:hover:bg-white/[.04]">
@@ -125,9 +126,9 @@ function Row({ s, now, showGroup }: { s: Situation; now: string; showGroup: bool
         </div>
       </div>
       <div className="shrink-0 text-right">
-        <div className="text-[17px] font-semibold tabular"><LiveNumber value={s.price}>{stock ? fmt(s.price * 100, 1) : pct(s.price)}</LiveNumber></div>
-        <div className="text-[12px] tabular">
-          {move !== 0 ? <Change from={s.price - s.change} to={s.price} /> : <span className="text-mute">{stock ? "flat today" : `odds ${odds(s.price)}`}</span>}
+        <div className="text-[17px] font-semibold tabular"><LiveNumber value={s.price}>{stock ? fmt(s.price * 100, 1) : formatOdds(s.price, f)}</LiveNumber></div>
+        <div className="text-[12px] tabular text-mute">
+          {stock ? (move !== 0 ? <Change from={s.price - s.change} to={s.price} /> : "flat today") : <>{pct(s.price)} chance{move !== 0 && <> · <Change from={s.price - s.change} to={s.price} /></>}</>}
         </div>
       </div>
     </Link>

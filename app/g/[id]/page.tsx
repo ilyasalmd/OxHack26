@@ -7,7 +7,7 @@ import { api } from "@/components/api";
 import { addMember, groupKey, shareKeyWithNewcomers } from "@/components/groupkeys";
 import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
-import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, pct, timeLeft } from "@/components/ui";
+import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, fmt, pct, timeLeft } from "@/components/ui";
 import { GroupMark } from "@/components/shell";
 import { Chart, Check, Close, Flag, Hourglass, Key, Lock, Plus, Send, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
@@ -18,6 +18,7 @@ import { moodScores } from "@/lib/mood";
 import { selectSnippets, type Snippet } from "@/lib/chat-context";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
 import { sides, typeLabel } from "@/lib/labels";
+import { formatOdds, useOddsFormat } from "@/lib/odds";
 
 export type Member = { id: number; username: string; display_name: string; color: string; public_key: string; balance: number; has_key: boolean; subject_policy: "anyone" | "nobody" };
 export type MarketLite = {
@@ -424,50 +425,7 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onRepo
     );
   }
   const mk = m.market_id ? markets.get(m.market_id) : null;
-  if ((m.kind === "market" || m.kind === "resolution") && mk) {
-    const resolved = mk.status === "resolved";
-    const voided = mk.status === "void";
-    const pending = mk.status === "open" && mk.proposed_outcome != null;
-    const settledNow = m.kind === "resolution";
-    const live = !resolved && !voided && !mk.closed;
-    return (
-      <div className="msg-in my-4 flex justify-center">
-        <div className={`w-full max-w-[92%] overflow-hidden rounded-2xl border bg-panel shadow-[0_8px_30px_-12px_rgba(0,0,0,.6)] lg:max-w-md ${settledNow ? (mk.outcome ? "border-up/30" : "border-down/30") : "border-line"}`}>
-          <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-xs text-mute">
-            {who ? <Avatar name={who.display_name} color={who.color} size={18} /> : <Sparkle size={14} />}
-            <span><b className="font-medium text-white/85">{who?.display_name ?? "Someone"}</b> {settledNow ? "settled a " : "posted a "}{mk.kind === "stock" ? "stock" : "bet"}</span>
-            <span className="ml-auto tabular">{clock(m.created_at)}</span>
-          </div>
-          <Link href={`/m/${mk.id}`} className="block px-4 pt-3 hover:bg-white/[.02]">
-            <div className="flex items-center gap-2 text-[11px] text-mute">
-              <Badge tone={mk.kind === "stock" ? "brand" : "mute"}>{typeLabel(mk)}</Badge>
-              <span className="ml-auto">{voided ? "called off" : resolved ? "settled" : pending ? "result proposed" : timeLeft(mk.resolves_at, now)}</span>
-            </div>
-            <div className={`mt-1.5 text-[17px] font-semibold leading-snug ${voided ? "text-mute line-through decoration-white/30" : ""}`}>{mk.title}</div>
-            <div className="mt-3 flex items-end justify-between">
-              <div className="text-3xl font-semibold tracking-tight tabular">
-                {voided ? <span className="text-mute">Called off</span> : resolved ? <span className={mk.outcome ? "text-up" : "text-down"}>{mk.outcome ? sides(mk).yes : sides(mk).no}</span> : <LiveNumber value={mk.price}>{pct(mk.price)}</LiveNumber>}
-              </div>
-              <div className="text-right text-xs text-mute">
-                {!resolved && !voided && <Change from={mk.open_prob} to={mk.price} />}
-                <div className="tabular">{voided ? "everyone refunded" : `${mk.volume.toFixed(0)} ${ticker} traded`}</div>
-              </div>
-            </div>
-            {!resolved && !voided && <div className="mt-3 h-1 overflow-hidden rounded-full bg-down/30"><div className="h-full rounded-full bg-up transition-[width] duration-700" style={{ width: `${mk.price * 100}%` }} /></div>}
-          </Link>
-          {pending && <ProposalActions mk={mk} meId={meId} members={members} now={now} onReview={onReview} />}
-          {live ? (
-            <div className="grid grid-cols-2 gap-2 p-3">
-              <Link href={`/m/${mk.id}?side=yes`} className="rounded-xl bg-up/10 py-2 text-center text-sm font-semibold text-up transition hover:bg-up/20">{sides(mk).yes}</Link>
-              <Link href={`/m/${mk.id}?side=no`} className="rounded-xl bg-down/10 py-2 text-center text-sm font-semibold text-down transition hover:bg-down/20">{sides(mk).no}</Link>
-            </div>
-          ) : (
-            <div className="h-3" />
-          )}
-        </div>
-      </div>
-    );
-  }
+  if ((m.kind === "market" || m.kind === "resolution") && mk) return <MarketCard m={m} mk={mk} who={who} now={now} ticker={ticker} meId={meId} members={members} onReview={onReview} />;
   return (
     <div className="my-2 text-center text-xs text-mute">
       {m.market_id ? (
@@ -486,6 +444,64 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onRepo
 }
 
 /** The pending-result strip on a chat card: confirm it, or (after a second tap) void it and refund everyone. */
+/**
+ * A situation in the chat, kept quiet: who posted it, the question, then one row of two odds
+ * buttons. Bets read like a bookmaker's (odds first, chance small); stocks show their price.
+ */
+function MarketCard({ m, mk, who, now, meId, members, onReview }: { m: Msg; mk: MarketLite; who: Member | null | undefined; now: string; ticker: string; meId: number; members: Map<number, Member>; onReview: (marketId: number, what: "confirm" | "dispute") => Promise<void> }) {
+  const [fmtOdds] = useOddsFormat();
+  const resolved = mk.status === "resolved";
+  const voided = mk.status === "void";
+  const pending = mk.status === "open" && mk.proposed_outcome != null;
+  const settledNow = m.kind === "resolution";
+  const live = !resolved && !voided && !mk.closed;
+  const stock = mk.kind === "stock" && mk.answer !== "number";
+  const lbl = sides(mk);
+  const type = typeLabel(mk);
+  const when = voided ? "called off" : resolved ? "settled" : pending ? "result proposed" : stock ? `matures ${new Date(mk.resolves_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : timeLeft(mk.resolves_at, now);
+  return (
+    <div className="msg-in my-4 flex justify-center">
+      <div className={`w-full max-w-[92%] overflow-hidden rounded-2xl bg-panel lg:max-w-md ${settledNow ? (mk.outcome ? "ring-1 ring-up/40" : "ring-1 ring-down/40") : ""}`}>
+        <Link href={`/m/${mk.id}`} className="block px-4 pt-3.5 hover:bg-white/[.02]">
+          <div className="flex items-center gap-2 text-xs text-mute">
+            {who ? <Avatar name={who.display_name} color={who.color} size={16} /> : <Sparkle size={13} />}
+            <span className="truncate"><b className="font-medium text-white/80">{who?.display_name ?? "Someone"}</b> · {type === "Yes or no" ? when : `${type} · ${when}`}</span>
+            <span className="ml-auto shrink-0 tabular">{clock(m.created_at)}</span>
+          </div>
+          <div className={`mt-2 text-[17px] font-semibold leading-snug ${voided ? "text-mute line-through decoration-white/30" : ""}`}>{mk.title}</div>
+          {(resolved || voided) && (
+            <div className="mt-2 text-sm font-semibold">
+              {voided ? <span className="text-mute">Called off, everyone refunded</span> : <span className={mk.outcome ? "text-up" : "text-down"}>{mk.outcome ? lbl.yes : lbl.no}</span>}
+            </div>
+          )}
+        </Link>
+        {pending && <ProposalActions mk={mk} meId={meId} members={members} now={now} onReview={onReview} />}
+        {live ? (
+          <div className="grid grid-cols-2 gap-2 p-3">
+            <OddsButton href={`/m/${mk.id}?side=yes`} tone="up" label={lbl.yes} big={stock ? fmt(mk.price * 100, 1) : formatOdds(mk.price, fmtOdds)} small={stock ? "price" : pct(mk.price)} />
+            <OddsButton href={`/m/${mk.id}?side=no`} tone="down" label={lbl.no} big={stock ? fmt((1 - mk.price) * 100, 1) : formatOdds(1 - mk.price, fmtOdds)} small={stock ? "price" : pct(1 - mk.price)} />
+          </div>
+        ) : (
+          <div className="h-3.5" />
+        )}
+      </div>
+    </div>
+  );
+}
+
+function OddsButton({ href, tone, label, big, small }: { href: string; tone: "up" | "down"; label: string; big: string; small: string }) {
+  const t = tone === "up" ? "bg-up/10 text-up hover:bg-up/20" : "bg-down/10 text-down hover:bg-down/20";
+  return (
+    <Link href={href} className={`flex items-center justify-between rounded-xl px-3.5 py-2.5 transition ${t}`}>
+      <span className="truncate text-sm font-semibold">{label}</span>
+      <span className="ml-2 text-right leading-tight">
+        <span className="block text-[17px] font-semibold tabular">{big}</span>
+        <span className="block text-[10px] text-white/45 tabular">{small}</span>
+      </span>
+    </Link>
+  );
+}
+
 function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite; meId: number; members: Map<number, Member>; now: string; onReview: (marketId: number, what: "confirm" | "dispute") => Promise<void> }) {
   const [asking, setAsking] = useState(false);
   const [busy, setBusy] = useState(false);

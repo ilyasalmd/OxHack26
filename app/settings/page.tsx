@@ -9,6 +9,7 @@ import { SafetySettings } from "@/components/safety-settings";
 import { Avatar, Badge, Button, Input, Sheet, TopBar, ago } from "@/components/ui";
 import { Check, ChevronRight, Key } from "@/components/icons";
 import { forgetIdentities } from "@/lib/e2ee";
+import { ODDS_FORMATS, useOddsFormat } from "@/lib/odds";
 
 type Account = { username: string; displayName: string; color: string; createdAt: string; hasRecovery: boolean; usernameChangedAt: string | null; nextUsernameChangeAt: string | null };
 type Session = { id: string; device: string; place: string; createdAt: string; lastSeenAt: string; current: boolean };
@@ -111,6 +112,7 @@ const SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "security", label: "Security" },
   { id: "privacy", label: "Privacy" },
+  { id: "odds", label: "Odds" },
   { id: "devices", label: "Devices" },
   { id: "danger", label: "Danger zone" },
 ];
@@ -190,6 +192,9 @@ function Laptop({ account, sessions, changed, loadSessions, open }: PageProps) {
           <SessionsList layout="card" sessions={sessions} reload={loadSessions} />
         </Section>
 
+        <Section id="odds" title="Odds" description="How a bet's price is written. Just this device.">
+          <OddsChoice />
+        </Section>
         <Section id="danger" title="Danger zone">
           <Card
             tone="danger"
@@ -580,9 +585,28 @@ function Phone({ account, sessions, open }: PageProps) {
         <h2 className="px-1 pb-2 text-xs font-medium uppercase tracking-wider text-mute">Privacy</h2>
         <SafetySettings />
       </section>
+      <section>
+        <h2 className="px-1 pb-2 text-xs font-medium uppercase tracking-wider text-mute">Odds</h2>
+        <OddsChoice />
+      </section>
       <Group title="Danger zone">
         <Row label="Delete account" danger onClick={() => open("delete")} />
       </Group>
+    </div>
+  );
+}
+
+/** Decimal, fractional or American, remembered on this device. */
+function OddsChoice() {
+  const [f, setF] = useOddsFormat();
+  return (
+    <div className="grid grid-cols-3 gap-1 rounded-2xl bg-panel p-1">
+      {ODDS_FORMATS.map((o) => (
+        <button key={o.k} type="button" onClick={() => setF(o.k)} aria-pressed={f === o.k} className={`rounded-xl py-2.5 text-center transition ${f === o.k ? "bg-white text-black" : "text-mute hover:text-white"}`}>
+          <div className="text-sm font-semibold">{o.label}</div>
+          <div className={`text-xs tabular ${f === o.k ? "text-black/50" : ""}`}>{o.example}</div>
+        </button>
+      ))}
     </div>
   );
 }
