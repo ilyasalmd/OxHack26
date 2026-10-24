@@ -62,7 +62,7 @@ export default function Portfolio() {
           <span className="tabular">{p.wallet.onChain == null ? "–" : fmt(p.wallet.onChain)}</span>
         </div>
       ) : (
-        <p className="mt-2 text-mute">Chain sync is off: set SOLANA_PAYER_SECRET and SOLANA_MINT to mirror every stake (burn) and payout (mint) on devnet.</p>
+        <p className="mt-2 text-mute">Chain sync is off: set SOLANA_PAYER_SECRET and SOLANA_MINT to mirror every buy-in (burn) and payout (mint) on devnet.</p>
       )}
       <div className="mt-3 space-y-1.5">
         {p.chain.slice(0, 8).map((op) => (

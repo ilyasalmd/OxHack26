@@ -58,12 +58,12 @@ export function ReportSheet({
   }
 
   return (
-    <Sheet open={open} onClose={onClose} title={kind === "situation" ? "Report this situation" : "Report this message"}>
+    <Sheet open={open} onClose={onClose} title={kind === "situation" ? "Report this stake" : "Report this message"}>
       {sent ? (
         <div className="space-y-4">
           <p className="text-sm text-mute">
             {sent.voided
-              ? "Thanks. This situation has been called off and everyone was refunded."
+              ? "Thanks. This stake has been called off and everyone was refunded."
               : kind === "message"
                 ? "Thanks. We hid this message for you."
                 : "Thanks. If another member reports it too, it will be called off and everyone refunded."}
@@ -97,7 +97,7 @@ export function ReportSheet({
           )}
           <p className="text-xs text-mute">
             {kind === "situation"
-              ? "Reports are private. If two members report a situation, or the person it's about does, it is called off and everyone is refunded."
+              ? "Reports are private. If two members report a stake, or the person it's about does, it is called off and everyone is refunded."
               : "Reports are private. The message is hidden for you straight away."}
           </p>
           {err && <p className="text-sm text-down">{err}</p>}

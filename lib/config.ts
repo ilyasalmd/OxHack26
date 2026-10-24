@@ -79,3 +79,6 @@ export const isAdminUsername = (username: string) =>
 // New sign-ups join them automatically and `npm run demo:join` adds existing accounts. Set
 // DEMO_DATA_FOR_ALL=false for real use, so an account only sees the chats it's actually in.
 export const DEMO_DATA_FOR_ALL = process.env.DEMO_DATA_FOR_ALL !== "false";
+// Demo only: when someone posts a stake in a sample chat, the sample people in it chat and trade
+// by themselves, through the normal rules and ledger. DEMO_BOTS=false turns it off.
+export const DEMO_BOTS = DEMO_MODE && process.env.DEMO_BOTS !== "false";

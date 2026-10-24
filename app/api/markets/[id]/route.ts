@@ -7,6 +7,7 @@ import { tradeFee } from "@/lib/markets";
 import { findSimilar } from "@/lib/memory";
 import { now } from "@/lib/clock";
 import { SETTLE_WINDOW_MS } from "@/lib/safety";
+import { isAdminUsername } from "@/lib/config";
 
 export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const id = await idParam(ctx);
@@ -45,9 +46,10 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     return { ...c, open, close, high: Math.max(Number(c.high), open), low: Math.min(Number(c.low), open), volume: v ? Number(v.volume) : 0, n: v ? Number(v.n) : 0 };
   });
   const trades = await db.query(
-    `SELECT t.id, t.side, t.action, t.shares, t.coins, t.price_after, t.created_at, u.display_name, u.color
+    // Only the admin is told which trades the demo bots made.
+    `SELECT t.id, t.side, t.action, t.shares, t.coins, t.price_after, t.created_at, u.display_name, u.color, (t.bot AND $2) AS bot
      FROM trades t JOIN users u ON u.id = t.user_id WHERE t.market_id = $1 ORDER BY t.created_at DESC LIMIT 30`,
-    [id]
+    [id, isAdminUsername(user.username)]
   );
   const [position] = await db.query(`SELECT yes_shares, no_shares, spent FROM positions WHERE market_id = $1 AND user_id = $2`, [id, user.id]);
   const people = await db.query<{ id: number; display_name: string; username: string; color: string }>(

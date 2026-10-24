@@ -91,7 +91,7 @@ async function subjectFor(q: Q, groupId: number, username?: string | null, creat
 /** The subject, after checking they're in the group and haven't opted out (people can always post about themselves). */
 async function consentedSubject(q: Q, groupId: number, username: string | null | undefined, creatorId?: number) {
   const u = await subjectFor(q, groupId, username, creatorId);
-  if (u && u.subject_policy === "nobody" && u.id !== creatorId) throw new HttpError(400, `${u.display_name} has turned off situations about them`);
+  if (u && u.subject_policy === "nobody" && u.id !== creatorId) throw new HttpError(400, `${u.display_name} has turned off stakes about them`);
   return u ? { id: u.id, display_name: u.display_name, username: u.username } : null;
 }
 
@@ -118,7 +118,7 @@ export type Preview = {
 
 export async function previewSituation(groupId: number, input: SituationInput, creatorId?: number): Promise<Preview> {
   const title = input.title.trim();
-  if (title.length < 4) throw new HttpError(400, "Describe the situation in a few words");
+  if (title.length < 4) throw new HttpError(400, "Describe the stake in a few words");
   const banned = topicProblem(title, input.description);
   if (banned) throw new HttpError(400, banned);
   const resolvesAt = new Date(input.resolvesAt);
@@ -236,18 +236,18 @@ export async function getMarket(q: Q, id: number) {
   return m;
 }
 
-export async function trade(user: User, marketId: number, input: { side: Side; action: "buy" | "sell"; amount: number }) {
+export async function trade(user: User, marketId: number, input: { side: Side; action: "buy" | "sell"; amount: number }, opts: { bot?: boolean } = {}) {
   const db = await getDb();
   const result = await db.tx(async (q) => {
     const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
     if (!m) throw new HttpError(404, "Market not found");
     const [member] = await q.query(`SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`, [m.group_id, user.id]);
     if (!member) throw new HttpError(403, "You're not in this group");
-    if (m.status === "void") throw new HttpError(400, "This situation was called off");
+    if (m.status === "void") throw new HttpError(400, "This stake was called off");
     if (m.status === "open" && m.proposed_outcome != null) throw new HttpError(400, "A result has been proposed, so trading is closed");
     if (isClosed(m)) throw new HttpError(400, "Trading has closed on this one");
     if (m.subject_id === user.id) {
-      if (m.kind === "bet") throw new HttpError(400, "You can't bet on a situation about yourself");
+      if (m.kind === "bet") throw new HttpError(400, "You can't bet on a stake about yourself");
       if (input.side === "no" && input.action === "buy") throw new HttpError(400, "You can only go long on yourself. Invest in yourself!");
     }
     // A bet is a bet: once placed it rides to the result. Stocks can be traded until maturity.
@@ -262,7 +262,7 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       const cap = maxStake(u.balance);
       if (!(coins >= ECONOMY.minTrade)) throw new HttpError(400, `Minimum trade is ${ECONOMY.minTrade}`);
       if (coins > cap + 1e-9)
-        throw new HttpError(400, `Max stake right now is ${cap.toFixed(2)} (${ECONOMY.maxStakeFraction * 100}% of balance, keeping ${ECONOMY.balanceFloor} safe)`);
+        throw new HttpError(400, `Max trade right now is ${cap.toFixed(2)} (${ECONOMY.maxStakeFraction * 100}% of balance, keeping ${ECONOMY.balanceFloor} safe)`);
       if (fee > 0 && u.balance - coins - fee < ECONOMY.balanceFloor - 1e-9) throw new HttpError(400, `That plus the ${fee} fee would take you under the ${ECONOMY.balanceFloor} safety floor`);
       shares = sharesForAmount(bk, input.side, coins);
       bk = applyShares(bk, input.side, shares);
@@ -290,8 +290,8 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       [marketId, user.id, input.side === "yes" ? sign * shares : 0, input.side === "no" ? sign * shares : 0, sign * coins]
     );
     await q.query(
-      `INSERT INTO trades (market_id, user_id, side, action, shares, coins, price_before, price_after, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [marketId, user.id, input.side, input.action, shares, coins, before, after, ts]
+      `INSERT INTO trades (market_id, user_id, side, action, shares, coins, price_before, price_after, created_at, bot) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [marketId, user.id, input.side, input.action, shares, coins, before, after, ts, !!opts.bot]
     );
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'trade')`, [marketId, ts, after]);
     await credit(q, user.id, input.action === "buy" ? -coins : coins, `${input.action} ${input.side === "yes" ? "long" : "short"} · ${m.title}`, marketId);
@@ -344,7 +344,7 @@ async function assertMember(q: Q, groupId: number, userId: number) {
 }
 
 function assertOpen(m: MarketRow) {
-  if (m.status === "void") throw new HttpError(400, "This situation was called off");
+  if (m.status === "void") throw new HttpError(400, "This stake was called off");
   if (m.status !== "open") throw new HttpError(400, "Already resolved");
 }
 
@@ -394,7 +394,7 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     const [held] = await q.query<{ fees_held: number }>(`UPDATE markets SET fees_held = 0 WHERE id = $1 AND fees_held > 0 RETURNING fees_held`, [marketId]);
     if (held && m.fees_held >= 0.01) await credit(q, m.creator_id, m.fees_held, `Listing fees · ${m.title}`, marketId);
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'resolve')`, [marketId, now(), outcome ? 1 : 0]);
-    const extra = [note, opts.suffix, lonely ? "only one person traded it, so stakes were returned" : ""].filter(Boolean).join(" · ");
+    const extra = [note, opts.suffix, lonely ? "only one person traded it, so everyone got their money back" : ""].filter(Boolean).join(" · ");
     await systemMessage(q, m.group_id, "resolution", `resolved ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
@@ -462,7 +462,7 @@ async function reviewer(user: User, marketId: number) {
   const m = await getMarket(db, marketId);
   assertOpen(m);
   if (m.proposed_outcome == null) throw new HttpError(400, "Nobody has proposed a result yet");
-  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't confirm or dispute it. You can call the situation off instead.");
+  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't confirm or dispute it. You can call the stake off instead.");
   if (m.proposed_by === user.id) throw new HttpError(403, "You proposed this result, so another member has to review it");
   await assertMember(db, m.group_id, user.id);
   return m;
@@ -612,7 +612,7 @@ export async function settleUnclaimed(q: Q) {
 
 function assertMayCall(callable: { yes: boolean; no: boolean }, outcome: boolean) {
   if (!callable[outcome ? "yes" : "no"])
-    throw new HttpError(403, `You'd gain from calling it ${outcome ? "that way" : "the other way"}, so a friend without that stake has to call it`);
+    throw new HttpError(403, `You'd gain from calling it ${outcome ? "that way" : "the other way"}, so a friend who wouldn't gain has to call it`);
 }
 
 /** Which way this user may call the market, given everyone's positions (see mayCall). */

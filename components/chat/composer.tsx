@@ -131,8 +131,8 @@ export function Composer({
         </div>
       ) : (
         <form onSubmit={submit} className="mx-auto flex max-w-3xl items-center gap-1.5 lg:gap-2">
-          <button type="button" onClick={onSituation} className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand px-3 text-sm font-semibold text-black hover:brightness-105" title="New situation">
-            <Plus size={17} /> <span className="hidden lg:inline">Situation</span>
+          <button type="button" onClick={onSituation} className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand px-3 text-sm font-semibold text-black hover:brightness-105" title="New stake">
+            <Plus size={17} /> <span className="hidden lg:inline">Stake</span>
           </button>
           <button type="button" onClick={() => filePick.current?.click()} disabled={disabled} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-mute hover:bg-white/5 hover:text-white disabled:opacity-40" title="Send a photo" aria-label="Send a photo">
             <ImageIcon size={19} />

@@ -525,7 +525,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           </div>
           {panel === "Markets" && (
             <div className="border-t border-line p-3">
-              <Button className="flex w-full items-center justify-center gap-2" onClick={() => setNewOpen(true)}><Plus size={16} /> New situation</Button>
+              <Button className="flex w-full items-center justify-center gap-2" onClick={() => setNewOpen(true)}><Plus size={16} /> New stake</Button>
             </div>
           )}
         </aside>
@@ -856,7 +856,7 @@ function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite;
       {canReview && !mk.proposed_early &&
         (asking ? (
           <div className="mt-2.5 space-y-2">
-            <p className="text-xs text-mute">Disputing voids the situation for everyone and refunds every trade.</p>
+            <p className="text-xs text-mute">Disputing voids the stake for everyone and refunds every trade.</p>
             <div className="grid grid-cols-2 gap-2">
               <Button variant="ghost" className="!py-2 text-sm" disabled={busy} onClick={() => setAsking(false)}>Cancel</Button>
               <Button variant="down" className="!py-2 text-sm" disabled={busy} onClick={() => go("dispute")}>Void and refund</Button>
@@ -909,7 +909,7 @@ function MarketList({ markets, members, now }: { markets: MarketLite[]; members:
           </section>
         ) : null
       )}
-      {!markets.length && <p className="p-10 text-center text-mute">No situations yet. Create the first one.</p>}
+      {!markets.length && <p className="p-10 text-center text-mute">No stakes yet. Create the first one.</p>}
     </div>
   );
 }
@@ -1215,7 +1215,7 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
         </div>
         <div>
           <div className="mb-1 text-sm font-semibold">AI context</div>
-          <p className="mb-2 text-xs text-mute">Shared with the AI to price situations: term dates, exam weeks, fixtures, deadlines. Chat messages are only shared if “AI reads relevant chat” below is on.</p>
+          <p className="mb-2 text-xs text-mute">Shared with the AI to price stakes: term dates, exam weeks, fixtures, deadlines. Chat messages are only shared if “AI reads relevant chat” below is on.</p>
           <textarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={4} placeholder="e.g. Autumn term ends 12 Dec. Exams 5–16 Jan. Results out 1 Jul." className="w-full rounded-xl border border-line bg-ink p-3 outline-none" />
           <Button variant="ghost" className="mt-2 w-full" onClick={saveCtx}>Save context</Button>
         </div>
@@ -1233,7 +1233,7 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
             <span>
               <span className="text-sm font-semibold">AI reads relevant chat</span>
               <span className="mt-1 block text-xs text-mute">
-                Off by default. When on, each phone picks up to 20 messages that match a situation, swaps names for roles (subject, Friend A…), strips emails,
+                Off by default. When on, each phone picks up to 20 messages that match a stake, swaps names for roles (subject, Friend A…), strips emails,
                 numbers and links, and sends only those to the AI. You see exactly what was sent before listing. Everything else stays end-to-end encrypted.
                 Everyone in the chat is told when this changes.
               </span>
@@ -1263,7 +1263,7 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
           {askLeave ? (
             <div className="space-y-3">
               <p className="text-sm text-mute">
-                Leave {dm && peer ? `your chat with ${peer.display_name}` : feed.group.name}? You&apos;ll lose access to the chat and its key. Your positions stay and still settle. Open situations about you are called off and refunded.
+                Leave {dm && peer ? `your chat with ${peer.display_name}` : feed.group.name}? You&apos;ll lose access to the chat and its key. Your positions stay and still settle. Open stakes about you are called off and refunded.
               </p>
               <div className="flex gap-2">
                 <Button variant="ghost" className="flex-1" onClick={() => setAskLeave(false)}>Stay</Button>

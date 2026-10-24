@@ -49,7 +49,7 @@ export function Board({ groupId, ticker, meId }: { groupId: number; ticker: stri
         </div>
       ))}
       <p className="px-2 pt-2 text-xs text-mute">
-        Ranked by net worth (cash + open positions at market price, one wallet across all your groups). Green/red is profit or loss from this group's situations only. Skill is a Brier skill score: +100 is perfect foresight, 0 is no better than saying 50% every time.
+        Ranked by net worth (cash + open positions at market price, one wallet across all your groups). Green/red is profit or loss from this group's stakes only. Skill is a Brier skill score: +100 is perfect foresight, 0 is no better than saying 50% every time.
       </p>
     </div>
   );
@@ -88,8 +88,8 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
     <div className="space-y-4 p-4">
       <section className="rounded-2xl border border-line bg-panel p-4">
         <h3 className="font-semibold">Who forecasts best?</h3>
-        <p className="mb-3 text-xs text-mute">Brier score over {s.n} settled situations. Lower is better.</p>
-        {s.n === 0 && <p className="text-sm text-mute">Settle a few situations to see this.</p>}
+        <p className="mb-3 text-xs text-mute">Brier score over {s.n} settled stakes. Lower is better.</p>
+        {s.n === 0 && <p className="text-sm text-mute">Settle a few stakes to see this.</p>}
         {s.n > 0 &&
           bars.map((b) => (
             <div key={b.k} className="mb-2">
@@ -143,7 +143,7 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
 
       <section className="rounded-2xl border border-line bg-panel p-4">
         <h3 className="mb-2 flex items-center gap-2 font-semibold"><Book size={15} /> Group memory</h3>
-        <p className="mb-3 text-xs text-mute">Settled situations summarised by the AI. Similar new questions pull these up automatically.</p>
+        <p className="mb-3 text-xs text-mute">Settled stakes summarised by the AI. Similar new questions pull these up automatically.</p>
         {d.memories.map((m) => (
           <div key={m.id} className="border-t border-line py-2 text-sm">
             <div className="flex gap-2">

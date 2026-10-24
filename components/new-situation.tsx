@@ -33,7 +33,7 @@ type Preview = {
 /** How the poster wants it settled. "auto" leaves the choice to the AI, which is the default. */
 type Answer = "auto" | "yesno" | "number" | "stock";
 const ANSWERS: { k: Answer; label: string; blurb: string; icon: React.ReactNode }[] = [
-  { k: "auto", label: "Let the AI decide", blurb: "It reads the situation and picks the type that fits.", icon: <Sparkle size={16} /> },
+  { k: "auto", label: "Let the AI decide", blurb: "It reads the stake and picks the type that fits.", icon: <Sparkle size={16} /> },
   { k: "yesno", label: "Yes or no", blurb: "Did it happen? Settles on the deadline.", icon: <Check size={16} /> },
   { k: "number", label: "A number", blurb: "How many, how late, what mark. Bet over or under a line.", icon: <Timer size={16} /> },
   { k: "stock", label: "Long-term stock", blurb: "Months away. The price moves as news comes in.", icon: <TrendUp size={16} /> },
@@ -127,10 +127,10 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
   const whenLabel = Number.isNaN(whenDate.getTime()) ? "" : whenDate.toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
   return (
-    <Sheet open={open} onClose={onClose} title={preview ? "Check the odds" : "New situation"}>
+    <Sheet open={open} onClose={onClose} title={preview ? "Check the odds" : "New stake"}>
       {!preview ? (
         <form onSubmit={getOdds} className="space-y-6">
-          <Field n={1} label="What's the situation?">
+          <Field n={1} label="What's the stake?">
             <textarea
               value={title}
               onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
@@ -247,7 +247,7 @@ function Field({ n, label, hint, children }: { n: number; label: string; hint?: 
 
 function Person({ on, off, label, avatar, onClick }: { on: boolean; off?: boolean; label: string; avatar?: React.ReactNode; onClick: () => void }) {
   return (
-    <button type="button" onClick={onClick} disabled={off} aria-pressed={on} title={off ? `${label} has turned off situations about them` : undefined} className={`flex w-16 shrink-0 flex-col items-center gap-1.5 ${off ? "cursor-not-allowed opacity-30" : ""}`}>
+    <button type="button" onClick={onClick} disabled={off} aria-pressed={on} title={off ? `${label} has turned off stakes about them` : undefined} className={`flex w-16 shrink-0 flex-col items-center gap-1.5 ${off ? "cursor-not-allowed opacity-30" : ""}`}>
       <span className={`rounded-full p-[2px] ring-2 transition ${on ? "ring-white" : "ring-transparent"}`}>
         {avatar ?? <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[.06] text-mute"><Check size={16} className={on ? "" : "opacity-0"} /></span>}
       </span>

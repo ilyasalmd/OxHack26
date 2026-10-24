@@ -8,7 +8,7 @@ import { CandleChart } from "@/components/candles";
 import { BetSlip, odds } from "@/components/bet-slip";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { TimeMachine } from "@/components/timemachine";
-import { proceedsForShares, type Side } from "@/lib/lmsr";
+import { proceedsForShares, sharesForAmount, type Side } from "@/lib/lmsr";
 import { fmtLine, priceMeaning, sides, typeLabel } from "@/lib/labels";
 import { formatOdds, useOddsFormat } from "@/lib/odds";
 import { ArrowUpRight, Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
@@ -43,7 +43,7 @@ type Detail = {
   myKey: { wrapped_key: string; wrapper_public_key: string } | null;
   ticks: { ts: string; price: number; source: string }[];
   candles: { bucket: string; open: number; high: number; low: number; close: number; volume: number; n: number }[];
-  trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string }[];
+  trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string; bot?: boolean }[];
   position: { yes_shares: number; no_shares: number; spent: number } | null;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
   me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
@@ -182,6 +182,37 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const hasPos = !!pos && (pos.yes_shares > 0.001 || pos.no_shares > 0.001);
   const posValue = pos ? pos.yes_shares * m.price + pos.no_shares * (1 - m.price) : 0;
 
+  // "How this pays", worked through with this stake's price and this person's own shares.
+  const EXAMPLE = 10;
+  const signed = (x: number) => `${x >= 0 ? "+" : ""}${fmt(x)}`;
+  const exYes = sharesForAmount(book, "yes", EXAMPLE);
+  const exNo = sharesForAmount(book, "no", EXAMPLE);
+  const wins = isNumber ? { yes: "if it comes in over the line", no: "if it comes in under" } : { yes: "if it happens", no: "if it doesn't" };
+  const howItPays = (
+    <Fold title="How this pays" summary={<span className="text-xs text-mute">1 share pays 1 {c.ticker}</span>}>
+      <ul className="list-disc space-y-2 pl-4 text-sm">
+        <li>Every share pays 1 {c.ticker} if its side wins and nothing if it loses. {lbl.yesShort} wins {wins.yes}; {lbl.noShort} wins {wins.no}.</li>
+        <li>
+          Right now a {lbl.yesShort} share costs about {fmt(m.price)} {c.ticker} and a {lbl.noShort} share about {fmt(1 - m.price)}. So {EXAMPLE} {c.ticker} on {lbl.yesShort} buys {fmt(exYes)} shares, paying {fmt(exYes)} {c.ticker} {wins.yes} (a gain of {fmt(exYes - EXAMPLE)}), and {EXAMPLE} {c.ticker} on {lbl.noShort} buys {fmt(exNo)}, paying {fmt(exNo)} {wins.no}. The cheaper side pays more because the group thinks it&apos;s less likely.
+        </li>
+        {hasPos && pos && (
+          <li>
+            You spent {fmt(pos.spent)} {c.ticker}. {pos.yes_shares > 0.001 && `Your ${fmt(pos.yes_shares)} ${lbl.yesShort} shares pay ${fmt(pos.yes_shares)} ${wins.yes}. `}
+            {pos.no_shares > 0.001 && `Your ${fmt(pos.no_shares)} ${lbl.noShort} shares pay ${fmt(pos.no_shares)} ${wins.no}. `}
+            So you end up {signed(pos.yes_shares - pos.spent)} {c.ticker} {wins.yes}, or {signed(pos.no_shares - pos.spent)} {wins.no}.
+          </li>
+        )}
+        <li>
+          {isStock
+            ? `Until it matures you can sell shares back at the going price, so you can take a profit or cut a loss early. Your first trade is free, then each one pays ${me.config.economy.stockFee} ${c.ticker}, which goes to ${d.creator.display_name} for listing it once it settles.`
+            : "A bet is locked once placed and rides to the result."}{" "}
+          At maturity the winning shares pay out. If only one person traded, they just get their money back.
+        </li>
+        <li>If it&apos;s called off (by the person it&apos;s about, a dispute, reports, or a market too close to call), everyone gets back exactly what they put in, fees included.</li>
+      </ul>
+    </Fold>
+  );
+
   const positionCard = hasPos && pos && (
     <section className="rounded-2xl border border-line bg-panel p-4">
       <div className="mb-2 text-sm font-semibold">Your position</div>
@@ -237,7 +268,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                         className="flex w-full items-center gap-2 px-3.5 py-2 text-left hover:bg-white/5 disabled:text-mute disabled:hover:bg-transparent"
                         onClick={() => { setMenu(false); setReportOpen(true); }}
                       >
-                        <Flag size={14} /> {d.me.reported ? "You reported this" : "Report this situation"}
+                        <Flag size={14} /> {d.me.reported ? "You reported this" : "Report this stake"}
                       </button>
                     )}
                     {!d.me.canVeto && !d.me.canReport && <div className="px-3.5 py-2 text-mute">Nothing to do here</div>}
@@ -293,7 +324,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
         {voided && (
           <section className="mt-4 rounded-2xl border border-line bg-panel p-4 text-sm">
-            <div className="font-semibold">This situation was called off</div>
+            <div className="font-semibold">This stake was called off</div>
             <p className="mt-1 text-mute">
               {m.void_reason === "veto" && `${d.subject?.display_name ?? "The person it was about"} called it off.`}
               {m.void_reason === "dispute" && "The proposed result was disputed."}
@@ -339,7 +370,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                 <Button variant="up" disabled={busy || !(proposal.outcome ? d.me.canResolveYes : d.me.canResolveNo)} onClick={() => act("confirm")}>Confirm</Button>
                 <Button variant="ghost" disabled={busy} onClick={() => setConfirming("dispute")}>Dispute</Button>
                 {!(proposal.outcome ? d.me.canResolveYes : d.me.canResolveNo) && (
-                  <p className="col-span-2 text-xs text-mute">You&apos;d gain from this result, so someone without that stake has to confirm it. You can still dispute it.</p>
+                  <p className="col-span-2 text-xs text-mute">You&apos;d gain from this result, so someone who wouldn&apos;t gain has to confirm it. You can still dispute it.</p>
                 )}
               </div>
             )}
@@ -372,6 +403,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
         {positionCard && <div className="mt-5 lg:hidden">{positionCard}</div>}
 
+        {!resolved && !voided && howItPays}
         <Fold title="Why this price" summary={<>{m.evidence != null && m.evidence < 1 && <Badge tone="mute">Low data</Badge>}<Badge tone="brand">{m.ai_source === "ollama" ? "Gemma" : "Stats model"}</Badge>{m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}</>}>
           {m.evidence != null && m.evidence < 1 && (
             <p className="mb-2 rounded-xl bg-white/[.04] px-3 py-2 text-[13px] text-white/80">
@@ -439,6 +471,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               <Avatar name={t.display_name} color={t.color} size={26} />
               <div className="flex-1">
                 <b>{t.display_name}</b> {t.action === "buy" ? (t.side === "yes" ? "went long" : "went short") : `sold ${t.side === "yes" ? "long" : "short"}`}
+                {t.bot && <span className="ml-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-mute" title="Admin only: a demo bot made this trade">Demo bot</span>}
               </div>
               <span className="tabular">{fmt(t.coins, 0)}</span>
               <span className="w-16 whitespace-nowrap text-right text-mute tabular">→ {show(t.price_after)}</span>
@@ -476,7 +509,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           {d.me.early ? (
             <p className="text-xs text-mute">It&apos;s before the deadline, so you can only say it already happened, and you need proof: say what happened, or add a photo. Trading pauses, and it settles only when another member (not the person it&apos;s about, and not someone it pays) checks it and confirms. If someone disputes it, trading opens again.</p>
           ) : (
-            <p className="text-xs text-mute">Trading closes now. Another member (not the person it&apos;s about) confirms or disputes your call. If nobody does, it settles as you proposed after {SETTLE_WINDOW_HOURS} hours. A dispute calls the situation off and refunds everyone.</p>
+            <p className="text-xs text-mute">Trading closes now. Another member (not the person it&apos;s about) confirms or disputes your call. If nobody does, it settles as you proposed after {SETTLE_WINDOW_HOURS} hours. A dispute calls the stake off and refunds everyone.</p>
           )}
           {isNumber ? (
             <>
@@ -498,7 +531,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                     <Button variant={over === false ? "down" : "up"} className="w-full" disabled={busy || over == null || !allowed} onClick={() => resolve(over!)}>
                       {over == null ? "Enter the number" : `Settle as ${over ? lbl.yes : lbl.no}`}
                     </Button>
-                    {over != null && !allowed && <p className="text-xs text-mute">You&apos;d gain from that result, so a friend without a stake in it has to enter it.</p>}
+                    {over != null && !allowed && <p className="text-xs text-mute">You&apos;d gain from that result, so a friend who wouldn&apos;t gain has to enter it.</p>}
                   </>
                 );
               })()}
@@ -537,7 +570,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                 <Button variant="down" disabled={busy || !d.me.canResolveNo} onClick={() => resolve(false)}>NO</Button>
               </div>
               {(d.me.early ? !d.me.canResolveYes : !(d.me.canResolveYes && d.me.canResolveNo)) && (
-                <p className="text-xs text-mute">You have a stake in this, so a friend without one has to call it your way.</p>
+                <p className="text-xs text-mute">You hold shares in this, so a friend without any has to call it your way.</p>
               )}
             </>
           )}
@@ -550,10 +583,10 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         <div className="space-y-4">
           <p className="text-sm text-mute">
             {confirming === "veto"
-              ? "The situation is voided for everyone. Every trade is refunded in full, it leaves the live list, and the chat is told you called it off. You can't undo this."
+              ? "The stake is voided for everyone. Every trade is refunded in full, it leaves the live list, and the chat is told you called it off. You can't undo this."
               : d.proposal?.early
                 ? "You don't think it has happened yet. The claim is dropped and trading opens again; it can still happen before the deadline."
-                : "The situation is voided for everyone instead of settling. Every trade is refunded in full. You can't undo this."}
+                : "The stake is voided for everyone instead of settling. Every trade is refunded in full. You can't undo this."}
           </p>
           {err && <p className="text-sm text-down">{err}</p>}
           <div className="flex gap-2">

@@ -122,7 +122,7 @@ function Row({ s, now, showGroup }: { s: Situation; now: string; showGroup: bool
           {showGroup && <>{s.group} · </>}
           {s.answer === "number" && s.line != null && <>over/under {fmtLine(s.line, s.unit)} · </>}
           {stock ? `matures ${new Date(s.resolves_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : timeLeft(s.resolves_at, now)}
-          {s.volume > 0 && <> · {fmt(s.volume, 0)} staked</>}
+          {s.volume > 0 && <> · {fmt(s.volume, 0)} traded</>}
         </div>
       </div>
       <div className="shrink-0 text-right">

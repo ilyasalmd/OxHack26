@@ -30,7 +30,7 @@ type Detail = {
 
 const KIND: Record<Detail["kind"], { label: string; tone: string; sign: string; what: string }> = {
   mint: { label: "Mint", tone: "text-up", sign: "+", what: "Coins created and sent to a wallet: a payout, an allowance, an opening balance or a refund." },
-  burn: { label: "Burn", tone: "text-down", sign: "−", what: "Coins taken out of a wallet and destroyed: a stake or a trading fee." },
+  burn: { label: "Burn", tone: "text-down", sign: "−", what: "Coins taken out of a wallet and destroyed: a buy-in or a trading fee." },
   create: { label: "Create", tone: "text-brand", sign: "", what: "The token itself being created." },
   other: { label: "Other", tone: "text-mute", sign: "", what: "A transaction that touched the token without minting or burning." },
 };

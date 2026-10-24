@@ -63,7 +63,7 @@ export default function Welcome() {
         <section key="intro" className="pop flex flex-1 flex-col">
           <h1 className="mt-14 text-[32px] font-bold leading-tight tracking-tight">A few quick ones about you</h1>
           <p className="mt-4 text-[17px] leading-relaxed text-white/70">
-            When a friend posts a situation about you, the AI that sets the odds reads these to get them closer to right.
+            When a friend posts a stake about you, the AI that sets the odds reads these to get them closer to right.
           </p>
           <ul className="mt-8 space-y-3 text-[15px] text-white/80">
             <li className="flex gap-3"><span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-brand" />Every question is optional. Skip any of them.</li>

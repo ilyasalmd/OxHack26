@@ -46,7 +46,7 @@ export default function ChainPage() {
         <div className="mt-6 flex flex-wrap items-end justify-between gap-3">
           <div>
             <div className="flex items-center gap-2 text-sm text-mute"><Blocks size={15} /> Solana</div>
-            <h1 className="mt-1 text-2xl font-semibold tracking-tight lg:text-3xl">Every stake and payout, on-chain</h1>
+            <h1 className="mt-1 text-2xl font-semibold tracking-tight lg:text-3xl">Every trade and payout, on-chain</h1>
           </div>
           {c?.enabled && (
             <span className="flex items-center gap-2 rounded-full border border-line bg-panel px-3 py-1.5 text-xs">
@@ -126,7 +126,7 @@ export default function ChainPage() {
                 )}
                 <section className="rounded-2xl border border-line bg-panel p-4 text-sm leading-relaxed text-mute">
                   <h2 className="mb-2 font-semibold text-white">What goes on-chain</h2>
-                  <p>When you stake, the app burns that many {ticker} from your wallet. When you win or get your weekly allowance, it mints them back. Each one carries a short memo saying why.</p>
+                  <p>When you buy in, the app burns that many {ticker} from your wallet. When you win or get your weekly allowance, it mints them back. Each one carries a short memo saying why.</p>
                   <p className="mt-2">Your chats, the odds and who bet what stay off-chain: chats are end-to-end encrypted and the market runs on the server. {ticker} is play money and can&apos;t be bought or sold.</p>
                   <Link href="/portfolio" className="mt-3 inline-flex items-center gap-1 text-brand">Your wallet <ArrowUpRight size={12} /></Link>
                 </section>

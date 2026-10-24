@@ -13,12 +13,12 @@ export type ProfileQuestion = {
 
 export const PROFILE_QUESTIONS: ProfileQuestion[] = [
   { id: "study", question: "What do you study or do, and which year?", usedFor: "Helps price exams, grades and deadlines about you.", placeholder: "Economics, 2nd year" },
-  { id: "punctual", question: "How punctual are you, honestly?", usedFor: "Helps price “late to” situations.", choices: ["Always early", "On time", "Usually a bit late", "Famously late"] },
-  { id: "active", question: "How active are you?", usedFor: "Helps price gym, running and sport situations.", choices: ["Most days", "A few times a week", "Now and then", "Rarely"] },
+  { id: "punctual", question: "How punctual are you, honestly?", usedFor: "Helps price “late to” stakes.", choices: ["Always early", "On time", "Usually a bit late", "Famously late"] },
+  { id: "active", question: "How active are you?", usedFor: "Helps price gym, running and sport stakes.", choices: ["Most days", "A few times a week", "Now and then", "Rarely"] },
   { id: "goals", question: "One or two goals for this year?", usedFor: "Helps price long-term stocks about you.", placeholder: "Land a summer internship, run a half marathon" },
-  { id: "fun", question: "What do you do for fun?", usedFor: "Helps with situations about your hobbies.", placeholder: "Football, gigs, cooking" },
+  { id: "fun", question: "What do you do for fun?", usedFor: "Helps with stakes about your hobbies.", placeholder: "Football, gigs, cooking" },
   { id: "words", question: "Three words friends would use for you?", usedFor: "Sets the general tone of odds about you.", placeholder: "Chaotic, loyal, competitive" },
-  { id: "relationship", question: "Relationship status, only if you want to share", usedFor: "Only for situations about dating. Skip it if you'd rather.", choices: ["Single", "Seeing someone", "In a relationship", "Engaged or married"] },
+  { id: "relationship", question: "Relationship status, only if you want to share", usedFor: "Only for stakes about dating. Skip it if you'd rather.", choices: ["Single", "Seeing someone", "In a relationship", "Engaged or married"] },
 ];
 
 export const PROFILE_MAX = 140;

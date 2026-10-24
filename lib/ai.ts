@@ -253,8 +253,8 @@ export function heuristicAnalysis(title: string, days: number, history: HistoryE
     probability: clampP(p),
     rationale:
       history.n > 0
-        ? `Based on ${history.n.toFixed(0)} similar past situation(s) here, which came true ${((history.baseRate ?? 0) * 100).toFixed(0)}% of the time.`
-        : `No history yet, so this opens near a neutral ${(prior * 100).toFixed(0)}% for ${category} situations.`,
+        ? `Based on ${history.n.toFixed(0)} similar past stake(s) here, which came true ${((history.baseRate ?? 0) * 100).toFixed(0)}% of the time.`
+        : `No history yet, so this opens near a neutral ${(prior * 100).toFixed(0)}% for ${category} stakes.`,
     resolutionRule: `Resolves YES if "${title}" is true by ${days > 0 ? `the resolve date` : "now"}, as agreed by the group; otherwise NO.`,
     source: "heuristic",
     chatUsed: [],

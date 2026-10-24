@@ -1,12 +1,12 @@
 # FriendStakes
 
-**Your group chat, now with a stock market.** Friends post situations about each other ("Jake is late to Friday dinner", "Priya graduates with a First"), the AI prices them from the group's own history, and everyone goes long or short with play money. Built for OxHack 2026 (theme: **TIME**).
+**Your group chat, now with a stock market.** Friends post stakes about each other ("Jake is late to Friday dinner", "Priya graduates with a First"), the AI prices them from the group's own history, and everyone goes long or short with play money. Built for OxHack 2026 (theme: **TIME**).
 
 - **Short-term bets** close at a deadline and settle YES/NO.
 - **Long-term stocks** trade like a maturing bond: they pay out if the outcome happens by maturity, and "by date X" stocks lose value as time runs out with no news (constant-hazard decay).
-- **Invest in yourself:** you can go long on stocks about you, never short them, and you can't bet on short-term situations about yourself.
+- **Invest in yourself:** you can go long on stocks about you, never short them, and you can't bet on short-term stakes about yourself.
 - **Nobody gets wiped out:** a single trade is capped at 25% of your balance and you can't go below a 50-coin floor. Everyone starts with **500** and gets **+50 every week**.
-- **The group remembers:** every settled situation is summarised and stored. New questions pull up similar past outcomes (per person, per category) to set the opening odds and show friends the record.
+- **The group remembers:** every settled stake is summarised and stored. New questions pull up similar past outcomes (per person, per category) to set the opening odds and show friends the record.
 - **Private by design:** chats are end-to-end encrypted in the browser. Neither the server nor the AI sees message text unless the group switches on "AI reads relevant chat", and then only a few filtered, anonymised snippets picked on the phone.
 
 ## Run it
@@ -34,7 +34,7 @@ Everything here is free; none of it needs a card.
 
   - **Public copy on devnet:** `npm run solana:devnet` republishes every transaction the local chain confirmed to public devnet (same amounts, memos and pricing hashes) with its own payer and token, so anyone can check them on explorer.solana.com. The first run prints the payer address to fund at faucet.solana.com. The Chain pages then link each transaction to its devnet copy.
 
-  Restart the app, and every stake (burn), payout or allowance (mint) shows up in each person's wallet on the Portfolio page, and on the admin's **Chain** page, which reads the transactions straight from the Solana RPC.
+  Restart the app, and every buy-in (burn), payout or allowance (mint) shows up in each person's wallet on the Portfolio page, and on the admin's **Chain** page, which reads the transactions straight from the Solana RPC.
 - **Gemma (the AI):** runs on your own machine through Ollama, so there is no API key and nothing leaves the machine. `brew install ollama`, then `ollama pull gemma4:12b` and `ollama pull embeddinggemma-2:270m`, and set `AI_PROVIDER=ollama` and `OLLAMA_MODEL=gemma4:12b` (or `gemma4:26b` on a bigger Mac). If Ollama isn't running, the app falls back to the statistical model.
 
 `npm test` runs the market-maths tests. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
@@ -61,15 +61,15 @@ Everything here is free; none of it needs a card.
 | --- | --- |
 | `lib/lmsr.ts` | Hanson's LMSR market maker. Long = buy YES shares, short = buy NO shares, each pays 1 coin. Max house loss per market is `b·ln 2`. Also the hazard-decay formula `P(by T) = 1 − (1 − p)^((T − t₂)/(T − t₁))`. |
 | `lib/markets.ts` | Preview → list → trade → resolve, AI re-marks, time decay. Trades run in a DB transaction with row locks. |
-| `lib/ai.ts` | Gemma through Ollama with JSON-schema output: routes a situation to bet or stock, decides decay, writes the resolution rule, estimates the probability from the group's evidence, summarises outcomes, re-marks stocks. Falls back to a heuristic model. |
+| `lib/ai.ts` | Gemma through Ollama with JSON-schema output: routes a stake to bet or stock, decides decay, writes the resolution rule, estimates the probability from the group's evidence, summarises outcomes, re-marks stocks. Falls back to a heuristic model. |
 | `lib/pricing-record.ts` | Saves every AI pricing decision (inputs, prompt, raw reply, maths) as the exact JSON text that is hashed with SHA-256. The opening hash also goes in the market's Solana memo, and the admin can recheck it in the browser. |
-| `lib/memory.ts` | Similar-situation search (EmbeddingGemma vectors + keyword overlap, boosted for the same person and category) and a similarity-weighted Beta(1,1) base rate. |
+| `lib/memory.ts` | Search for similar stakes (EmbeddingGemma vectors + keyword overlap, boosted for the same person and category) and a similarity-weighted Beta(1,1) base rate. |
 | `lib/stats.ts` | Leaderboard (net worth, P&L in this group, Brier skill score) and AI vs crowd vs coin-flip calibration. |
-| `lib/solana.ts` | Outbox worker mirroring every balance change to an SPL token on devnet: stakes **burn**, payouts and allowances **mint**, market opens/resolutions are **memos**. |
+| `lib/solana.ts` | Outbox worker mirroring every balance change to an SPL token on devnet: buy-ins **burn**, payouts and allowances **mint**, market opens/resolutions are **memos**. |
 | `lib/e2ee.ts` | WebCrypto E2EE (below). |
 | `lib/db.ts`, `lib/schema.sql` | Postgres. On Timescale/Tiger Cloud it creates hypertables, an hourly OHLC continuous aggregate and compression policies. |
 
-One account can be in any number of group chats. **Your balance is one wallet across all your groups** (like a real brokerage account); each group's leaderboard ranks net worth and also shows your profit or loss from that group's situations only.
+One account can be in any number of group chats. **Your balance is one wallet across all your groups** (like a real brokerage account); each group's leaderboard ranks net worth and also shows your profit or loss from that group's stakes only.
 
 ### Privacy
 
@@ -80,9 +80,9 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 - **Profile photos** are encrypted with a per-person profile key that your app wraps for each person you share a chat with (as Signal does), so only friends can see them.
 - **Private chats** are two-person groups with their own key; nobody can be added to one or join it by link.
 - What the server does learn: who is typing or recording (kept in memory for 5 seconds), and how far each member has fetched and read (for the ticks). Market events (listings, trades, results) are plaintext because the server has to run the market.
-- Gemma runs on the app's own machine, so nothing goes to an outside AI company. It always receives the situation text, settled-history stats and the group's "AI context" (term dates, fixtures), plus the subject's answers to the optional sign-up questions if they gave any. Those answers are never shown to other members, and the stored pricing records blank them out. If a user ticks the box, it also gets one mood number per person, worked out on the device from the decrypted chat.
-- **AI reads relevant chat (opt-in per group, off by default).** Any member can switch it on or off in group settings, and the chat announces the change to everyone. While it's on, the phone of whoever lists a situation or re-marks stocks does the following with the chat it has already decrypted (`lib/chat-context.ts`):
-  1. Keeps only messages about the subject or topic (mentions, same keywords or category, weighted towards recent ones). Max 20 per situation, 8 per stock.
+- Gemma runs on the app's own machine, so nothing goes to an outside AI company. It always receives the stake text, settled-history stats and the group's "AI context" (term dates, fixtures), plus the subject's answers to the optional sign-up questions if they gave any. Those answers are never shown to other members, and the stored pricing records blank them out. If a user ticks the box, it also gets one mood number per person, worked out on the device from the decrypted chat.
+- **AI reads relevant chat (opt-in per group, off by default).** Any member can switch it on or off in group settings, and the chat announces the change to everyone. While it's on, the phone of whoever lists a stake or re-marks stocks does the following with the chat it has already decrypted (`lib/chat-context.ts`):
+  1. Keeps only messages about the subject or topic (mentions, same keywords or category, weighted towards recent ones). Max 20 per stake, 8 per stock.
   2. Replaces names with roles (`[SUBJECT]`, `Friend A`…) and removes emails, phone numbers, long numbers, links and @handles.
   3. Sends those snippets with the request. Gemma picks the ones that actually change the odds and says why, and ignores the rest.
   4. Shows the user every snippet that was sent and whether it was used, before they list. The market page keeps only the used snippets so everyone can see what moved the price.
@@ -97,8 +97,8 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 | Service | Used for |
 | --- | --- |
 | **Tiger Data (Tiger Cloud)** | The app's database. Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression, and the pricing records. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
-| **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every stake and payout, memos for market lifecycle carrying each opening price's record hash, and an admin Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
-| **Gemma** (open model, local) | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past situations", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Runs through Ollama with no API key. |
+| **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every buy-in and payout, memos for market lifecycle carrying each opening price's record hash, and an admin Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
+| **Gemma** (open model, local) | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past stakes", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Runs through Ollama with no API key. |
 | **Vultr** | `deploy/`: Docker Compose stack (app, TimescaleDB, Caddy HTTPS) and a setup script for a Vultr VM. |
 
 ## Structure
@@ -108,5 +108,5 @@ app/            Next.js 16 pages (chats, group chat, market, portfolio) and API 
 components/     UI, chart, session + key handling
 lib/            market engine, AI, memory, Solana, E2EE, DB
 scripts/        seed.ts, solana-setup.ts
-tests/          LMSR and stake-cap tests
+tests/          LMSR and max-trade tests
 ```

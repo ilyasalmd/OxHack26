@@ -28,15 +28,15 @@ export function SafetySettings() {
     <section className="rounded-2xl border border-line bg-panel p-4">
       <div className="flex items-start gap-4">
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-semibold">Let friends post situations about me</div>
+          <div className="text-sm font-semibold">Let friends post stakes about me</div>
           <p className="mt-1 text-xs text-mute">
-            When this is off, nobody in your groups can start a new situation with you as the subject. You can always post about yourself, and you can call off any situation about you before it settles.
+            When this is off, nobody in your groups can start a new stake with you as the subject. You can always post about yourself, and you can call off any stake about you before it settles.
           </p>
         </div>
         <button
           role="switch"
           aria-checked={allowed}
-          aria-label="Let friends post situations about me"
+          aria-label="Let friends post stakes about me"
           disabled={!policy}
           onClick={toggle}
           className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition disabled:opacity-40 ${allowed ? "bg-up" : "bg-white/15"}`}

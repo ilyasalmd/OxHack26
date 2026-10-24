@@ -191,7 +191,7 @@ function Laptop({ account, sessions, changed, loadSessions, open }: PageProps) {
           </Card>
         </Section>
 
-        <Section id="privacy" title="Privacy" description="Who can post situations about you.">
+        <Section id="privacy" title="Privacy" description="Who can post stakes about you.">
           <SafetySettings />
         </Section>
 

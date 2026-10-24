@@ -24,7 +24,7 @@ export const REPORT_REASONS = [
   { id: "mean", label: "Mean or humiliating", hint: "Picks on someone" },
   { id: "private", label: "Private or sensitive", hint: "Shares something personal" },
   { id: "unsafe", label: "Unsafe", hint: "Could put someone at risk" },
-  { id: "spam", label: "Spam", hint: "Not a real situation" },
+  { id: "spam", label: "Spam", hint: "Not a real stake" },
   { id: "other", label: "Something else", hint: "" },
 ] as const;
 export type ReportReason = (typeof REPORT_REASONS)[number]["id"];
@@ -130,5 +130,5 @@ export function bannedTopic(...texts: (string | null | undefined)[]): string | n
 /** The kind 400 message for a rejected situation, or null when the text is allowed. */
 export function topicProblem(title: string, description?: string | null): string | null {
   const topic = bannedTopic(title, description);
-  return topic ? `${KIND_TOPIC_MESSAGE}. Situations about ${topic} aren't allowed here.` : null;
+  return topic ? `${KIND_TOPIC_MESSAGE}. Stakes about ${topic} aren't allowed here.` : null;
 }

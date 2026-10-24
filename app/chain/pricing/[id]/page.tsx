@@ -141,7 +141,7 @@ function Opening({ rec, anchor }: { rec: Rec; anchor: Data["anchor"] }) {
       </Block>
 
       <Block title="What the AI was given">
-        <Row label="Situation" value={r.inputs.situation + (r.inputs.details ? ` · ${r.inputs.details}` : "")} />
+        <Row label="Stake" value={r.inputs.situation + (r.inputs.details ? ` · ${r.inputs.details}` : "")} />
         <Row label="About" value={r.inputs.subject ?? "nobody specific"} />
         <Row label="Deadline" value={new Date(r.inputs.resolvesAt).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} />
         <Row label="Group context" value={r.inputs.groupContext || "none"} />
@@ -291,11 +291,11 @@ function Steps({ r }: { r: OpenRecord }) {
         ),
     },
     {
-      title: "What that means for stakes",
+      title: "What that means for your trades",
       body: (
         <>
           At {pct(r.maths.openProb)} that&apos;s decimal odds of {decimalOdds(r.maths.openProb)} on YES and {decimalOdds(1 - r.maths.openProb)} on NO. The market maker has a depth of {b}, so
-          a 20 coin YES stake moves it to {pct(after("yes", 20))} and a 20 coin NO stake to {pct(after("no", 20))}. Every trade after that moves the price, and with it the odds.
+          a 20 coin YES trade moves it to {pct(after("yes", 20))} and a 20 coin NO trade to {pct(after("no", 20))}. Every trade after that moves the price, and with it the odds.
         </>
       ),
     },

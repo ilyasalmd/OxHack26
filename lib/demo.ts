@@ -20,7 +20,7 @@ const g = globalThis as unknown as { __fsSampleKeys?: Map<number, Promise<Crypto
 const identities = (g.__fsSampleKeys ??= new Map());
 
 /** A sample account's identity key, unlocked once per process. Null if it isn't a sample account. */
-function creatorKey(c: Creator) {
+export function creatorKey(c: Creator) {
   let k = identities.get(c.id);
   if (!k) {
     k = deriveKeys(SAMPLE_PASSWORD, c.username, c.key_salt)

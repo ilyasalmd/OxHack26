@@ -66,7 +66,7 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
 
       <div className="rounded-2xl border border-line bg-ink p-4">
         <div className="flex items-baseline justify-between text-xs text-mute">
-          <span>Stake</span>
+          <span>Amount</span>
           <span className="tabular">Balance {fmt(balance, 0)} {ticker}</span>
         </div>
         <div className="mt-1 flex items-baseline gap-2">
@@ -77,7 +77,7 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
             value={raw}
             onChange={(e) => type(e.target.value.replace(/[^0-9]/g, ""))}
             onBlur={() => setRaw(String(amount))}
-            aria-label="Stake"
+            aria-label="Amount"
             className="w-full min-w-0 bg-transparent !text-[40px] font-semibold leading-none tracking-tight tabular outline-none"
           />
           <span className="text-lg text-mute">{ticker}</span>
@@ -113,7 +113,7 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
       <Button variant={side === "yes" ? "up" : "down"} className="w-full !py-3.5 text-[17px]" disabled={busy || !ok} onClick={() => onPlace(side, amount)}>
         {busy ? "Placing…" : stock && !number ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount + fee, fee ? 1 : 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
       </Button>
-      <p className="text-center text-[11px] text-mute">{stock && !number ? `Each share pays 1 ${ticker} if it happens, nothing if not. Price ${show(price)} now.` : `Odds ${formatOdds(price, f)}: stake 1 returns ${decimalOdds(price)} if you're right.`}</p>
+      <p className="text-center text-[11px] text-mute">{stock && !number ? `Each share pays 1 ${ticker} if it happens, nothing if not. Price ${show(price)} now.` : `Odds ${formatOdds(price, f)}: 1 coin returns ${decimalOdds(price)} if you're right.`}</p>
     </div>
   );
 }
