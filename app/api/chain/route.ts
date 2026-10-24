@@ -1,7 +1,7 @@
-import type { ParsedInstruction, PartiallyDecodedInstruction } from "@solana/web3.js";
 import { getDb } from "@/lib/db";
 import { route } from "@/lib/auth";
 import { explorer, solanaConfig } from "@/lib/solana";
+import { describeTx } from "@/lib/chain";
 
 // A small block explorer for the app's token, read straight from the Solana RPC (not our
 // database), so what it shows is what the chain itself recorded.
@@ -30,36 +30,9 @@ export const GET = route(async (_req, user) => {
   const byWallet = new Map(people.map((p) => [p.wallet_pubkey, p]));
 
   const txs = sigs.map((s, i) => {
-    const tx = parsed[i];
-    const ixs = (tx?.transaction.message.instructions ?? []) as (ParsedInstruction | PartiallyDecodedInstruction)[];
-    let kind = "other";
-    let amount: number | null = null;
-    let memo: string | null = null;
-    for (const ix of ixs) {
-      if (!("parsed" in ix)) continue;
-      if (ix.program === "spl-memo") memo = String(ix.parsed);
-      if (ix.program === "spl-token" && ["mintTo", "mintToChecked", "burn", "burnChecked"].includes(ix.parsed?.type)) {
-        kind = ix.parsed.type.startsWith("mint") ? "mint" : "burn";
-        const info = ix.parsed.info;
-        amount = Number(info.tokenAmount?.uiAmount ?? Number(info.amount) / 10 ** (supply.value.decimals ?? 0));
-      }
-      if (ix.program === "spl-token" && ix.parsed?.type === "initializeMint") kind = "create";
-    }
-    const owner = tx?.meta?.postTokenBalances?.find((b) => b.mint === cfg.mint.toBase58())?.owner ?? null;
-    const who = owner ? byWallet.get(owner) : undefined;
-    return {
-      signature: s.signature,
-      url: explorer(s.signature),
-      slot: s.slot,
-      time: s.blockTime ? new Date(s.blockTime * 1000).toISOString() : null,
-      ok: !s.err,
-      kind,
-      amount,
-      memo: memo?.replace(/^(friendstakes|friend-stocks): /, "") ?? null,
-      fee: tx?.meta ? tx.meta.fee / 1e9 : null,
-      owner,
-      who: who ? { name: who.display_name, color: who.color } : null,
-    };
+    const t = describeTx(s, parsed[i], cfg.mint.toBase58(), supply.value.decimals ?? 0);
+    const who = t.owner ? byWallet.get(t.owner) : undefined;
+    return { ...t, who: who ? { name: who.display_name, color: who.color } : null };
   });
 
   const cluster = cfg.cluster;

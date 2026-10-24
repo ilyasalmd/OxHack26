@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { Avatar, TopBar, ago, fmt } from "@/components/ui";
-import { ArrowUpRight, Blocks } from "@/components/icons";
+import { ArrowUpRight, Blocks, ChevronRight } from "@/components/icons";
 
 type Tx = { signature: string; url: string; slot: number; time: string | null; ok: boolean; kind: string; amount: number | null; memo: string | null; fee: number | null; owner: string | null; who: { name: string; color: string } | null };
 type Chain =
@@ -71,14 +71,14 @@ export default function ChainPage() {
               <section className="overflow-hidden rounded-2xl border border-line">
                 <div className="flex items-center justify-between bg-panel px-4 py-3">
                   <h2 className="text-sm font-semibold">Transactions</h2>
-                  <span className="text-xs text-mute">read live from the RPC</span>
+                  <span className="text-xs text-mute">read live from the RPC · tap one for its details</span>
                 </div>
                 <ul>
                   {c.txs.map((t) => {
                     const k = KIND[t.kind] ?? KIND.other;
                     return (
                       <li key={t.signature} className="border-t border-line">
-                        <a href={t.url} target="_blank" rel="noreferrer" className="group flex items-center gap-3 px-4 py-3 hover:bg-white/[.03]">
+                        <Link href={`/chain/${t.signature}`} className="group flex items-center gap-3 px-4 py-3 hover:bg-white/[.03]">
                           <span className={`w-14 shrink-0 rounded-md py-1 text-center text-[11px] font-semibold ${k.tone}`}>{k.label}</span>
                           {t.who ? <Avatar name={t.who.name} color={t.who.color} size={26} /> : <span className="h-[26px] w-[26px] shrink-0 rounded-full border border-line" />}
                           <div className="min-w-0 flex-1">
@@ -96,8 +96,8 @@ export default function ChainPage() {
                             {t.amount != null && <div className={`text-sm font-medium tabular ${t.kind === "mint" ? "text-up" : t.kind === "burn" ? "text-down" : ""}`}>{k.sign}{fmt(t.amount)}</div>}
                             <div className="text-[11px] text-mute">{t.ok ? (t.time ? ago(t.time) : "") : "failed"}</div>
                           </div>
-                          <ArrowUpRight size={14} className="hidden shrink-0 text-mute group-hover:text-white sm:block" />
-                        </a>
+                          <ChevronRight size={14} className="hidden shrink-0 text-mute group-hover:text-white sm:block" />
+                        </Link>
                       </li>
                     );
                   })}
