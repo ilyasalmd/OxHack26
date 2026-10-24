@@ -1,10 +1,11 @@
+import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "./db";
-import { sign, verify } from "./secret";
+import { verify } from "./secret";
 import { applyAllowance } from "./economy";
 
 export const COOKIE = "fs_session";
-const MAX_AGE = 60 * 60 * 24 * 30;
+export const MAX_AGE = 60 * 60 * 24 * 30;
 
 export type User = {
   id: number;
@@ -16,27 +17,35 @@ export type User = {
   wallet_pubkey: string | null;
 };
 
-export function setSession(res: NextResponse, userId: number) {
-  const exp = Math.floor(Date.now() / 1000) + MAX_AGE;
-  res.cookies.set(COOKIE, sign(`${userId}:${exp}`), {
-    httpOnly: true,
-    sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
-    path: "/",
-    maxAge: MAX_AGE,
-  });
+/** The session token in the cookie, if it is a validly signed one. Old `userId:exp` cookies read as signed out. */
+function sessionToken(req: NextRequest) {
+  const v = verify(req.cookies.get(COOKIE)?.value);
+  return v?.startsWith("s:") ? v.slice(2) : null;
+}
+/** Sessions are stored under the token's hash, never the token itself. */
+export const hashToken = (token: string) => crypto.createHash("sha256").update(token).digest("base64url");
+export function sessionId(req: NextRequest) {
+  const t = sessionToken(req);
+  return t ? hashToken(t) : null;
 }
 
 export async function currentUser(req: NextRequest): Promise<User | null> {
-  const v = verify(req.cookies.get(COOKIE)?.value);
-  if (!v) return null;
-  const [id, exp] = v.split(":").map(Number);
-  if (!id || exp * 1000 < Date.now()) return null;
+  const sid = sessionId(req);
+  if (!sid) return null;
   const db = await getDb();
-  await applyAllowance(db, id);
+  // Security times run on the real clock, not the demo time machine.
+  const [s] = await db.query<{ user_id: number; last_seen_at: Date }>(
+    `SELECT s.user_id, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id
+     WHERE s.id = $1 AND s.revoked_at IS NULL AND s.created_at > $2 AND u.deleted_at IS NULL`,
+    [sid, new Date(Date.now() - MAX_AGE * 1000)]
+  );
+  if (!s) return null;
+  if (Date.now() - new Date(s.last_seen_at).getTime() > 60_000)
+    db.query(`UPDATE sessions SET last_seen_at = $2 WHERE id = $1`, [sid, new Date()]).catch(() => {});
+  await applyAllowance(db, s.user_id);
   const [u] = await db.query<User>(
     `SELECT id, username, display_name, color, balance, public_key, wallet_pubkey FROM users WHERE id = $1`,
-    [id]
+    [s.user_id]
   );
   return u ?? null;
 }

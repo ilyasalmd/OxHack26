@@ -6,18 +6,19 @@ import type { Snippet } from "./chat-context";
 
 export { guessCategory };
 
-// Privacy rule: Gemini sees the situation itself, resolved-history stats, the
+// Privacy rule: the AI sees the situation itself, resolved-history stats, the
 // group's "AI context" (term dates etc.) and an optional on-device mood score.
+// With Ollama the model runs on the server's own machine and nothing leaves it.
 // Chat text only arrives if the group has switched on "AI reads relevant chat":
 // then members' browsers send at most 20 snippets they picked as relevant, with
 // names replaced by roles and contact details removed (lib/chat-context.ts).
 
 let client: GoogleGenAI | null = null;
-// After a quota or billing refusal, stop asking for a while and use the fallbacks, so
-// the log carries one line instead of one per request.
+// After a refusal (quota, billing, Ollama not running), stop asking for a while and use
+// the fallbacks, so the log carries one line instead of one per request.
 let pausedUntil = 0;
+const ready = () => AI.enabled && Date.now() >= pausedUntil;
 function gemini() {
-  if (!AI.enabled || Date.now() < pausedUntil) return null;
   client ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   return client;
 }
@@ -26,15 +27,61 @@ function failed(what: string, e: unknown) {
   if (/"code":\s*(402|403|429)|RESOURCE_EXHAUSTED|PERMISSION_DENIED/.test(msg)) {
     pausedUntil = Date.now() + 10 * 60_000;
     console.warn(`[ai] Gemini refused (${msg.match(/"code":\s*(\d+)/)?.[1] ?? "quota"}); using fallbacks for 10 minutes`);
+  } else if (/ECONNREFUSED|fetch failed|not found, try pulling/i.test(msg)) {
+    pausedUntil = Date.now() + 60_000;
+    console.warn(`[ai] Ollama unavailable (${msg}); using fallbacks for a minute`);
   } else console.warn(`[ai] ${what}:`, msg);
 }
 
-async function askJson<T>(prompt: string, schema: object, timeoutMs = 12000): Promise<T | null> {
-  const ai = gemini();
-  if (!ai) return null;
+const timeout = (ms: number) => new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${AI.provider} timeout`)), ms));
+
+/** Ollama's REST API on this machine (or OLLAMA_URL). */
+async function ollama<T>(path: string, body: object, timeoutMs: number): Promise<T> {
+  const res = await fetch(`${AI.ollamaUrl}${path}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((json as { error?: string }).error ?? `Ollama HTTP ${res.status}`);
+  return json as T;
+}
+
+// Models whose Ollama build has no constrained decoding (e.g. Gemma 4): they get the schema in the prompt instead.
+const noFormat = new Set<string>();
+
+async function askOllama<T>(prompt: string, schema: object, timeoutMs: number): Promise<T> {
+  const model = AI.model;
+  const constrained = !noFormat.has(model);
+  const content = constrained
+    ? prompt
+    : `${prompt}\n\nReply with only a JSON object that matches this JSON Schema, with no code fences or other text:\n${JSON.stringify(schema)}`;
   try {
+    // Thinking off for speed; the questions are short judgement calls.
+    const res = await ollama<{ message: { content: string } }>(
+      "/api/chat",
+      { model, messages: [{ role: "user", content }], ...(constrained ? { format: schema } : {}), stream: false, think: false, keep_alive: "30m", options: { temperature: 0.3, num_predict: 1200, num_ctx: 8192 } },
+      timeoutMs
+    );
+    const text = res.message.content;
+    return JSON.parse(constrained ? text : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as T;
+  } catch (e) {
+    if (constrained && /structured output is unavailable/i.test((e as Error).message)) {
+      noFormat.add(model);
+      return askOllama<T>(prompt, schema, timeoutMs);
+    }
+    throw e;
+  }
+}
+
+/** The prompt's answer as JSON matching `schema`, or null so the caller can fall back. */
+export async function askJson<T>(prompt: string, schema: object, timeoutMs = AI.provider === "ollama" ? 45000 : 12000): Promise<T | null> {
+  if (!ready()) return null;
+  try {
+    if (AI.provider === "ollama") return await askOllama<T>(prompt, schema, timeoutMs);
     const res = await Promise.race([
-      ai.models.generateContent({
+      gemini().models.generateContent({
         model: AI.model,
         contents: prompt,
         config: {
@@ -44,20 +91,23 @@ async function askJson<T>(prompt: string, schema: object, timeoutMs = 12000): Pr
           ...(AI.model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
         },
       }),
-      new Promise<never>((_, rej) => setTimeout(() => rej(new Error("Gemini timeout")), timeoutMs)),
+      timeout(timeoutMs),
     ]);
     return JSON.parse(res.text ?? "null") as T;
   } catch (e) {
-    failed("Gemini call failed, using fallback", e);
+    failed(`${AI.provider} call failed, using fallback`, e);
     return null;
   }
 }
 
 export async function embed(text: string): Promise<number[] | null> {
-  const ai = gemini();
-  if (!ai) return null;
+  if (!ready()) return null;
   try {
-    const res = await ai.models.embedContent({
+    if (AI.provider === "ollama") {
+      const res = await ollama<{ embeddings: number[][] }>("/api/embed", { model: AI.embeddingModel, input: text, keep_alive: "30m" }, 15000);
+      return res.embeddings?.[0] ?? null;
+    }
+    const res = await gemini().models.embedContent({
       model: AI.embeddingModel,
       contents: text,
       config: { outputDimensionality: 256 },
@@ -84,7 +134,7 @@ export type Analysis = {
   probability: number;
   rationale: string;
   resolutionRule: string;
-  source: "gemini" | "heuristic";
+  source: "gemini" | "ollama" | "heuristic";
   /** Snippets the AI kept as relevant, with its reason. Everything else was ignored. */
   chatUsed: (Snippet & { why: string })[];
 };
@@ -150,13 +200,13 @@ Rules:
   if (out && Number.isFinite(out.probability)) {
     const { usefulSnippets, ...rest } = out as typeof out & { usefulSnippets?: { i: number; why: string }[] };
     const chatUsed = (usefulSnippets ?? []).filter((u) => snippets[u.i]).slice(0, 8).map((u) => ({ ...snippets[u.i], why: u.why }));
-    return { ...rest, probability: clampP(out.probability), source: "gemini", chatUsed };
+    return { ...rest, probability: clampP(out.probability), source: AI.provider as "gemini" | "ollama", chatUsed };
   }
   const h = heuristicAnalysis(input.title, days, input.history);
   return snippets.length ? applySnippetTilt(h, snippets) : h;
 }
 
-/** No API key (or Gemini down): still produce sensible odds from history alone. */
+/** No AI configured (or it is down): still produce sensible odds from history alone. */
 export function heuristicAnalysis(title: string, days: number, history: HistoryEvidence): Analysis {
   const category = guessCategory(title);
   const kind = days > MARKET.stockThresholdDays || /girlfriend|boyfriend|first|degree|promot|marathon/i.test(title) ? "stock" : "bet";
@@ -256,7 +306,7 @@ Give each reason in under 15 words.`,
       required: ["updates"],
     }
   );
-  if (out?.updates) return out.updates.map((u) => ({ ...u, probability: clampP(u.probability), source: "gemini" as const }));
+  if (out?.updates) return out.updates.map((u) => ({ ...u, probability: clampP(u.probability), source: AI.provider as "gemini" | "ollama" }));
   // Fallback: nudge by mood only.
   return input.stocks
     .filter((s) => s.mood != null && Math.abs(s.mood) > 0.15)

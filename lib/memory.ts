@@ -55,7 +55,8 @@ export async function findSimilar(q: Q, groupId: number, text: string, subjectId
   const cat = guessCategory(text);
   const scored = rows.map((m) => {
     const lexical = jaccard(qt, tokens(m.title));
-    const semantic = vector && m.embedding ? Math.max(0, (cosine(vector, m.embedding) - 0.5) * 2) : lexical;
+    // Only compare vectors from the same embedding model (switching AI changes the length).
+    const semantic = vector && m.embedding?.length === vector.length ? Math.max(0, (cosine(vector, m.embedding) - 0.5) * 2) : lexical;
     if (semantic < 0.1 && lexical < 0.1) return { ...m, similarity: 0 };
     let s = 0.7 * semantic + 0.3 * lexical;
     // Per-person base rates: the same question about someone else counts for much less.

@@ -5,6 +5,7 @@ import { getMarket, isClosed, price } from "@/lib/markets";
 import { maxStake } from "@/lib/economy";
 import { findSimilar } from "@/lib/memory";
 import { now } from "@/lib/clock";
+import { SETTLE_WINDOW_MS } from "@/lib/safety";
 
 export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const id = await idParam(ctx);
@@ -33,16 +34,29 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const [position] = await db.query(`SELECT yes_shares, no_shares, spent FROM positions WHERE market_id = $1 AND user_id = $2`, [id, user.id]);
   const people = await db.query<{ id: number; display_name: string; username: string; color: string }>(
     `SELECT id, display_name, username, color FROM users WHERE id = ANY($1::int[])`,
-    [[m.creator_id, m.subject_id].filter(Boolean)]
+    [[m.creator_id, m.subject_id, m.proposed_by].filter(Boolean)]
   );
   const { similar } = await findSimilar(db, m.group_id, m.title, m.subject_id);
   const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [user.id]);
   const closed = isClosed(m);
   const isSubject = m.subject_id === user.id;
+  const open = m.status === "open";
+  const proposed = open && m.proposed_outcome != null;
+  const [mine] = await db.query(`SELECT 1 FROM reports WHERE market_id = $1 AND reporter_id = $2`, [id, user.id]);
   return {
     market: { ...m, price: price(m), closed },
     creator: people.find((p) => p.id === m.creator_id),
     subject: people.find((p) => p.id === m.subject_id) ?? null,
+    // A result somebody has put forward and the group hasn't yet confirmed or disputed.
+    proposal: proposed
+      ? {
+          outcome: m.proposed_outcome,
+          note: m.proposed_note,
+          by: people.find((p) => p.id === m.proposed_by) ?? null,
+          at: m.proposed_at,
+          settlesAt: new Date(new Date(m.proposed_at as Date).getTime() + SETTLE_WINDOW_MS),
+        }
+      : null,
     ticks,
     candles,
     trades,
@@ -53,7 +67,11 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       maxStake: maxStake(u.balance),
       canTrade: !closed && !(isSubject && m.kind === "bet"),
       canShort: !isSubject,
-      canResolve: m.status === "open" && !isSubject && (m.creator_id === user.id || new Date(m.resolves_at) <= now()),
+      canResolve: open && !proposed && !isSubject && (m.creator_id === user.id || new Date(m.resolves_at) <= now()),
+      canConfirm: proposed && !isSubject && m.proposed_by !== user.id,
+      canVeto: open && isSubject,
+      canReport: m.creator_id !== user.id || isSubject,
+      reported: !!mine,
       isSubject,
     },
   };

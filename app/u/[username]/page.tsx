@@ -17,7 +17,14 @@ export default function Profile({ params }: { params: Promise<{ username: string
 
   useEffect(() => {
     if (!loading && !me) router.replace(`/?next=/u/${username}`);
-    if (me) api(`/api/users/${username}`).then(setU).catch((e) => setErr(e.message));
+    if (me)
+      api<{ username: string; display_name: string; color: string }>(`/api/users/${username}`)
+        .then((x) => {
+          // An old username (renamed in the last 30 days) still finds them: move to the new link.
+          if (x.username !== decodeURIComponent(username).replace(/^@/, "").toLowerCase()) router.replace(`/u/${x.username}`);
+          setU(x);
+        })
+        .catch((e) => setErr(e.message));
   }, [loading, me, username, router]);
 
   async function start() {

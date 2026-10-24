@@ -8,7 +8,7 @@ import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
 import { GroupMark, LastLine, Logo, useChatActions } from "@/components/shell";
 import { Avatar, Button, Coins, ago, fmt, pct, timeLeft } from "@/components/ui";
-import { ChevronRight, Link2, LogOut, Plus, Users } from "@/components/icons";
+import { ChevronRight, Link2, LogOut, Plus, Settings, Users } from "@/components/icons";
 import { forgetIdentities } from "@/lib/e2ee";
 
 type Situation = { id: number; title: string; kind: string; category: string; group: string; creator: string; resolves_at: string; volume: number; traders: number; price: number; change: number };
@@ -74,13 +74,17 @@ export default function Chats() {
       <main className="flex min-h-dvh flex-col lg:hidden">
         <header className="px-5 pb-4 pt-6">
           <div className="flex items-center gap-3">
-            <Avatar name={me.user.display_name} color={me.user.color} size={40} />
+            <Link href="/settings" aria-label="Account settings"><Avatar name={me.user.display_name} color={me.user.color} size={40} /></Link>
             <div className="flex-1">
               <div className="font-semibold">{me.user.display_name}</div>
               <button onClick={share} className="text-sm text-mute hover:text-white">
                 @{me.user.username} · {copied ? "link copied" : "share"}
               </button>
             </div>
+            <Link href="/settings" className="relative rounded-md p-2 text-mute hover:text-white" aria-label="Settings">
+              <Settings size={18} />
+              {!me.account?.hasRecovery && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand" />}
+            </Link>
             <button onClick={logout} className="rounded-md p-2 text-mute hover:text-white" aria-label="Log out"><LogOut size={18} /></button>
           </div>
           <Link href="/portfolio" className="mt-5 block rounded-2xl border border-line bg-panel p-5 transition hover:border-white/15">

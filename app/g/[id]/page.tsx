@@ -9,14 +9,16 @@ import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, pct, timeLeft } from "@/components/ui";
 import { GroupMark } from "@/components/shell";
-import { Chart, Check, Hourglass, Key, Lock, Plus, Send, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
+import { Chart, Check, Flag, Hourglass, Key, Lock, Plus, Send, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
+import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
 import { Board, Insights } from "@/components/group-stats";
 import { decryptMessage, encryptMessage, forgetIdentities } from "@/lib/e2ee";
 import { moodScores } from "@/lib/mood";
 import { selectSnippets, type Snippet } from "@/lib/chat-context";
+import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
 
-export type Member = { id: number; username: string; display_name: string; color: string; public_key: string; balance: number; has_key: boolean };
+export type Member = { id: number; username: string; display_name: string; color: string; public_key: string; balance: number; has_key: boolean; subject_policy: "anyone" | "nobody" };
 export type MarketLite = {
   id: number;
   title: string;
@@ -26,6 +28,10 @@ export type MarketLite = {
   creator_id: number;
   status: string;
   outcome: boolean | null;
+  proposed_outcome: boolean | null;
+  proposed_by: number | null;
+  proposed_at: string | null;
+  void_reason: string | null;
   closed: boolean;
   price: number;
   open_prob: number;
@@ -36,6 +42,8 @@ type Msg = { id: number; user_id: number | null; kind: string; ciphertext: strin
 type Feed = {
   group: { id: number; name: string; emoji: string; invite_code: string; ai_context: string; ai_reads_chat: boolean };
   members: Member[];
+  /** People who wrote in the chat and have since left: name and colour only. */
+  former: { id: number; username: string; display_name: string; color: string }[];
   myKey: { wrapped_key: string; wrapper_public_key: string } | null;
   messages: Msg[];
   markets: MarketLite[];
@@ -57,6 +65,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [draft, setDraft] = useState("");
   const [newOpen, setNewOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [reporting, setReporting] = useState<Msg | null>(null);
   const [err, setErr] = useState("");
   const [keyFailed, setKeyFailed] = useState(false);
   const lastId = useRef(0);
@@ -125,7 +134,14 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages.length, view]);
 
-  const members = useMemo(() => new Map(feed?.members.map((m) => [m.id, m]) ?? []), [feed]);
+  const members = useMemo(
+    () =>
+      new Map<number, Member>([
+        ...(feed?.former ?? []).map((f) => [f.id, { ...f, public_key: "", balance: 0, has_key: false, subject_policy: "anyone" as const }] as const),
+        ...(feed?.members ?? []).map((m) => [m.id, m] as const),
+      ]),
+    [feed]
+  );
   const markets = useMemo(() => new Map(feed?.markets.map((m) => [m.id, m]) ?? []), [feed]);
 
   async function send(e: React.FormEvent) {
@@ -136,6 +152,12 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     const payload = await encryptMessage(keyRef.current.key, text);
     await api(`/api/groups/${id}/messages`, { body: payload });
     poll();
+  }
+
+  /** Confirm or dispute a proposed result straight from the chat card. */
+  async function review(marketId: number, what: "confirm" | "dispute") {
+    await api(`/api/markets/${marketId}/${what}`, { method: "POST", body: {} });
+    await poll();
   }
 
   /** Mood per member, computed here from decrypted chat. Only the numbers can be shared. */
@@ -248,7 +270,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                     {Array.isArray(r) ? (
                       <TradeRun trades={r} members={members} />
                     ) : (
-                      <MessageRow m={r} prev={prev} next={next} meId={me.user.id} members={members} markets={markets} now={feed.now} ticker={c.ticker} />
+                      <MessageRow m={r} prev={prev} next={next} meId={me.user.id} members={members} markets={markets} now={feed.now} ticker={c.ticker} onReport={setReporting} onReview={review} />
                     )}
                   </div>
                 );
@@ -302,6 +324,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         onClose={() => setNewOpen(false)}
         groupId={id}
         members={feed.members}
+        meId={me.user.id}
         now={feed.now}
         aiContext={feed.group.ai_context}
         aiReadsChat={feed.group.ai_reads_chat}
@@ -312,6 +335,15 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           poll();
           router.push(`/m/${mid}`);
         }}
+      />
+      <ReportSheet
+        open={!!reporting}
+        onClose={() => setReporting(null)}
+        kind="message"
+        url={`/api/groups/${id}/report`}
+        messageId={reporting?.id}
+        text={reporting?.text}
+        onDone={() => reporting && setMessages((old) => old.filter((m) => m.id !== reporting.id))}
       />
       <GroupSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} feed={feed} groupId={id} keyRef={keyRef} identity={identity} onChange={() => { poll(); refresh(); }} />
     </main>
@@ -362,29 +394,47 @@ function dayLabel(t: string, now: string) {
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 }
 
-function MessageRow({ m, prev, next, meId, members, markets, now, ticker }: { m: Msg; prev?: Msg; next?: Msg; meId: number; members: Map<number, Member>; markets: Map<number, MarketLite>; now: string; ticker: string }) {
-  const who = m.user_id ? members.get(m.user_id) : null;
+function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onReport, onReview }: { m: Msg; prev?: Msg; next?: Msg; meId: number; members: Map<number, Member>; markets: Map<number, MarketLite>; now: string; ticker: string; onReport: (m: Msg) => void; onReview: (marketId: number, what: "confirm" | "dispute") => Promise<void> }) {
+  // An author who is no longer a member is a deleted account; their messages stay, unnamed.
+  const who = m.user_id ? (members.get(m.user_id) ?? ({ id: m.user_id, username: "", display_name: "Deleted user", color: "#52525b" } as Member)) : null;
+  const press = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const stopPress = () => {
+    if (press.current) clearTimeout(press.current);
+    press.current = null;
+  };
   if (m.kind === "chat") {
     const mine = m.user_id === meId;
     const first = !sameBlock(prev, m);
     const last = !sameBlock(m, next);
     const corner = mine ? (last ? "rounded-br-md" : "rounded-r-md") : last ? "rounded-bl-md" : "rounded-l-md";
     return (
-      <div className={`msg-in flex items-end ${mine ? "justify-end" : "justify-start"} gap-2 ${first ? "mt-2.5" : "mt-0.5"}`}>
+      <div className={`msg-in group flex items-end ${mine ? "justify-end" : "justify-start"} gap-2 ${first ? "mt-2.5" : "mt-0.5"}`}>
         {!mine && <div className="w-7 shrink-0">{last && who && <Avatar name={who.display_name} color={who.color} size={28} />}</div>}
-        <div className={`max-w-[78%] rounded-2xl px-3.5 py-1.5 lg:max-w-[540px] ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-[#2b6cff] text-white" : "border border-white/[.06] bg-raised"}`}>
+        <div
+          onTouchStart={mine ? undefined : () => { stopPress(); press.current = setTimeout(() => onReport(m), 550); }}
+          onTouchEnd={stopPress}
+          onTouchMove={stopPress}
+          onTouchCancel={stopPress}
+          className={`max-w-[78%] rounded-2xl px-3.5 py-1.5 [-webkit-touch-callout:none] lg:max-w-[540px] ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-[#2b6cff] text-white" : "border border-white/[.06] bg-raised"}`}>
           {first && !mine && who && <div className="text-[13px] font-semibold" style={{ color: who.color }}>{who.display_name}</div>}
           <span className="whitespace-pre-wrap break-words">{m.text ?? <span className="inline-flex items-center gap-1 italic text-mute"><Lock size={12} /> can&apos;t decrypt yet</span>}</span>
           <span className={`float-right ml-3 mt-1.5 text-[10px] tabular ${mine ? "text-white/60" : "text-mute"}`}>{clock(m.created_at)}</span>
         </div>
+        {!mine && (
+          <button onClick={() => onReport(m)} className="mb-1 hidden shrink-0 rounded-md p-1 text-mute opacity-0 transition hover:bg-white/5 hover:text-white focus:opacity-100 group-hover:opacity-100 lg:block" title="Report message" aria-label="Report message">
+            <Flag size={14} />
+          </button>
+        )}
       </div>
     );
   }
   const mk = m.market_id ? markets.get(m.market_id) : null;
   if ((m.kind === "market" || m.kind === "resolution") && mk) {
     const resolved = mk.status === "resolved";
+    const voided = mk.status === "void";
+    const pending = mk.status === "open" && mk.proposed_outcome != null;
     const settledNow = m.kind === "resolution";
-    const live = !resolved && !mk.closed;
+    const live = !resolved && !voided && !mk.closed;
     return (
       <div className="msg-in my-4 flex justify-center">
         <div className={`w-full max-w-[92%] overflow-hidden rounded-2xl border bg-panel shadow-[0_8px_30px_-12px_rgba(0,0,0,.6)] lg:max-w-md ${settledNow ? (mk.outcome ? "border-up/30" : "border-down/30") : "border-line"}`}>
@@ -396,20 +446,21 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker }: { m:
           <Link href={`/m/${mk.id}`} className="block px-4 pt-3 hover:bg-white/[.02]">
             <div className="flex items-center gap-2 text-[11px] text-mute">
               <Badge tone={mk.kind === "stock" ? "brand" : "mute"}>{mk.kind === "stock" ? "Stock" : "Bet"}</Badge>
-              <span className="ml-auto">{resolved ? "settled" : timeLeft(mk.resolves_at, now)}</span>
+              <span className="ml-auto">{voided ? "called off" : resolved ? "settled" : pending ? "result proposed" : timeLeft(mk.resolves_at, now)}</span>
             </div>
-            <div className="mt-1.5 text-[17px] font-semibold leading-snug">{mk.title}</div>
+            <div className={`mt-1.5 text-[17px] font-semibold leading-snug ${voided ? "text-mute line-through decoration-white/30" : ""}`}>{mk.title}</div>
             <div className="mt-3 flex items-end justify-between">
               <div className="text-3xl font-semibold tracking-tight tabular">
-                {resolved ? <span className={mk.outcome ? "text-up" : "text-down"}>{mk.outcome ? "Yes" : "No"}</span> : <LiveNumber value={mk.price}>{pct(mk.price)}</LiveNumber>}
+                {voided ? <span className="text-mute">Called off</span> : resolved ? <span className={mk.outcome ? "text-up" : "text-down"}>{mk.outcome ? "Yes" : "No"}</span> : <LiveNumber value={mk.price}>{pct(mk.price)}</LiveNumber>}
               </div>
               <div className="text-right text-xs text-mute">
-                {!resolved && <Change from={mk.open_prob} to={mk.price} />}
-                <div className="tabular">{mk.volume.toFixed(0)} {ticker} traded</div>
+                {!resolved && !voided && <Change from={mk.open_prob} to={mk.price} />}
+                <div className="tabular">{voided ? "everyone refunded" : `${mk.volume.toFixed(0)} ${ticker} traded`}</div>
               </div>
             </div>
-            {!resolved && <div className="mt-3 h-1 overflow-hidden rounded-full bg-down/30"><div className="h-full rounded-full bg-up transition-[width] duration-700" style={{ width: `${mk.price * 100}%` }} /></div>}
+            {!resolved && !voided && <div className="mt-3 h-1 overflow-hidden rounded-full bg-down/30"><div className="h-full rounded-full bg-up transition-[width] duration-700" style={{ width: `${mk.price * 100}%` }} /></div>}
           </Link>
+          {pending && <ProposalActions mk={mk} meId={meId} members={members} now={now} onReview={onReview} />}
           {live ? (
             <div className="grid grid-cols-2 gap-2 p-3">
               <Link href={`/m/${mk.id}?side=yes`} className="rounded-xl bg-up/10 py-2 text-center text-sm font-semibold text-up transition hover:bg-up/20">Long</Link>
@@ -426,7 +477,8 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker }: { m:
     <div className="my-2 text-center text-xs text-mute">
       {m.market_id ? (
         <Link href={`/m/${m.market_id}`} className="hover:text-white">
-          <b className="text-white/80">{who?.display_name ?? "AI"}</b> {m.body}
+          {who && <b className="text-white/80">{who.display_name} </b>}
+          {m.body}
         </Link>
       ) : (
         <>
@@ -438,12 +490,62 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker }: { m:
   );
 }
 
+/** The pending-result strip on a chat card: confirm it, or (after a second tap) void it and refund everyone. */
+function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite; meId: number; members: Map<number, Member>; now: string; onReview: (marketId: number, what: "confirm" | "dispute") => Promise<void> }) {
+  const [asking, setAsking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  const by = mk.proposed_by ? members.get(mk.proposed_by) : null;
+  const canReview = meId !== mk.subject_id && meId !== mk.proposed_by;
+  const settlesAt = mk.proposed_at ? new Date(mk.proposed_at).getTime() + SETTLE_WINDOW_HOURS * 3600e3 : 0;
+  async function go(what: "confirm" | "dispute") {
+    setBusy(true);
+    setErr("");
+    try {
+      await onReview(mk.id, what);
+    } catch (e) {
+      setErr((e as Error).message);
+      setAsking(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mt-3 border-t border-line px-4 py-3 text-sm">
+      <div>
+        <span className="text-mute">{by?.display_name ?? "Someone"} proposed </span>
+        <b className={mk.proposed_outcome ? "text-up" : "text-down"}>{mk.proposed_outcome ? "YES" : "NO"}</b>
+        <span className="text-mute">. {canReview ? "Is that right?" : mk.proposed_by === meId ? "Waiting for another member." : "It's about you, so you can only call it off."}</span>
+      </div>
+      <div className="mt-0.5 text-xs text-mute">{settlesAt > new Date(now).getTime() ? `Settles on its own in ${timeLeft(new Date(settlesAt), now).replace(" left", "")} if nobody replies.` : "Settling any moment now."}</div>
+      {canReview &&
+        (asking ? (
+          <div className="mt-2.5 space-y-2">
+            <p className="text-xs text-mute">Disputing voids the situation for everyone and refunds every trade.</p>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="ghost" className="!py-2 text-sm" disabled={busy} onClick={() => setAsking(false)}>Cancel</Button>
+              <Button variant="down" className="!py-2 text-sm" disabled={busy} onClick={() => go("dispute")}>Void and refund</Button>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-2.5 grid grid-cols-2 gap-2">
+            <Button variant="up" className="!py-2 text-sm" disabled={busy} onClick={() => go("confirm")}>Confirm</Button>
+            <Button variant="ghost" className="!py-2 text-sm" disabled={busy} onClick={() => setAsking(true)}>Dispute</Button>
+          </div>
+        ))}
+      {err && <p className="mt-2 text-xs text-down">{err}</p>}
+    </div>
+  );
+}
+
 function MarketList({ markets, members, now }: { markets: MarketLite[]; members: Map<number, Member>; now: string }) {
   const groups = [
     { label: "Live bets", items: markets.filter((m) => m.status === "open" && !m.closed && m.kind === "bet") },
     { label: "Stocks (long-term)", items: markets.filter((m) => m.status === "open" && !m.closed && m.kind === "stock") },
-    { label: "Awaiting result", items: markets.filter((m) => m.status === "open" && m.closed) },
+    { label: "Result proposed", items: markets.filter((m) => m.status === "open" && m.proposed_outcome != null) },
+    { label: "Awaiting result", items: markets.filter((m) => m.status === "open" && m.closed && m.proposed_outcome == null) },
     { label: "Settled", items: markets.filter((m) => m.status === "resolved").slice(0, 30) },
+    { label: "Called off", items: markets.filter((m) => m.status === "void").slice(0, 20) },
   ];
   return (
     <div className="pb-4">
@@ -459,12 +561,12 @@ function MarketList({ markets, members, now }: { markets: MarketLite[]; members:
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{m.title}</div>
                     <div className="text-xs text-mute">
-                      {m.category} · {m.status === "resolved" ? "settled" : timeLeft(m.resolves_at, now)} · {m.volume.toFixed(0)} vol
+                      {m.category} · {m.status === "void" ? "called off" : m.status === "resolved" ? "settled" : m.proposed_outcome != null ? `proposed ${m.proposed_outcome ? "YES" : "NO"}` : timeLeft(m.resolves_at, now)} · {m.volume.toFixed(0)} vol
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold tabular">{m.status === "resolved" ? (m.outcome ? "YES" : "NO") : <LiveNumber value={m.price}>{pct(m.price)}</LiveNumber>}</div>
-                    {m.status !== "resolved" && <Change from={m.open_prob} to={m.price} />}
+                    <div className="font-semibold tabular">{m.status === "void" ? <span className="text-mute">VOID</span> : m.status === "resolved" ? (m.outcome ? "YES" : "NO") : <LiveNumber value={m.price}>{pct(m.price)}</LiveNumber>}</div>
+                    {m.status === "open" && <Change from={m.open_prob} to={m.price} />}
                   </div>
                 </Link>
               );
@@ -481,7 +583,25 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
   const [ctx, setCtx] = useState(feed.group.ai_context);
   const [username, setUsername] = useState("");
   const [msg, setMsg] = useState("");
+  const [askLeave, setAskLeave] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const router = useRouter();
+  const { refresh } = useSession();
   useEffect(() => setCtx(feed.group.ai_context), [feed.group.ai_context]);
+  useEffect(() => {
+    if (!open) setAskLeave(false);
+  }, [open]);
+  async function leave() {
+    setLeaving(true);
+    try {
+      await api(`/api/groups/${groupId}/leave`, { method: "POST", body: {} });
+      await refresh();
+      router.replace("/chats");
+    } catch (e) {
+      setMsg((e as Error).message);
+      setLeaving(false);
+    }
+  }
   const link = typeof location !== "undefined" ? `${location.origin}/join/${feed.group.invite_code}` : "";
   async function saveCtx() {
     await api(`/api/groups/${groupId}`, { method: "PATCH", body: { aiContext: ctx } });
@@ -551,6 +671,21 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
               <span className="flex items-center gap-1 text-xs text-mute">{m.has_key ? <><Check size={12} /> has key</> : <><Hourglass size={12} /> no key yet</>}</span>
             </div>
           ))}
+        </div>
+        <div className="border-t border-line pt-4">
+          {askLeave ? (
+            <div className="space-y-3">
+              <p className="text-sm text-mute">
+                Leave {feed.group.name}? You&apos;ll lose access to the chat and its key. Your positions stay and still settle. Open situations about you are called off and refunded.
+              </p>
+              <div className="flex gap-2">
+                <Button variant="ghost" className="flex-1" onClick={() => setAskLeave(false)}>Stay</Button>
+                <Button variant="down" className="flex-1" disabled={leaving} onClick={leave}>{leaving ? "Leaving…" : "Leave group"}</Button>
+              </div>
+            </div>
+          ) : (
+            <button onClick={() => setAskLeave(true)} className="text-sm text-down hover:underline">Leave group</button>
+          )}
         </div>
         {msg && <p className="text-sm text-mute">{msg}</p>}
       </div>

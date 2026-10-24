@@ -7,7 +7,7 @@ import { api } from "./api";
 import { createGroup, groupKey } from "./groupkeys";
 import { TimeMachine } from "./timemachine";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
-import { Blocks, Chart, Home, LogOut, Plus, TrendUp, Users } from "./icons";
+import { Blocks, Chart, Home, LogOut, Plus, Settings, TrendUp, Users } from "./icons";
 import { decryptMessage, forgetIdentities } from "@/lib/e2ee";
 
 /**
@@ -17,7 +17,8 @@ import { decryptMessage, forgetIdentities } from "@/lib/e2ee";
 export function Frame({ children }: { children: React.ReactNode }) {
   const { me } = useSession();
   const path = usePathname();
-  if (path === "/") return <>{children}</>;
+  // Sign-in screens own the whole window (and must not re-mount when a session appears mid-flow).
+  if (path === "/" || path === "/recover") return <>{children}</>;
   if (!me) return <div className="mx-auto min-h-dvh max-w-xl">{children}</div>;
   return (
     <div className="lg:flex lg:h-dvh lg:overflow-hidden">
@@ -92,6 +93,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
     { href: "/chats", label: "Overview", icon: Home },
     { href: "/portfolio", label: "Portfolio", icon: Chart },
     { href: "/chain", label: "Chain", icon: Blocks },
+    { href: "/settings", label: "Settings", icon: Settings, dot: !me.account?.hasRecovery },
   ];
   return (
     <aside className="hidden w-[300px] shrink-0 flex-col border-r border-line bg-panel lg:flex">
@@ -100,28 +102,32 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
         <span className="font-semibold tracking-tight">Friend Stocks</span>
       </div>
 
-      <Link href="/portfolio" className="mx-3 rounded-2xl border border-line bg-ink p-4 transition hover:border-white/15">
-        <div className="flex items-center gap-2.5">
+      <div className="mx-3 rounded-2xl border border-line bg-ink transition hover:border-white/15">
+        <Link href="/settings" title="Account settings" className="group flex items-center gap-2.5 px-4 pt-4">
           <Avatar name={me.user.display_name} color={me.user.color} size={28} />
           <div className="min-w-0 flex-1 leading-tight">
             <div className="truncate text-sm font-medium">{me.user.display_name}</div>
             <div className="text-xs text-mute">@{me.user.username}</div>
           </div>
-        </div>
-        <div className="mt-4 text-xs text-mute">Net worth</div>
-        <div className="text-2xl font-semibold tracking-tight">
-          <Coins value={me.netWorth.total} ticker={c.ticker} />
-        </div>
-        <div className="mt-1 flex justify-between text-xs text-mute tabular">
-          <span>Cash {me.netWorth.balance.toFixed(0)}</span>
-          <span>Invested {me.netWorth.positions.toFixed(0)}</span>
-        </div>
-      </Link>
+          <Settings size={15} className="text-mute transition group-hover:text-white" />
+        </Link>
+        <Link href="/portfolio" className="block px-4 pb-4 pt-4">
+          <div className="text-xs text-mute">Net worth</div>
+          <div className="text-2xl font-semibold tracking-tight">
+            <Coins value={me.netWorth.total} ticker={c.ticker} />
+          </div>
+          <div className="mt-1 flex justify-between text-xs text-mute tabular">
+            <span>Cash {me.netWorth.balance.toFixed(0)}</span>
+            <span>Invested {me.netWorth.positions.toFixed(0)}</span>
+          </div>
+        </Link>
+      </div>
 
       <nav className="mt-3 px-3">
-        {nav.map(({ href, label, icon: Icon }) => (
+        {nav.map(({ href, label, icon: Icon, dot }) => (
           <Link key={href} href={href} className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm ${path === href ? "bg-white/[.06] text-white" : "text-mute hover:text-white"}`}>
             <Icon size={16} /> {label}
+            {dot && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-brand" title="Make a recovery code" />}
           </Link>
         ))}
       </nav>

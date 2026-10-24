@@ -33,7 +33,10 @@ export const GET = route(async (_req, user) => {
      GROUP BY k.group_id, k.wrapped_key, w.public_key`,
     [user.id]
   );
-  const [u] = await db.query<{ last_allowance_at: Date }>(`SELECT last_allowance_at FROM users WHERE id = $1`, [user.id]);
+  const [u] = await db.query<{ last_allowance_at: Date; has_recovery: boolean }>(
+    `SELECT last_allowance_at, recovery_hash IS NOT NULL AS has_recovery FROM users WHERE id = $1`,
+    [user.id]
+  );
   return {
     user,
     netWorth: await netWorth(db, user.id),
@@ -41,6 +44,7 @@ export const GET = route(async (_req, user) => {
     nextAllowanceAt: new Date(new Date(u.last_allowance_at).getTime() + ECONOMY.allowancePeriodMs),
     groups,
     pendingKeys,
+    account: { hasRecovery: u.has_recovery },
     clock: { now: now(), offsetMs: clockOffset() },
     config: {
       currency: CURRENCY,

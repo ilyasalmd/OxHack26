@@ -9,7 +9,9 @@
  *
  * Runs through the same market engine as the app by moving the app clock.
  */
-delete process.env.GEMINI_API_KEY; // deterministic + fast; live Gemini is used in the app itself
+// Deterministic and fast: the stats model prices the history; the live AI is used in the app itself.
+process.env.AI_PROVIDER = "none";
+delete process.env.GEMINI_API_KEY;
 process.env.DEMO_MODE ??= "true";
 
 import bcrypt from "bcryptjs";

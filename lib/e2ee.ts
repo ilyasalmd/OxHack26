@@ -31,9 +31,17 @@ async function pbkdf2(password: string, salt: string, bits = 256) {
 }
 
 export async function deriveKeys(password: string, username: string, keySalt: string) {
-  const [authBits, encBits] = await Promise.all([pbkdf2(password, `friend-stocks:auth:${username.toLowerCase()}`), pbkdf2(password, `friend-stocks:enc:${keySalt}`)]);
-  const encKey = await subtle().importKey("raw", encBits, "AES-GCM", false, ["encrypt", "decrypt"]);
-  return { authKey: hex(authBits), encKey };
+  const [authKey, encKey] = await Promise.all([authKeyFor(password, username), encKeyFor(password, `friend-stocks:enc:${keySalt}`)]);
+  return { authKey, encKey };
+}
+
+/** The login key alone. It depends on the username, so a rename needs a new one. */
+export async function authKeyFor(password: string, username: string) {
+  return hex(await pbkdf2(password, `friend-stocks:auth:${username.toLowerCase()}`));
+}
+
+async function encKeyFor(secret: string, salt: string) {
+  return subtle().importKey("raw", await pbkdf2(secret, salt), "AES-GCM", false, ["encrypt", "decrypt"]);
 }
 
 async function aesEncrypt(key: CryptoKey, data: Uint8Array) {
@@ -62,6 +70,72 @@ const importPublic = (spkiB64: string) => subtle().importKey("spki", unb64(spkiB
 export async function unlockIdentity(encPrivateKey: string, encKey: CryptoKey) {
   const [iv, ct] = encPrivateKey.split(".");
   return importPrivate(await aesDecrypt(encKey, iv, ct));
+}
+
+/**
+ * Re-seals the sealed identity key under a different key (new password, or a recovery code).
+ * The raw key only exists inside this function, and is checked to be a real key before re-sealing.
+ */
+export async function rewrapIdentity(encPrivateKey: string, oldEncKey: CryptoKey, newEncKey: CryptoKey) {
+  const [iv, ct] = encPrivateKey.split(".");
+  const raw = await aesDecrypt(oldEncKey, iv, ct);
+  try {
+    await importPrivate(raw);
+    const s = await aesEncrypt(newEncKey, raw);
+    return `${s.iv}.${s.ct}`;
+  } finally {
+    raw.fill(0);
+  }
+}
+
+// Recovery codes: 20 characters from a 32-letter alphabet with no 0/O or 1/I (100 bits),
+// shown as five groups of four. Two keys come from it, like a password: one to prove it,
+// one that seals a second copy of the identity key.
+const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+export function newRecoveryCode() {
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  const chars = [...bytes].map((b) => CODE_ALPHABET[b & 31]).join("");
+  return chars.match(/.{4}/g)!.join("-");
+}
+/** Upper-cases and drops spaces and dashes; null unless it could be a code. */
+export function normaliseRecoveryCode(input: string) {
+  const c = input.toUpperCase().replace(/[^A-Z0-9]/g, "");
+  return c.length === 20 && [...c].every((ch) => CODE_ALPHABET.includes(ch)) ? c : null;
+}
+export async function deriveRecoveryKeys(code: string, recoverySalt: string) {
+  const c = normaliseRecoveryCode(code);
+  if (!c) throw new Error("A recovery code is 20 letters and numbers, like ABCD-EFGH-JKLM-NPQR-STUV");
+  const [authBits, encKey] = await Promise.all([pbkdf2(c, `friend-stocks:recovery-auth:${recoverySalt}`), encKeyFor(c, `friend-stocks:recovery-enc:${recoverySalt}`)]);
+  return { authKey: hex(authBits), encKey };
+}
+
+/** A fresh recovery code and what the server stores for it, from a sealed identity key. */
+export async function makeRecoveryBundle(encPrivateKey: string, encKey: CryptoKey) {
+  const code = newRecoveryCode();
+  const recoverySalt = randomSalt();
+  const r = await deriveRecoveryKeys(code, recoverySalt);
+  return {
+    code,
+    upload: { recoveryAuthKey: r.authKey, recoverySalt, encPrivateKeyRecovery: await rewrapIdentity(encPrivateKey, encKey, r.encKey) },
+  };
+}
+
+/**
+ * Everything a new account needs, made in the browser: keys from the password, a new
+ * identity, and a recovery code. POST `body` to /api/auth/signup, then save `privateKey`
+ * with saveIdentity(id) and show `recoveryCode` once.
+ */
+export async function prepareSignup({ username, displayName, password }: { username: string; displayName: string; password: string }) {
+  const uname = username.trim().replace(/^@/, "").toLowerCase();
+  const keySalt = randomSalt();
+  const { authKey, encKey } = await deriveKeys(password, uname, keySalt);
+  const id = await createIdentity(encKey);
+  const recovery = await makeRecoveryBundle(id.encPrivateKey, encKey);
+  return {
+    body: { username: uname, displayName: displayName.trim() || uname, authKey, publicKey: id.publicKey, encPrivateKey: id.encPrivateKey, keySalt, ...recovery.upload },
+    privateKey: id.privateKey,
+    recoveryCode: recovery.code,
+  };
 }
 
 async function pairKey(myPrivate: CryptoKey, theirPublicB64: string) {

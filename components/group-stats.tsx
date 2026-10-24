@@ -130,7 +130,7 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
       <section className="rounded-2xl border border-line bg-panel p-4">
         <h3 className="font-semibold">AI re-mark long-term stocks</h3>
         <p className="mb-3 text-xs text-mute">
-          Gemini re-prices open stocks from time left, your group&apos;s AI context (term dates, fixtures) and, if you allow it, mood scores computed on this phone.
+          The AI re-prices open stocks from time left, your group&apos;s AI context (term dates, fixtures) and, if you allow it, mood scores computed on this phone.
           {aiReadsChat && " This group also lets it see up to 8 relevant, anonymised messages per stock."}
         </p>
         <label className="mb-3 flex items-center gap-2 text-sm">

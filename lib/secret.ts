@@ -11,6 +11,11 @@ export function sign(value: string) {
   return `${value}.${mac}`;
 }
 
+/** A keyed digest (base64url): stable for the same input, unguessable without APP_SECRET. */
+export function mac(value: string) {
+  return crypto.createHmac("sha256", appKey()).update(value).digest("base64url");
+}
+
 export function verify(signed: string | undefined) {
   if (!signed) return null;
   const i = signed.lastIndexOf(".");

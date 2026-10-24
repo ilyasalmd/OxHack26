@@ -20,7 +20,8 @@ export function UnlockPrompt() {
       const uname = me!.user.username;
       const { salt } = await api(`/api/auth/salt?username=${uname}`);
       const { authKey, encKey } = await deriveKeys(pw, uname, salt);
-      const r = await api("/api/auth/login", { body: { username: uname, authKey } });
+      // Already signed in here, so this only proves the password; it doesn't open another session.
+      const r = await api("/api/account/unlock", { body: { authKey } });
       const key = await unlockIdentity(r.encPrivateKey, encKey);
       await saveIdentity(me!.user.id, key);
       setIdentity(key);

@@ -8,6 +8,7 @@ import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter
 import { credit, maxStake, recordNetWorth } from "./economy";
 import { HttpError, type User } from "./auth";
 import type { Snippet } from "./chat-context";
+import { SETTLE_WINDOW_MS, topicProblem } from "./safety";
 
 export type MarketRow = {
   id: number;
@@ -29,8 +30,14 @@ export type MarketRow = {
   b: number;
   q_yes: number;
   q_no: number;
-  status: "open" | "resolved";
+  status: "open" | "resolved" | "void";
   outcome: boolean | null;
+  /** A result someone has put forward; it settles once another member confirms or 24h pass. */
+  proposed_outcome: boolean | null;
+  proposed_by: number | null;
+  proposed_at: Date | null;
+  proposed_note: string;
+  void_reason: "veto" | "dispute" | "reports" | null;
   created_at: Date;
   resolves_at: Date;
   resolved_at: Date | null;
@@ -41,7 +48,8 @@ export type MarketRow = {
 
 export const book = (m: MarketRow): Book => ({ b: m.b, qYes: m.q_yes, qNo: m.q_no });
 export const price = (m: MarketRow) => (m.status === "resolved" ? (m.outcome ? 1 : 0) : priceYes(book(m)));
-export const isClosed = (m: MarketRow) => m.status !== "open" || new Date(m.resolves_at) <= now();
+/** Trading stops at the resolve date, when a result is proposed, and for good once settled or voided. */
+export const isClosed = (m: MarketRow) => m.status !== "open" || m.proposed_outcome != null || new Date(m.resolves_at) <= now();
 
 export type SituationInput = {
   title: string;
@@ -54,13 +62,20 @@ export type SituationInput = {
 
 async function subjectFor(q: Q, groupId: number, username?: string | null) {
   if (!username) return null;
-  const [u] = await q.query<{ id: number; display_name: string; username: string }>(
-    `SELECT u.id, u.display_name, u.username FROM users u JOIN group_members gm ON gm.user_id = u.id
+  const [u] = await q.query<{ id: number; display_name: string; username: string; subject_policy: string }>(
+    `SELECT u.id, u.display_name, u.username, u.subject_policy FROM users u JOIN group_members gm ON gm.user_id = u.id
      WHERE gm.group_id = $1 AND u.username = $2`,
     [groupId, username.replace(/^@/, "").toLowerCase()]
   );
   if (!u) throw new HttpError(400, `@${username} isn't in this group`);
   return u;
+}
+
+/** The subject, after checking they're in the group and haven't opted out (people can always post about themselves). */
+async function consentedSubject(q: Q, groupId: number, username: string | null | undefined, creatorId?: number) {
+  const u = await subjectFor(q, groupId, username);
+  if (u && u.subject_policy === "nobody" && u.id !== creatorId) throw new HttpError(400, `${u.display_name} has turned off situations about them`);
+  return u ? { id: u.id, display_name: u.display_name, username: u.username } : null;
 }
 
 // Preview and create share one Gemini call: the analysis is cached briefly by input.
@@ -79,17 +94,20 @@ export type Preview = {
   chatShared: Snippet[];
 };
 
-export async function previewSituation(groupId: number, input: SituationInput): Promise<Preview> {
+export async function previewSituation(groupId: number, input: SituationInput, creatorId?: number): Promise<Preview> {
   const title = input.title.trim();
   if (title.length < 4) throw new HttpError(400, "Describe the situation in a few words");
+  const banned = topicProblem(title, input.description);
+  if (banned) throw new HttpError(400, banned);
   const resolvesAt = new Date(input.resolvesAt);
   if (!(resolvesAt.getTime() > now().getTime())) throw new HttpError(400, "Resolve date must be in the future");
+  // Consent is checked on every call, including cache hits: the subject may have opted out since.
+  const db = await getDb();
+  const subject = await consentedSubject(db, groupId, input.subjectUsername, creatorId);
   const key = crypto.createHash("sha1").update(JSON.stringify([groupId, title, input.description, input.resolvesAt, input.subjectUsername, input.mood, input.chatSnippets])).digest("hex");
   const hit = previewCache.get(key);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.value;
 
-  const db = await getDb();
-  const subject = await subjectFor(db, groupId, input.subjectUsername);
   const [grp] = await db.query<{ ai_context: string; ai_reads_chat: boolean }>(`SELECT ai_context, ai_reads_chat FROM groups WHERE id = $1`, [groupId]);
   // Chat snippets are only ever forwarded when the whole group has opted in.
   const chatShared = grp?.ai_reads_chat ? (input.chatSnippets ?? []).slice(0, 20) : [];
@@ -134,7 +152,7 @@ async function systemMessage(q: Q, groupId: number, kind: string, body: string, 
 }
 
 export async function createMarket(user: User, groupId: number, input: SituationInput) {
-  const p = await previewSituation(groupId, input);
+  const p = await previewSituation(groupId, input, user.id);
   const db = await getDb();
   const a = p.analysis;
   const b = a.kind === "stock" ? MARKET.stockLiquidity : MARKET.betLiquidity;
@@ -174,6 +192,8 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
     if (!m) throw new HttpError(404, "Market not found");
     const [member] = await q.query(`SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`, [m.group_id, user.id]);
     if (!member) throw new HttpError(403, "You're not in this group");
+    if (m.status === "void") throw new HttpError(400, "This situation was called off");
+    if (m.status === "open" && m.proposed_outcome != null) throw new HttpError(400, "A result has been proposed, so trading is closed");
     if (isClosed(m)) throw new HttpError(400, "Trading has closed on this one");
     if (m.subject_id === user.id) {
       if (m.kind === "bet") throw new HttpError(400, "You can't bet on a situation about yourself");
@@ -225,17 +245,39 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
   return result;
 }
 
+/** Who may put a result forward: not the subject, the creator any time, anyone else once the date has passed. */
+function assertCanPropose(m: MarketRow, user: User) {
+  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't resolve it");
+  if (m.creator_id !== user.id && new Date(m.resolves_at) > now()) throw new HttpError(403, "Only the creator can resolve before the resolve date");
+}
+
+async function assertMember(q: Q, groupId: number, userId: number) {
+  const [member] = await q.query(`SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`, [groupId, userId]);
+  if (!member) throw new HttpError(403, "You're not in this group");
+}
+
+function assertOpen(m: MarketRow) {
+  if (m.status === "void") throw new HttpError(400, "This situation was called off");
+  if (m.status !== "open") throw new HttpError(400, "Already resolved");
+}
+
+/**
+ * Finalises a result immediately. The API no longer calls this directly (results are proposed and
+ * confirmed by a second member); it stays as the finaliser for the confirm path, the 24-hour timer
+ * and the seed script.
+ */
 export async function resolveMarket(user: User, marketId: number, outcome: boolean, note = "", opts: { waitForMemory?: boolean } = {}) {
   const db = await getDb();
   const m = await getMarket(db, marketId);
-  if (m.status !== "open") throw new HttpError(400, "Already resolved");
-  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't resolve it");
-  const creatorCanResolve = m.creator_id === user.id;
-  if (!creatorCanResolve && new Date(m.resolves_at) > now())
-    throw new HttpError(403, "Only the creator can resolve before the resolve date");
-  const [member] = await db.query(`SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`, [m.group_id, user.id]);
-  if (!member) throw new HttpError(403, "You're not in this group");
+  assertOpen(m);
+  assertCanPropose(m, user);
+  await assertMember(db, m.group_id, user.id);
+  return settle(m, outcome, note, user.id, opts);
+}
 
+async function settle(m: MarketRow, outcome: boolean, note: string, actorId: number | null, opts: { waitForMemory?: boolean; suffix?: string } = {}) {
+  const marketId = m.id;
+  const db = await getDb();
   const crowd = priceYes(book(m));
   const payouts = await db.tx(async (q) => {
     const done = await q.query(
@@ -255,7 +297,8 @@ export async function resolveMarket(user: User, marketId: number, outcome: boole
       out.push({ user_id: p.user_id, payout, pnl: payout - p.spent });
     }
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'resolve')`, [marketId, now(), outcome ? 1 : 0]);
-    await systemMessage(q, m.group_id, "resolution", `resolved ${outcome ? "YES" : "NO"}: ${m.title}${note ? ` (${note})` : ""}`, marketId, user.id);
+    const extra = [note, opts.suffix].filter(Boolean).join(" · ");
+    await systemMessage(q, m.group_id, "resolution", `resolved ${outcome ? "YES" : "NO"}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
       JSON.stringify({ app: "friend-stocks", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4) }),
@@ -268,6 +311,121 @@ export async function resolveMarket(user: User, marketId: number, outcome: boole
   const memory = rememberOutcome(m, outcome, crowd, payouts, note).catch((e) => console.warn("[memory]", e));
   if (opts.waitForMemory) await memory;
   return { payouts };
+}
+
+/** Step one of fair settling: put a result forward. It settles when another member confirms, or after 24 hours. */
+export async function proposeResult(user: User, marketId: number, outcome: boolean, note = "") {
+  const db = await getDb();
+  return db.tx(async (q) => {
+    const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
+    if (!m) throw new HttpError(404, "Market not found");
+    assertOpen(m);
+    if (m.proposed_outcome != null) throw new HttpError(400, "A result has already been proposed. Another member needs to confirm or dispute it.");
+    assertCanPropose(m, user);
+    await assertMember(q, m.group_id, user.id);
+    // Rules about WHICH outcome this person may call (e.g. not the way that pays them) belong here: `m` is the locked row, `q` the open transaction.
+    await q.query(`UPDATE markets SET proposed_outcome = $2, proposed_by = $3, proposed_at = $4, proposed_note = $5 WHERE id = $1`, [marketId, outcome, user.id, now(), note.slice(0, 200)]);
+    await systemMessage(q, m.group_id, "system", `proposed ${outcome ? "YES" : "NO"} for “${m.title}”. Another member can confirm or dispute it; with no reply it settles in 24 hours`, marketId, user.id);
+    return { proposed: outcome };
+  });
+}
+
+/** Someone who is neither the subject nor the proposer may settle or dispute a proposal. */
+async function reviewer(user: User, marketId: number) {
+  const db = await getDb();
+  const m = await getMarket(db, marketId);
+  assertOpen(m);
+  if (m.proposed_outcome == null) throw new HttpError(400, "Nobody has proposed a result yet");
+  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't confirm or dispute it. You can call the situation off instead.");
+  if (m.proposed_by === user.id) throw new HttpError(403, "You proposed this result, so another member has to review it");
+  await assertMember(db, m.group_id, user.id);
+  return m;
+}
+
+export async function confirmResult(user: User, marketId: number) {
+  const m = await reviewer(user, marketId);
+  return settle(m, m.proposed_outcome!, m.proposed_note, user.id, { suffix: "confirmed" });
+}
+
+export async function disputeResult(user: User, marketId: number) {
+  const m = await reviewer(user, marketId);
+  return voidMarket(marketId, { reason: "dispute", actorId: user.id, text: `disputed the result, so “${m.title}” is void and everyone was refunded` });
+}
+
+/** The person a situation is about can call it off any time before it settles. Idempotent. */
+export async function vetoMarket(user: User, marketId: number) {
+  const db = await getDb();
+  const m = await getMarket(db, marketId);
+  if (m.subject_id !== user.id) throw new HttpError(403, "Only the person it's about can call it off");
+  if (m.status === "void") return { voided: false, already: true };
+  if (m.status !== "open") throw new HttpError(400, "It's already settled, so it's too late to call it off");
+  return voidMarket(marketId, { reason: "veto", actorId: user.id, text: `called this one off: “${m.title}”. Everyone was refunded` });
+}
+
+const round2 = (x: number) => Math.round(x * 100) / 100;
+
+/**
+ * Voids an open situation and gives every holder back exactly what they net spent (buys minus
+ * sells), through credit() so the Solana mirror stays in step. Positions are zeroed. Safe to call
+ * twice: only the call that flips the status refunds anyone.
+ */
+export async function voidMarket(marketId: number, opts: { reason: "veto" | "dispute" | "reports"; actorId: number | null; text: string }) {
+  const db = await getDb();
+  return db.tx(async (q) => {
+    const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
+    if (!m) throw new HttpError(404, "Market not found");
+    if (m.status !== "open") return { voided: false, refunded: 0 };
+    const ts = now();
+    await q.query(`UPDATE markets SET status = 'void', void_reason = $2, resolved_at = $3 WHERE id = $1`, [marketId, opts.reason, ts]);
+    const positions = await q.query<{ user_id: number; spent: number }>(`SELECT user_id, spent FROM positions WHERE market_id = $1 ORDER BY user_id`, [marketId]);
+    let refunded = 0;
+    for (const p of positions) {
+      const refund = round2(p.spent);
+      if (Math.abs(refund) >= 0.01) {
+        await credit(q, p.user_id, refund, `Refund · ${m.title}`, marketId);
+        refunded++;
+      } else await recordNetWorth(q, p.user_id);
+    }
+    await q.query(`UPDATE positions SET yes_shares = 0, no_shares = 0, spent = 0 WHERE market_id = $1`, [marketId]);
+    await systemMessage(q, m.group_id, "system", opts.text, marketId, opts.actorId);
+    await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
+      marketId,
+      JSON.stringify({ app: "friend-stocks", v: 1, ev: "void", market: marketId }),
+      ts,
+    ]);
+    return { voided: true, refunded };
+  });
+}
+
+/**
+ * Calls off every open situation about a person, in one group or (groupId null) in all of them. Used when
+ * they leave a group or delete their account, since from then on they can't use their veto.
+ */
+export async function callOffSituationsAbout(userId: number, displayName: string, groupId: number | null = null) {
+  const db = await getDb();
+  const open = await db.query<{ id: number; title: string }>(
+    `SELECT id, title FROM markets WHERE subject_id = $1 AND status = 'open' AND ($2::int IS NULL OR group_id = $2)`,
+    [userId, groupId]
+  );
+  for (const m of open)
+    await voidMarket(m.id, { reason: "veto", actorId: null, text: `${displayName} left, so “${m.title}” was called off and everyone was refunded` });
+  return open.length;
+}
+
+/** A proposal nobody reviewed for 24 hours (app clock) settles as proposed. Called by the worker. */
+export async function finaliseProposals(q: Q) {
+  const due = await q.query<MarketRow>(
+    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NOT NULL AND proposed_at <= $1 ORDER BY proposed_at`,
+    [new Date(now().getTime() - SETTLE_WINDOW_MS)]
+  );
+  for (const m of due) {
+    try {
+      await settle(m, m.proposed_outcome!, m.proposed_note, m.proposed_by, { suffix: "no objections in 24h" });
+    } catch (e) {
+      // Someone else (a confirm, a veto) got there first.
+      if (!(e instanceof HttpError)) console.warn("[finalise]", (e as Error).message);
+    }
+  }
 }
 
 async function rememberOutcome(m: MarketRow, outcome: boolean, crowd: number, payouts: { user_id: number; pnl: number }[], note: string) {
@@ -297,6 +455,7 @@ async function rememberOutcome(m: MarketRow, outcome: boolean, crowd: number, pa
 
 /** Long-dated "by date X" stocks lose value as time passes with no news. */
 export async function runDecay(q: Q) {
+  await finaliseProposals(q);
   const rows = await q.query<MarketRow>(`SELECT * FROM markets WHERE status = 'open' AND decay = 'hazard'`);
   const t = now();
   for (const m of rows) {
@@ -320,7 +479,7 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
   if (!grp?.ai_reads_chat) chat = null;
   const stocks = await db.query<MarketRow & { subject_name: string | null }>(
     `SELECT m.*, u.display_name AS subject_name FROM markets m LEFT JOIN users u ON u.id = m.subject_id
-     WHERE m.group_id = $1 AND m.kind = 'stock' AND m.status = 'open' AND m.resolves_at > $2`,
+     WHERE m.group_id = $1 AND m.kind = 'stock' AND m.status = 'open' AND m.proposed_outcome IS NULL AND m.resolves_at > $2`,
     [groupId, now()]
   );
   const updates = await repriceStocks({

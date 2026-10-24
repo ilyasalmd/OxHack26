@@ -7,7 +7,9 @@ import { PriceChart } from "@/components/chart";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { TimeMachine } from "@/components/timemachine";
 import { applyShares, priceYes, proceedsForShares, sharesForAmount } from "@/lib/lmsr";
-import { Book, Chat, Hourglass, Volume } from "@/components/icons";
+import { Book, Chat, Flag, Hourglass, More, Volume } from "@/components/icons";
+import { ReportSheet } from "@/components/report";
+import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
 
 function useWide() {
   const [wide, setWide] = useState(false);
@@ -27,15 +29,16 @@ type Detail = {
     id: number; group_id: number; kind: "bet" | "stock"; decay: string; title: string; description: string; category: string; resolution_rule: string;
     ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string;
     chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
-    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean;
+    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean;
   };
   creator: Person;
   subject: Person | null;
+  proposal: { outcome: boolean; note: string; by: Person | null; at: string; settlesAt: string } | null;
   ticks: { ts: string; price: number; source: string }[];
   trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string }[];
   position: { yes_shares: number; no_shares: number; spent: number } | null;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canResolve: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canResolve: boolean; canConfirm: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -51,6 +54,10 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
   const [deskSide, setDeskSide] = useState<"yes" | "no">("yes");
+  const [menu, setMenu] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  // Calling a situation off and disputing a result both void it and refund everyone, so they ask first.
+  const [confirming, setConfirming] = useState<"veto" | "dispute" | null>(null);
   const wide = useWide();
 
   // The overview's Long and Short buttons land here with ?side= so the ticket opens ready.
@@ -75,6 +82,8 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   // Stocks are quoted like a share price (0–100), bets as a chance.
   const show = (p: number) => (isStock ? fmt(p * 100) : pct(p));
   const resolved = m.status === "resolved";
+  const voided = m.status === "void";
+  const proposal = d.proposal;
   const book = { b: m.b, qYes: m.q_yes, qNo: m.q_no };
   // Live app clock (real time + demo offset), so a brand-new market still draws a line.
   const now = Date.now() + me.clock.offsetMs;
@@ -102,6 +111,21 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       await Promise.all([load(), refresh()]);
     } catch (e) {
       setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  /** Confirm a proposed result, dispute it, or (if it's about you) call the situation off. */
+  async function act(what: "confirm" | "dispute" | "veto") {
+    setBusy(true);
+    setErr("");
+    try {
+      await api(`/api/markets/${id}/${what}`, { method: "POST", body: {} });
+      setConfirming(null);
+      await Promise.all([load(), refresh()]);
+    } catch (e) {
+      setErr((e as Error).message);
+      setConfirming(null);
     } finally {
       setBusy(false);
     }
@@ -197,9 +221,36 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         backOnDesktop
         title={<span className="text-sm text-mute">{isStock ? "Stock" : "Bet"} · {m.category}</span>}
         right={
-          <button onClick={recap} disabled={speaking} className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50" title="Hear a recap">
-            <Volume size={15} /> {speaking ? "Playing…" : "Recap"}
-          </button>
+          <>
+            <button onClick={recap} disabled={speaking} className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50" title="Hear a recap">
+              <Volume size={15} /> {speaking ? "Playing…" : "Recap"}
+            </button>
+            <div className="relative">
+              <button onClick={() => setMenu((v) => !v)} className="rounded-lg p-1.5 text-mute hover:bg-white/5 hover:text-white" aria-label="More" aria-expanded={menu}>
+                <More size={18} />
+              </button>
+              {menu && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setMenu(false)} />
+                  <div className="pop absolute right-0 top-full z-50 mt-1 w-56 overflow-hidden rounded-xl border border-line bg-raised py-1 text-sm shadow-xl">
+                    {d.me.canVeto && (
+                      <button className="block w-full px-3.5 py-2 text-left hover:bg-white/5" onClick={() => { setMenu(false); setConfirming("veto"); }}>Call this one off</button>
+                    )}
+                    {d.me.canReport && (
+                      <button
+                        disabled={d.me.reported}
+                        className="flex w-full items-center gap-2 px-3.5 py-2 text-left hover:bg-white/5 disabled:text-mute disabled:hover:bg-transparent"
+                        onClick={() => { setMenu(false); setReportOpen(true); }}
+                      >
+                        <Flag size={14} /> {d.me.reported ? "You reported this" : "Report this situation"}
+                      </button>
+                    )}
+                    {!d.me.canVeto && !d.me.canReport && <div className="px-3.5 py-2 text-mute">Nothing to do here</div>}
+                  </div>
+                </>
+              )}
+            </div>
+          </>
         }
       />
       <div className="flex-1 px-4 pb-6 lg:mx-auto lg:grid lg:w-full lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_360px] lg:items-start lg:gap-10 lg:px-8 lg:pt-4">
@@ -213,9 +264,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
         <div className="mt-4">
           <div className="text-4xl font-semibold tracking-tight tabular lg:text-5xl">
-            {resolved ? <span className={m.outcome ? "text-up" : "text-down"}>{m.outcome ? "Resolved YES" : "Resolved NO"}</span> : <LiveNumber value={m.price}>{show(hover?.v ?? m.price)}</LiveNumber>}
+            {voided ? <span className="text-mute">Called off</span> : resolved ? <span className={m.outcome ? "text-up" : "text-down"}>{m.outcome ? "Resolved YES" : "Resolved NO"}</span> : <LiveNumber value={m.price}>{show(hover?.v ?? m.price)}</LiveNumber>}
           </div>
-          {!resolved && (
+          {!resolved && !voided && (
             <div className="mt-1 flex items-center gap-2 text-sm text-mute">
               <Change from={m.open_prob} to={hover?.v ?? m.price} />
               <span>since listing · {isStock ? `matures ${new Date(m.resolves_at).toLocaleDateString("en-GB")}` : timeLeft(m.resolves_at, me.clock.now)}</span>
@@ -224,21 +275,62 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         </div>
 
         <div className="mt-4">
-          <PriceChart points={points} now={resolved ? Math.max(...points.map((p) => p.t)) : now} format={show} onHover={setHover} height={wide ? 300 : 180} />
+          <PriceChart points={points} now={resolved || voided ? Math.max(...points.map((p) => p.t)) : now} format={show} onHover={setHover} height={wide ? 300 : 180} />
         </div>
 
+        {voided && (
+          <section className="mt-4 rounded-2xl border border-line bg-panel p-4 text-sm">
+            <div className="font-semibold">This situation was called off</div>
+            <p className="mt-1 text-mute">
+              {m.void_reason === "veto" && `${d.subject?.display_name ?? "The person it was about"} called it off.`}
+              {m.void_reason === "dispute" && "The proposed result was disputed."}
+              {m.void_reason === "reports" && "Members reported it."}
+              {!m.void_reason && "It was voided."} Everyone was refunded what they spent, so nobody wins or loses.
+            </p>
+          </section>
+        )}
+        {proposal && (
+          <section className="mt-4 rounded-2xl border border-brand/30 bg-brand/5 p-4 text-sm">
+            <div className="flex items-center gap-2">
+              <Badge tone="brand">Result proposed</Badge>
+              <span className={`font-semibold ${proposal.outcome ? "text-up" : "text-down"}`}>{proposal.outcome ? "YES, it happened" : "NO, it didn't"}</span>
+            </div>
+            <p className="mt-2 text-mute">
+              {proposal.by?.display_name ?? "Someone"} says so{proposal.note ? `: “${proposal.note}”` : ""}. Trading is closed.
+              {d.me.canConfirm
+                ? " Does that match what happened?"
+                : d.me.isSubject
+                  ? " It's about you, so you can't confirm or dispute it, but you can call it off."
+                  : " Another member has to confirm or dispute it."}
+            </p>
+            <p className="mt-1 text-xs text-mute">
+              {new Date(proposal.settlesAt).getTime() > now
+                ? `If nobody replies, it settles as proposed in ${timeLeft(proposal.settlesAt, new Date(now)).replace(" left", "")}.`
+                : "Nobody replied in time, so it is about to settle as proposed."}
+            </p>
+            {d.me.canConfirm && (
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <Button variant="up" disabled={busy} onClick={() => act("confirm")}>Confirm</Button>
+                <Button variant="ghost" disabled={busy} onClick={() => setConfirming("dispute")}>Dispute</Button>
+              </div>
+            )}
+          </section>
+        )}
         {!resolved && d.me.canTrade && (
           <div className="mt-5 grid grid-cols-2 gap-2 lg:hidden">
             <Button variant="up" onClick={() => { setSide("yes"); setAmount(Math.min(10, d.me.maxStake)); }}>Long · {show(m.price)}</Button>
             <Button variant="down" onClick={() => { setSide("no"); setAmount(Math.min(10, d.me.maxStake)); }} disabled={!d.me.canShort}>Short · {show(1 - m.price)}</Button>
           </div>
         )}
-        {!resolved && d.me.isSubject && (
-          <p className="mt-3 rounded-xl bg-brand/10 p-3 text-sm text-brand">
-            {m.kind === "stock" ? "This one's about you: you can only go long. Invest in yourself." : "This bet is about you, so you can't trade it."}
-          </p>
+        {!resolved && !voided && d.me.isSubject && (
+          <div className="mt-3 rounded-xl bg-brand/10 p-3 text-sm text-brand">
+            <p>{m.kind === "stock" ? "This one's about you: you can only go long. Invest in yourself." : "This bet is about you, so you can't trade it."}</p>
+            {d.me.canVeto && (
+              <button className="mt-2 text-white underline underline-offset-2 hover:text-white/80" onClick={() => setConfirming("veto")}>Not comfortable with this? Call it off</button>
+            )}
+          </div>
         )}
-        {!resolved && m.closed && <p className="mt-3 rounded-xl border border-line bg-panel p-3 text-sm text-mute">Trading closed. Waiting for the result.</p>}
+        {!resolved && !voided && !proposal && m.closed && <p className="mt-3 rounded-xl border border-line bg-panel p-3 text-sm text-mute">Trading closed. Waiting for the result.</p>}
         {err && <p className="mt-2 text-sm text-down">{err}</p>}
 
         {positionCard && <div className="mt-5 lg:hidden">{positionCard}</div>}
@@ -246,7 +338,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         <section className="mt-5 rounded-2xl border border-line bg-panel p-4 text-sm">
           <div className="mb-2 flex items-center gap-2">
             <span className="font-semibold">How it was priced</span>
-            <Badge tone="brand">{m.ai_source === "gemini" ? "Gemini" : "Stats model"}</Badge>
+            <Badge tone="brand">{m.ai_source === "ollama" ? "Local AI" : m.ai_source === "gemini" ? "Gemini" : "Stats model"}</Badge>
             {m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}
           </div>
           <p className="text-mute">{m.ai_rationale}</p>
@@ -313,7 +405,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         </section>
 
         {d.me.canResolve && (
-          <Button variant="ghost" className="mt-6 w-full lg:hidden" onClick={() => setResolveOpen(true)}>Resolve this situation</Button>
+          <Button variant="ghost" className="mt-6 w-full lg:hidden" onClick={() => setResolveOpen(true)}>Propose the result</Button>
         )}
        </div>
 
@@ -329,7 +421,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           </section>
         )}
         {positionCard}
-        {d.me.canResolve && <Button variant="ghost" className="w-full" onClick={() => setResolveOpen(true)}>Resolve this situation</Button>}
+        {d.me.canResolve && <Button variant="ghost" className="w-full" onClick={() => setResolveOpen(true)}>Propose the result</Button>}
        </aside>
       </div>
       <div className="lg:hidden"><TimeMachine onJump={load} /></div>
@@ -338,9 +430,10 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         {side && tradeForm(side)}
       </Sheet>
 
-      <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Resolve">
+      <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Propose the result">
         <div className="space-y-3">
           <p className="text-sm text-mute">{m.resolution_rule}</p>
+          <p className="text-xs text-mute">Trading closes now. Another member (not the person it&apos;s about) confirms or disputes your call. If nobody does, it settles as you proposed after {SETTLE_WINDOW_HOURS} hours. A dispute calls the situation off and refunds everyone.</p>
           <Input placeholder="What happened? (optional, saved to group memory)" value={note} onChange={(e) => setNote(e.target.value)} />
           <div className="grid grid-cols-2 gap-2">
             <Button variant="up" disabled={busy} onClick={() => resolve(true)}>YES, it happened</Button>
@@ -350,6 +443,25 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           <Link href={`/g/${m.group_id}`} className="block text-center text-sm text-mute">Back to chat</Link>
         </div>
       </Sheet>
+
+      <Sheet open={!!confirming} onClose={() => setConfirming(null)} title={confirming === "veto" ? "Call this one off?" : "Dispute this result?"}>
+        <div className="space-y-4">
+          <p className="text-sm text-mute">
+            {confirming === "veto"
+              ? "The situation is voided for everyone. Every trade is refunded in full, it leaves the live list, and the chat is told you called it off. You can't undo this."
+              : "The situation is voided for everyone instead of settling. Every trade is refunded in full. You can't undo this."}
+          </p>
+          {err && <p className="text-sm text-down">{err}</p>}
+          <div className="flex gap-2">
+            <Button variant="ghost" className="flex-1" onClick={() => setConfirming(null)}>Cancel</Button>
+            <Button variant="down" className="flex-[2]" disabled={busy} onClick={() => act(confirming === "veto" ? "veto" : "dispute")}>
+              {busy ? "Working…" : confirming === "veto" ? "Call it off" : "Dispute and refund"}
+            </Button>
+          </div>
+        </div>
+      </Sheet>
+
+      <ReportSheet open={reportOpen} onClose={() => { setReportOpen(false); load(); }} kind="situation" url={`/api/markets/${id}/report`} onDone={() => load()} />
     </main>
   );
 }

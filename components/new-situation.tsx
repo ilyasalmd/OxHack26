@@ -20,7 +20,7 @@ function localInput(d: Date) {
   return z.toISOString().slice(0, 16);
 }
 
-export function NewSituation({ open, onClose, groupId, members, now, aiContext, aiReadsChat, chatSnippets, moods, onCreated }: { open: boolean; onClose: () => void; groupId: number; members: Member[]; now: string; aiContext: string; aiReadsChat: boolean; chatSnippets: (subjectId: number | null, title: string) => Snippet[]; moods: () => Record<string, number>; onCreated: (id: number) => void }) {
+export function NewSituation({ open, onClose, groupId, members, meId, now, aiContext, aiReadsChat, chatSnippets, moods, onCreated }: { open: boolean; onClose: () => void; groupId: number; members: Member[]; meId: number; now: string; aiContext: string; aiReadsChat: boolean; chatSnippets: (subjectId: number | null, title: string) => Snippet[]; moods: () => Record<string, number>; onCreated: (id: number) => void }) {
   const base = new Date(now);
   const presets: [string, Date][] = [
     ["Tonight", new Date(new Date(base).setHours(23, 0, 0, 0) <= base.getTime() ? base.getTime() + 3 * 3600e3 : new Date(base).setHours(23, 0, 0, 0))],
@@ -79,12 +79,24 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
           <Input placeholder="What's the situation? e.g. Jake is late to dinner" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required minLength={4} />
           <div className="no-scrollbar flex gap-2 overflow-x-auto">
             <button type="button" onClick={() => setSubject("")} className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${!subject ? "bg-white text-black" : "bg-white/5"}`}>Nobody</button>
-            {members.map((m) => (
-              <button type="button" key={m.id} onClick={() => setSubject(m.username)} className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${subject === m.username ? "bg-white text-black" : "bg-white/5"}`}>
-                {m.display_name}
-              </button>
-            ))}
+            {members.map((m) => {
+              // People who turned off situations about them are greyed out (you can always pick yourself).
+              const off = m.subject_policy === "nobody" && m.id !== meId;
+              return (
+                <button
+                  type="button"
+                  key={m.id}
+                  disabled={off}
+                  title={off ? `${m.display_name} has turned off situations about them` : undefined}
+                  onClick={() => setSubject(m.username)}
+                  className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${off ? "cursor-not-allowed bg-white/[.03] text-mute/50 line-through" : subject === m.username ? "bg-white text-black" : "bg-white/5"}`}
+                >
+                  {m.display_name}
+                </button>
+              );
+            })}
           </div>
+          {members.some((m) => m.subject_policy === "nobody" && m.id !== meId) && <p className="text-xs text-mute">Crossed-out friends have turned off situations about them.</p>}
           <div>
             <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto">
               {presets.map(([l, d]) => (
@@ -119,7 +131,7 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
               <div className="text-2xl font-bold tabular">{pct(preview.openProb)}</div>
             </div>
             <div className="rounded-xl bg-ink p-3">
-              <div className="text-xs text-mute">{preview.analysis.source === "gemini" ? "Gemini" : "Model"}</div>
+              <div className="text-xs text-mute">{preview.analysis.source === "ollama" ? "Local AI" : preview.analysis.source === "gemini" ? "Gemini" : "Model"}</div>
               <div className="text-2xl font-bold tabular">{pct(preview.analysis.probability)}</div>
             </div>
             <div className="rounded-xl bg-ink p-3">

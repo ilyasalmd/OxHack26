@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS markets (
   base_rate_n double precision NOT NULL DEFAULT 0,
   open_prob double precision NOT NULL,
   ai_rationale text NOT NULL,
-  ai_source text NOT NULL,       -- 'gemini' | 'heuristic'
+  ai_source text NOT NULL,       -- 'gemini' | 'ollama' | 'heuristic'
   b double precision NOT NULL,
   q_yes double precision NOT NULL,
   q_no double precision NOT NULL,
@@ -176,3 +176,32 @@ CREATE INDEX IF NOT EXISTS chain_ops_status_idx ON chain_ops (status, id);
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS ai_reads_chat boolean NOT NULL DEFAULT false;
 -- The snippets the AI judged relevant when pricing a market, kept so everyone can see what was used.
 ALTER TABLE markets ADD COLUMN IF NOT EXISTS chat_context jsonb;
+
+-- Accounts. Server-side sessions: the cookie carries a signed random token and the row is
+-- keyed by its SHA-256, so a copy of this table can't be replayed as cookies.
+CREATE TABLE IF NOT EXISTS sessions (
+  id text PRIMARY KEY,
+  user_id int NOT NULL REFERENCES users(id),
+  created_at timestamptz NOT NULL,
+  last_seen_at timestamptz NOT NULL,
+  user_agent text NOT NULL DEFAULT '',
+  ip_hint text NOT NULL DEFAULT '',     -- first two octets only, e.g. "81.2.x.x"
+  revoked_at timestamptz
+);
+CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions (user_id);
+
+-- Old usernames stay reserved (and redirect) for 30 days after a rename or deletion.
+CREATE TABLE IF NOT EXISTS username_history (
+  user_id int NOT NULL REFERENCES users(id),
+  old_username text NOT NULL,
+  changed_at timestamptz NOT NULL
+);
+CREATE INDEX IF NOT EXISTS username_history_name_idx ON username_history (old_username, changed_at DESC);
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS username_changed_at timestamptz;
+-- Recovery code: bcrypt of a key derived from it, and the private key sealed with another.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_hash text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS recovery_salt text;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS enc_private_key_recovery text;
+-- Deleted accounts keep their row (trades and positions point at it) but are scrubbed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;

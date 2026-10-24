@@ -14,6 +14,7 @@ export type Me = {
   }[];
   clock: { now: string; offsetMs: number };
   pendingKeys: { group_id: number; wrapped_key: string; wrapper_public_key: string; members: { id: number; public_key: string; has_key: boolean }[] }[];
+  account: { hasRecovery: boolean };
   config: {
     currency: { name: string; ticker: string };
     economy: { startingBalance: number; weeklyAllowance: number; maxStakeFraction: number; balanceFloor: number };

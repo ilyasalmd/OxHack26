@@ -29,15 +29,31 @@ export const MARKET = {
 };
 
 // Getters so env changes (tests, the seed script) are picked up after import.
+// Which AI prices situations: a local model through Ollama, Google's Gemini API, or none
+// (the stats model). AI_PROVIDER picks one; otherwise OLLAMA_MODEL wins over GEMINI_API_KEY.
 export const AI = {
+  get provider(): "ollama" | "gemini" | "none" {
+    const p = process.env.AI_PROVIDER;
+    if (p === "ollama" || p === "gemini" || p === "none") return p;
+    return process.env.OLLAMA_MODEL ? "ollama" : process.env.GEMINI_API_KEY ? "gemini" : "none";
+  },
   get model() {
-    return process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
+    return this.provider === "ollama" ? process.env.OLLAMA_MODEL ?? "gemma4:12b" : process.env.GEMINI_MODEL ?? "gemini-2.5-flash";
   },
   get embeddingModel() {
-    return process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-001";
+    return this.provider === "ollama"
+      ? process.env.OLLAMA_EMBEDDING_MODEL ?? "embeddinggemma-2:270m"
+      : process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-001";
+  },
+  get ollamaUrl() {
+    return (process.env.OLLAMA_URL ?? "http://127.0.0.1:11434").replace(/\/$/, "");
   },
   get enabled() {
-    return !!process.env.GEMINI_API_KEY;
+    return this.provider !== "none";
+  },
+  /** What the app calls the AI in the interface. */
+  get label() {
+    return this.provider === "gemini" ? "Gemini" : this.provider === "ollama" ? "Local AI" : "Stats model";
   },
 };
 

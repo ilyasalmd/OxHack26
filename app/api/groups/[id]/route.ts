@@ -13,7 +13,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
   const db = await getDb();
   const [group] = await db.query(`SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by FROM groups WHERE id = $1`, [id]);
   const members = await db.query(
-    `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, (k.user_id IS NOT NULL) AS has_key
+    `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, u.subject_policy, (k.user_id IS NOT NULL) AS has_key
      FROM group_members gm JOIN users u ON u.id = gm.user_id
      LEFT JOIN group_keys k ON k.group_id = gm.group_id AND k.user_id = u.id
      WHERE gm.group_id = $1 ORDER BY u.balance DESC`,
@@ -23,15 +23,25 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
     `SELECT k.wrapped_key, w.public_key AS wrapper_public_key FROM group_keys k JOIN users w ON w.id = k.wrapped_by WHERE k.group_id = $1 AND k.user_id = $2`,
     [id, user.id]
   );
+  // People who left still wrote some of the chat; the page needs their name and colour, not their keys.
+  const former = await db.query(
+    `SELECT DISTINCT u.id, u.username, u.display_name, u.color FROM messages m JOIN users u ON u.id = m.user_id
+     WHERE m.group_id = $1 AND NOT EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = $1 AND gm.user_id = u.id)`,
+    [id]
+  );
+  // A message you reported is hidden for you from then on.
   const messages = await db.query(
     `SELECT id::int, user_id, kind, ciphertext, iv, body, market_id, created_at FROM (
-       SELECT * FROM messages WHERE group_id = $1 AND id > $2 ORDER BY id DESC LIMIT 200) t ORDER BY id`,
-    [id, after]
+       SELECT * FROM messages m WHERE group_id = $1 AND id > $2
+         AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.reporter_id = $3 AND r.message_id = m.id)
+       ORDER BY id DESC LIMIT 200) t ORDER BY id`,
+    [id, after, user.id]
   );
   const markets = await db.query<MarketRow>(`SELECT * FROM markets WHERE group_id = $1 ORDER BY created_at DESC`, [id]);
   return {
     group,
     members,
+    former,
     myKey: myKey ?? null,
     messages,
     markets: markets.map((m) => ({
@@ -43,6 +53,10 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
       creator_id: m.creator_id,
       status: m.status,
       outcome: m.outcome,
+      proposed_outcome: m.proposed_outcome,
+      proposed_by: m.proposed_by,
+      proposed_at: m.proposed_at,
+      void_reason: m.void_reason,
       closed: isClosed(m),
       price: price(m),
       open_prob: m.open_prob,
