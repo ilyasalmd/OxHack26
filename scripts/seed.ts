@@ -23,13 +23,13 @@ import { createIdentity, deriveKeys, encryptMessage, importGroupKey, newGroupKey
 import type { User } from "../lib/auth";
 import { GROUPS, PASSWORD, PEOPLE, type Group, type Line } from "./seed-content";
 
-const g = globalThis as unknown as { __fsClockOffset?: number; __fsDb?: unknown };
+const g = globalThis as unknown as { __fsScriptOffset?: number; __fsDb?: unknown };
 const HOUR = 36e5;
 const DAY = 24 * HOUR;
 const DAYS = 91;
 const T0 = Date.now();
 const START = T0 - DAYS * DAY;
-const at = (t: number) => (g.__fsClockOffset = t - Date.now());
+const at = (t: number) => (g.__fsScriptOffset = t - Date.now());
 // Aim for this many settled bets in total, however often the content says things come up.
 const TARGET_SETTLED = 120;
 
@@ -242,7 +242,7 @@ async function main() {
     if (++done % 200 === 0) console.log(`  ${done}/${events.length} (${((Date.now() - t1) / 60000).toFixed(1)} min)`);
   }
 
-  g.__fsClockOffset = 0;
+  g.__fsScriptOffset = 0;
   // Don't hand the demo a backlog of thousands of chain transactions.
   await db.query(`UPDATE chain_ops SET status = 'skipped' WHERE status = 'pending'`);
   // One mint per wallet for today's balance instead, so the first stake has tokens to burn.

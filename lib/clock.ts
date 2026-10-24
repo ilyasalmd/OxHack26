@@ -4,11 +4,12 @@ import type { Q } from "./db";
 // Everyone runs on real time. The admin account alone can fast-forward a demo clock: its own
 // requests run inside withClock() at the saved offset, so weekly allowances, closing bets and
 // maturing stocks can be shown in seconds, while every other account keeps the real date.
-const g = globalThis as unknown as { __fsClockOffset?: number };
+// __fsScriptOffset lets offline scripts (the seed) move their own process clock.
+const g = globalThis as unknown as { __fsClockOffset?: number; __fsScriptOffset?: number };
 const scope = new AsyncLocalStorage<{ offset: number; userId: number }>();
 
 export function now() {
-  return new Date(Date.now() + (scope.getStore()?.offset ?? 0));
+  return new Date(Date.now() + (scope.getStore()?.offset ?? g.__fsScriptOffset ?? 0));
 }
 
 /** The offset this request runs on: the demo offset for the admin, 0 for everyone else. */

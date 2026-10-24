@@ -309,7 +309,8 @@ export type RepriceInput = {
 };
 
 /** "Saturday 2026-10-24": small models get weekdays wrong when left to work them out. */
-const day = (d: Date) => `${d.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" })} ${d.toISOString().slice(0, 10)}`;
+// Spelled out as well, so the model doesn't mis-convert the ISO date when it writes a rule.
+const day = (d: Date) => `${d.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", timeZone: "UTC" })} (${d.toISOString().slice(0, 10)})`;
 
 export async function repriceStocks(input: { today: Date; groupContext: string; stocks: RepriceInput[] }, trace?: Trace) {
   if (!input.stocks.length) return [];

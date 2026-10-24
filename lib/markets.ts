@@ -205,7 +205,7 @@ export async function createMarket(user: User, groupId: number, input: Situation
         subjectProfile: p.inputs.profile,
       },
       parsed,
-      maths: openingMaths(a.probability, p.baseRate, p.baseRateN),
+      maths: { ...openingMaths(a.probability, p.baseRate, p.baseRateN), liquidity: b },
     }, ts);
     await systemMessage(q, groupId, "market", `${a.kind === "stock" ? "listed a stock" : "opened a bet"}: ${a.title}`, m.id, user.id);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [

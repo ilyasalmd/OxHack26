@@ -6,6 +6,8 @@ import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { Badge, TopBar, pct } from "@/components/ui";
 import { ArrowUpRight, Check, Copy } from "@/components/icons";
+import { applyShares, bookAt, priceYes, sharesForAmount } from "@/lib/lmsr";
+import { decimalOdds } from "@/lib/odds";
 
 type Rec = { id: number; kind: "open" | "reprice"; sha256: string; createdAt: string; record: string };
 type Data = {
@@ -32,8 +34,8 @@ type OpenRecord = {
     history: { baseRate: number | null; effectiveSamples: number; subjectRecord: string | null; similar: Similar[] };
     subjectProfile: { answers: number; digest: string } | null;
   };
-  parsed: { probability: number; rationale: string; kind: string; resolutionRule: string; chatUsed: unknown[] };
-  maths: { rule: string; aiProb: number; baseRate: number | null; effectiveSamples: number; weight: number; openProb: number };
+  parsed: { probability: number; rationale: string; kind: string; title: string; resolutionRule: string; chatUsed: { who: string; age: string; text: string; why: string }[] };
+  maths: { rule: string; aiProb: number; baseRate: number | null; effectiveSamples: number; weight: number; openProb: number; liquidity?: number };
 };
 type RepriceRecord = {
   provider: string;
@@ -110,6 +112,8 @@ function Opening({ rec, anchor }: { rec: Rec; anchor: Data["anchor"] }) {
         <Stat label="History" value={r.maths.baseRate == null ? "none" : pct(r.maths.baseRate, 1)} />
         <Stat label="Opened at" value={pct(r.maths.openProb, 1)} tone="text-brand" />
       </div>
+
+      <Steps r={r} />
 
       <Block title="Proof the record hasn't changed">
         <Row label="SHA-256 of the stored record" value={rec.sha256} mono />
@@ -189,6 +193,110 @@ function Opening({ rec, anchor }: { rec: Rec; anchor: Data["anchor"] }) {
         <Pre title="This text, byte for byte, is what the hash covers" text={rec.record} />
       </Block>
     </>
+  );
+}
+
+/** The reasoning, step by step in plain words, built from the stored record alone. */
+function Steps({ r }: { r: OpenRecord }) {
+  const h = r.inputs.history;
+  const who = r.inputs.subject?.replace(/^@/, "") ?? null;
+  const days = (new Date(r.inputs.resolvesAt).getTime() - new Date((r as unknown as { at: string }).at).getTime()) / 86400000;
+  const aboutThem = h.similar.filter((s) => who && s.title.toLowerCase().includes(who.toLowerCase()));
+  const yes = h.similar.filter((s) => s.outcome).length;
+  const used = r.parsed.chatUsed ?? [];
+  const shared = r.inputs.chatSnippets.length;
+  const gap = h.baseRate == null ? null : Math.round((r.maths.aiProb - h.baseRate) * 100);
+  const b = r.maths.liquidity ?? (r.parsed.kind === "stock" ? 250 : 120);
+  const book = bookAt(b, r.maths.openProb);
+  const after = (side: "yes" | "no", amt: number) => priceYes(applyShares(book, side, sharesForAmount(book, side, amt)));
+  const steps: { title: string; body: React.ReactNode }[] = [
+    {
+      title: "The question",
+      body: (
+        <>
+          &ldquo;{r.inputs.situation}&rdquo;{r.inputs.subject ? ` about ${r.inputs.subject}` : ""}, settling in {days < 1.5 ? `${Math.round(days * 24)} hours` : `${days.toFixed(1)} days`}. Gemma
+          tidied it to &ldquo;{r.parsed.title}&rdquo; and wrote the rule: {r.parsed.resolutionRule}
+        </>
+      ),
+    },
+    {
+      title: "What the group's history says",
+      body:
+        h.baseRate == null ? (
+          <>Nothing similar had settled in this chat yet, so there was no base rate to lean on.</>
+        ) : (
+          <>
+            It found {h.similar.length} similar settled bet{h.similar.length === 1 ? "" : "s"}
+            {aboutThem.length ? `, ${aboutThem.length} of them about ${who}` : ""}, and {yes} came true. Weighting each by how close a match it is gives a
+            base rate of <b>{pct(h.baseRate)}</b> from {h.effectiveSamples.toFixed(1)} effective samples.{h.subjectRecord ? ` Across every topic, ${h.subjectRecord}.` : ""}
+          </>
+        ),
+    },
+    {
+      title: "What the chat says",
+      body: !shared ? (
+        <>No chat was shared for this one, so Gemma priced it on history and context alone.</>
+      ) : used.length ? (
+        <>
+          The poster&apos;s phone shared {shared} anonymised message{shared === 1 ? "" : "s"}. Gemma kept {used.length} as relevant:
+          <span className="mt-2 block space-y-1.5">
+            {used.map((s, i) => (
+              <span key={i} className="block rounded-xl bg-white/[.04] px-3 py-2">
+                <span className="block">&ldquo;{s.text}&rdquo;</span>
+                <span className="block text-xs text-mute">{s.who}, {s.age}. Why it matters: {s.why}</span>
+              </span>
+            ))}
+          </span>
+        </>
+      ) : (
+        <>The poster&apos;s phone shared {shared} anonymised messages, and Gemma judged none of them relevant to the odds.</>
+      ),
+    },
+    {
+      title: "Gemma's call",
+      body: (
+        <>
+          Gemma put it at <b>{pct(r.maths.aiProb)}</b>
+          {gap == null ? "" : gap === 0 ? ", the same as the history" : `, ${Math.abs(gap)} points ${gap > 0 ? "above" : "below"} the history`}. In its words: &ldquo;{r.parsed.rationale}&rdquo;
+        </>
+      ),
+    },
+    {
+      title: "The opening price",
+      body:
+        r.maths.weight === 0 ? (
+          <>With no history to blend in, the bet opened at Gemma&apos;s number: <b>{pct(r.maths.openProb, 1)}</b>.</>
+        ) : (
+          <>
+            Gemma already saw the history, but the history also gets a direct {Math.round(r.maths.weight * 100)}% vote, so one odd answer can&apos;t move the price far. Blending
+            {" "}{pct(r.maths.aiProb)} and {pct(r.maths.baseRate ?? 0)} gives <b>{pct(r.maths.openProb, 1)}</b>.
+          </>
+        ),
+    },
+    {
+      title: "What that means for stakes",
+      body: (
+        <>
+          At {pct(r.maths.openProb)} that&apos;s decimal odds of {decimalOdds(r.maths.openProb)} on YES and {decimalOdds(1 - r.maths.openProb)} on NO. The market maker has a depth of {b}, so
+          a 20 coin YES stake moves it to {pct(after("yes", 20))} and a 20 coin NO stake to {pct(after("no", 20))}. Every trade after that moves the price, and with it the odds.
+        </>
+      ),
+    },
+  ];
+  return (
+    <Block title="Step by step">
+      <ol className="space-y-5">
+        {steps.map((s, i) => (
+          <li key={s.title} className="flex gap-4">
+            <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-brand text-sm font-semibold text-black">{i + 1}</span>
+            <div className="min-w-0 pt-0.5">
+              <div className="text-[15px] font-semibold">{s.title}</div>
+              <div className="mt-1 text-[15px] leading-relaxed text-white/80">{s.body}</div>
+            </div>
+          </li>
+        ))}
+      </ol>
+    </Block>
   );
 }
 
