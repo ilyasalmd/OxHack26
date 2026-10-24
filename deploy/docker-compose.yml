@@ -3,7 +3,9 @@
 # Settings come from deploy/.env (setup.sh writes it; see env.example).
 services:
   app:
-    build: ..
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:

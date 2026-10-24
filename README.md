@@ -53,7 +53,7 @@ Everything here is free; none of it needs a card.
 3. Optional: paste the `SOLANA_*` values from your `.env.local` into `deploy/.env`, and point `OLLAMA_URL` and `OLLAMA_MODEL` at an Ollama server running Gemma, then run `docker compose up -d` from `deploy/`.
 4. Optional demo data (wipes the database): `docker compose exec app npm run seed && docker compose restart app` from `deploy/`.
 
-To update: `git pull && docker compose up -d --build` from `deploy/`. Logs: `docker compose logs -f app`. Keep `APP_SECRET` unchanged once people have signed up. `DEMO_MODE=true` lets the admin move their own demo clock; set it to `false` for real use.
+**Updates are automatic.** Every 5 minutes `deploy/update.sh` (cron) checks GitHub's default branch, and on a new commit it rebuilds and restarts the app. It also adds settings that are new in `deploy/env.example` to `deploy/.env` with their defaults. A failed build keeps the old version running and is retried next time. The server always matches GitHub, so don't edit code on it. To deploy right now: `bash deploy/update.sh --force`. To follow another branch, set `DEPLOY_BRANCH=` in `deploy/.env`. Deploy log: `tail -f /var/log/friendstakes-update.log`. App logs: `docker compose logs -f app` from `deploy/`. Keep `APP_SECRET` unchanged once people have signed up. `DEMO_MODE=true` lets the admin move their own demo clock; set it to `false` for real use.
 
 ## How it works
 

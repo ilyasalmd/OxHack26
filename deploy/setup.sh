@@ -2,7 +2,8 @@
 # One-time setup on a fresh Ubuntu VM (e.g. Vultr Cloud Compute), run as root from
 # the repo checkout:  bash deploy/setup.sh
 # Installs Docker, adds swap for the build, opens the firewall, writes deploy/.env
-# with random secrets and starts the stack. Safe to re-run: it keeps an existing .env.
+# with random secrets, starts the stack and turns on auto-deploy (update.sh from cron).
+# Safe to re-run: it keeps an existing .env.
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -36,7 +37,11 @@ if [ ! -f .env ]; then
   echo "Wrote deploy/.env (add API keys there if you have them)."
 fi
 
-docker compose up -d --build
+bash update.sh --force
+
+# Auto-deploy: check GitHub every 5 minutes and rebuild when there's a new commit.
+echo "*/5 * * * * root bash $PWD/update.sh >> /var/log/friendstakes-update.log 2>&1" > /etc/cron.d/friendstakes-update
 echo
 echo "Up at https://$(grep '^DOMAIN=' .env | cut -d= -f2)"
+echo "New commits on GitHub deploy automatically within 5 minutes. Log: tail -f /var/log/friendstakes-update.log"
 echo "Demo data (wipes the database):  cd deploy && docker compose exec app npm run seed && docker compose restart app"

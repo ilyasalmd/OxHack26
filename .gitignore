@@ -10,3 +10,4 @@ solana-*.json
 .next-a/
 .next-b/
 .next-*/
+deploy/.deployed
