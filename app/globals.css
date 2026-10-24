@@ -45,3 +45,8 @@ input, textarea, select { font-size: 16px; }
 @keyframes msg-in { from { transform: translateY(6px); opacity: 0 } to { transform: none; opacity: 1 } }
 .msg-in { animation: msg-in .22s ease-out both; }
 @media (prefers-reduced-motion: reduce) { .msg-in, .pop { animation: none; } }
+
+/* Typing indicator: three dots rising in turn. */
+@keyframes typing { 0%, 60%, 100% { transform: none; opacity: .45 } 30% { transform: translateY(-3px); opacity: 1 } }
+.typing-dot { animation: typing 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .typing-dot { animation: none; } }

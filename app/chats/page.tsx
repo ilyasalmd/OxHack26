@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { UnlockPrompt } from "@/components/unlock";
-import { GroupMark, LastLine, Logo, useChatActions } from "@/components/shell";
+import { LastLine, useChatActions } from "@/components/shell";
+import { ChatMark, chatName } from "@/components/chat/mark";
 import { Avatar, Button, Coins, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { ChevronRight, Link2, Plus, Users } from "@/components/icons";
 
@@ -81,10 +82,10 @@ export default function Chats() {
           {me.groups.map((g) => (
             <li key={g.id}>
               <Link href={`/g/${g.id}`} className="flex items-center gap-3.5 px-5 py-3 active:bg-white/5">
-                <GroupMark name={g.name} size={48} />
+                <ChatMark g={g} size={48} />
                 <div className="min-w-0 flex-1 py-0.5">
                   <div className="flex items-baseline gap-2">
-                    <span className="truncate text-[17px] font-semibold">{g.name}</span>
+                    <span className="truncate text-[17px] font-semibold">{chatName(g)}</span>
                     {g.last && <span className="ml-auto shrink-0 text-xs text-mute">{ago(g.last.created_at, me.clock.now)}</span>}
                   </div>
                   <div className="mt-0.5 flex items-center gap-2 text-[15px] text-mute">

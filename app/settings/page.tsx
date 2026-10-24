@@ -7,6 +7,7 @@ import { changePassword, changeUsername, deleteAccount } from "@/components/acco
 import { RecoveryCodeSetup } from "@/components/recovery-code";
 import { SafetySettings } from "@/components/safety-settings";
 import { Avatar, Badge, Button, Input, Sheet, TopBar, ago } from "@/components/ui";
+import { ProfilePhoto } from "@/components/profile-photo";
 import { Check, ChevronRight, Key } from "@/components/icons";
 import { forgetIdentities } from "@/lib/e2ee";
 import { ODDS_FORMATS, useOddsFormat } from "@/lib/odds";
@@ -161,6 +162,7 @@ function Laptop({ account, sessions, changed, loadSessions, open }: PageProps) {
 
       <div className="space-y-14">
         <Section id="profile" title="Profile" description="How friends see you, and the name they use to find you.">
+          <ProfilePhoto size={64} withHelp />
           <DisplayNameForm layout="card" account={account} onSaved={changed} />
           <UsernameForm layout="card" account={account} onSaved={changed} />
         </Section>
@@ -576,7 +578,7 @@ function Phone({ account, sessions, open }: PageProps) {
   return (
     <div className="space-y-6 px-4 pb-[max(2.5rem,env(safe-area-inset-bottom))] pt-5">
       <div className="flex items-center gap-3 px-1">
-        <Avatar name={account.displayName} color={account.color} size={52} />
+        <ProfilePhoto size={52} />
         <div className="min-w-0">
           <div className="truncate text-lg font-semibold">{account.displayName}</div>
           <div className="truncate text-sm text-mute">@{account.username}</div>

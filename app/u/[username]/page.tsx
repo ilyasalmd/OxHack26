@@ -3,25 +3,29 @@ import { use, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
-import { createGroup } from "@/components/groupkeys";
+import { openDm } from "@/components/groupkeys";
+import { registerPhotos, type PhotoInfo } from "@/components/media";
 import { UnlockPrompt } from "@/components/unlock";
 import { Avatar, Button, TopBar } from "@/components/ui";
+import { Chat, Lock } from "@/components/icons";
 
-// Shareable profile link: open it and start a chat with that person.
+// Shareable profile link: open it to message that person privately.
 export default function Profile({ params }: { params: Promise<{ username: string }> }) {
   const { username } = use(params);
   const { me, loading, identity } = useSession();
   const router = useRouter();
-  const [u, setU] = useState<{ username: string; display_name: string; color: string } | null>(null);
+  const [u, setU] = useState<({ username: string; display_name: string; color: string } & PhotoInfo) | null>(null);
+  const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
   useEffect(() => {
     if (!loading && !me) router.replace(`/?next=/u/${username}`);
     if (me)
-      api<{ username: string; display_name: string; color: string }>(`/api/users/${username}`)
+      api<{ username: string; display_name: string; color: string } & PhotoInfo>(`/api/users/${username}`)
         .then((x) => {
           // An old username (renamed in the last 30 days) still finds them: move to the new link.
           if (x.username !== decodeURIComponent(username).replace(/^@/, "").toLowerCase()) router.replace(`/u/${x.username}`);
+          registerPhotos([x]);
           setU(x);
         })
         .catch((e) => setErr(e.message));
@@ -29,8 +33,13 @@ export default function Profile({ params }: { params: Promise<{ username: string
 
   async function start() {
     if (!identity || !me || !u) return;
-    const id = await createGroup(identity, `${me.user.display_name} & ${u.display_name}`, "", [me.user.username, u.username]);
-    router.push(`/g/${id}`);
+    setBusy(true);
+    try {
+      router.push(`/g/${await openDm(identity, me.user.username, u.username)}`);
+    } catch (e) {
+      setErr((e as Error).message);
+      setBusy(false);
+    }
   }
 
   return (
@@ -39,12 +48,15 @@ export default function Profile({ params }: { params: Promise<{ username: string
       {!identity && me && <UnlockPrompt />}
       {err && <p className="p-6 text-down">{err}</p>}
       {u && (
-        <div className="flex flex-col items-center gap-3 p-10">
-          <Avatar name={u.display_name} color={u.color} size={88} />
+        <div className="mx-auto flex max-w-sm flex-col items-center gap-3 p-10">
+          <Avatar id={u.id} name={u.display_name} color={u.color} size={96} />
           <div className="text-2xl font-bold">{u.display_name}</div>
           <div className="text-mute">@{u.username}</div>
           {me?.user.username !== u.username && (
-            <Button className="mt-4 w-full" onClick={start} disabled={!identity}>Start a chat</Button>
+            <>
+              <Button className="mt-4 flex w-full items-center justify-center gap-2" onClick={start} disabled={!identity || busy}><Chat size={16} /> {busy ? "Opening…" : "Message privately"}</Button>
+              <p className="flex items-center gap-1.5 text-xs text-mute"><Lock size={12} /> Only the two of you can read it.</p>
+            </>
           )}
         </div>
       )}

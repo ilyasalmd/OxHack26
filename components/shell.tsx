@@ -8,7 +8,8 @@ import { createGroup, groupKey } from "./groupkeys";
 import { TimeMachine } from "./timemachine";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
 import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, User as UserIcon, Wallet, Users } from "./icons";
-import { decryptMessage, forgetIdentities } from "@/lib/e2ee";
+import { decryptPayload, forgetIdentities, type Payload } from "@/lib/e2ee";
+import { ChatMark, chatName } from "./chat/mark";
 
 /** The phone's four tabs. Each screen does one job; everything else is a page you go into and back out of. */
 const TABS = [
@@ -92,15 +93,15 @@ export function GroupMark({ name, size = 40 }: { name: string; size?: number }) 
 /** The chat list's preview line. Chat text is decrypted here, on the device, like the chat itself. */
 export function LastLine({ g }: { g: Me["groups"][number] }) {
   const { me, identity } = useSession();
-  const [text, setText] = useState<string | null>(null);
+  const [p, setP] = useState<Payload | null>(null);
   const last = g.last;
   useEffect(() => {
-    if (!last || last.kind !== "chat" || !last.ciphertext || !last.iv || !identity || !g.my_key) return setText(null);
+    if (!last || last.kind !== "chat" || !last.ciphertext || !last.iv || !identity || !g.my_key) return setP(null);
     let alive = true;
     groupKey(g.id, identity, g.my_key)
-      .then((k) => (k ? decryptMessage(k.key, last.iv!, last.ciphertext!) : null))
+      .then((k) => (k ? decryptPayload(k.key, last.iv!, last.ciphertext!) : null))
       .catch(() => null)
-      .then((t) => alive && setText(t));
+      .then((x) => alive && setP(x));
     return () => {
       alive = false;
     };
@@ -111,7 +112,7 @@ export function LastLine({ g }: { g: Me["groups"][number] }) {
   return (
     <>
       {who && <span className="text-white/70">{who}: </span>}
-      {text ?? "Encrypted message"}
+      {p ? (p.a ? `${p.a.kind === "voice" ? `Voice note (${Math.max(1, Math.round(p.a.dur ?? 0))}s)` : "Photo"}${p.t ? `: ${p.t}` : ""}` : p.t) : "Encrypted message"}
     </>
   );
 }
@@ -155,10 +156,10 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
           return (
             <li key={g.id}>
               <Link href={`/g/${g.id}`} className={`flex min-h-[64px] items-center gap-3 rounded-xl px-3 py-2 ${active ? "bg-white/[.08]" : "hover:bg-white/[.04]"}`}>
-                <GroupMark name={g.name} size={48} />
+                <ChatMark g={g} size={48} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className={`truncate text-[15px] ${g.open_markets > 0 ? "font-semibold text-white" : "font-medium text-white/85"}`}>{g.name}</span>
+                    <span className={`truncate text-[15px] ${g.open_markets > 0 ? "font-semibold text-white" : "font-medium text-white/85"}`}>{chatName(g)}</span>
                     {g.last && <span className="ml-auto text-[11px] text-mute">{ago(g.last.created_at, me.clock.now)}</span>}
                   </div>
                   <div className="flex items-center gap-2">
@@ -184,7 +185,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
       <div className="border-t border-line">
         <TimeMachine />
         <div className="flex items-center justify-between px-5 py-2.5">
-          <Link href="/settings" className="flex min-w-0 items-center gap-2 text-xs text-mute hover:text-white"><Avatar name={me.user.display_name} color={me.user.color} size={20} /> <span className="truncate">@{me.user.username}</span></Link>
+          <Link href="/settings" className="flex min-w-0 items-center gap-2 text-xs text-mute hover:text-white"><Avatar id={me.user.id} name={me.user.display_name} color={me.user.color} size={20} /> <span className="truncate">@{me.user.username}</span></Link>
           <button onClick={logout} className="flex items-center gap-1.5 text-xs text-mute hover:text-white"><LogOut size={13} /> Log out</button>
         </div>
       </div>

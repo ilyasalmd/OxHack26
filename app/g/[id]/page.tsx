@@ -9,18 +9,39 @@ import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, fmt, pct, timeLeft } from "@/components/ui";
 import { GroupMark, pendingChatNames } from "@/components/shell";
-import { Chart, Check, Close, Flag, Hourglass, Key, Lock, Plus, Send, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
+import { Alert, Camera, Chart, Plus, Chat, Check, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
 import { Board, Insights } from "@/components/group-stats";
-import { decryptMessage, encryptMessage, forgetIdentities } from "@/lib/e2ee";
+import { decryptPayload, encryptMessage, forgetIdentities, type Attachment, type Payload } from "@/lib/e2ee";
+import { primeAttachment, registerPhotos, squarePhoto, uploadEncrypted, useAttachment } from "@/components/media";
+import { Composer, type PickedImage } from "@/components/chat/composer";
+import { VoiceNote, type Recording } from "@/components/chat/voice";
+import { ImageBubble, Lightbox } from "@/components/chat/image";
+import { DeliveryMark, TypingBubble, typingLine, type Delivery } from "@/components/chat/status";
+import { ChatMark, chatName } from "@/components/chat/mark";
+import { openDm } from "@/components/groupkeys";
 import { moodScores } from "@/lib/mood";
 import { selectSnippets, type Snippet } from "@/lib/chat-context";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
 import { sides, typeLabel } from "@/lib/labels";
 import { formatOdds, useOddsFormat } from "@/lib/odds";
 
-export type Member = { id: number; username: string; display_name: string; color: string; public_key: string; balance: number; has_key: boolean; subject_policy: "anyone" | "nobody" };
+export type Member = {
+  id: number;
+  username: string;
+  display_name: string;
+  color: string;
+  public_key: string;
+  balance: number;
+  has_key: boolean;
+  subject_policy: "anyone" | "nobody";
+  avatar_id?: number | null;
+  avatar_key?: string | null;
+  /** Newest message id this member's app has fetched, and has had on screen. */
+  delivered_upto?: number;
+  read_upto?: number;
+};
 export type MarketLite = {
   id: number;
   title: string;
@@ -43,15 +64,44 @@ export type MarketLite = {
   resolves_at: string;
   volume: number;
 };
-type Msg = { id: number; user_id: number | null; kind: string; ciphertext: string | null; iv: string | null; body: string | null; market_id: number | null; created_at: string; text?: string | null };
+type Msg = {
+  id: number;
+  user_id: number | null;
+  kind: string;
+  ciphertext: string | null;
+  iv: string | null;
+  body: string | null;
+  market_id: number | null;
+  created_at: string;
+  text?: string | null;
+  payload?: Payload | null;
+  /** Your own message before the server has it: shown at once, then confirmed. */
+  pending?: "sending" | "failed";
+  /** Stable React key across the optimistic → confirmed switch. */
+  ck?: string;
+  /** A photo or voice note you just sent, played from this device while it uploads. */
+  local?: string;
+};
 type Feed = {
-  group: { id: number; name: string; emoji: string; invite_code: string; ai_context: string; ai_reads_chat: boolean };
+  group: {
+    id: number;
+    name: string;
+    emoji: string;
+    invite_code: string;
+    ai_context: string;
+    ai_reads_chat: boolean;
+    is_dm?: boolean;
+    description_ct?: string | null;
+    description_iv?: string | null;
+    photo_id?: number | null;
+  };
   members: Member[];
   /** People who wrote in the chat and have since left: name and colour only. */
   former: { id: number; username: string; display_name: string; color: string }[];
   myKey: { wrapped_key: string; wrapper_public_key: string } | null;
   messages: Msg[];
   markets: MarketLite[];
+  typing?: { id: number; mode: "text" | "voice" }[];
   now: string;
 };
 
@@ -66,7 +116,9 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [panel, setPanel] = useState<Panel>("Markets");
   const [feed, setFeed] = useState<Omit<Feed, "messages"> | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
-  const [draft, setDraft] = useState("");
+  const [dropped, setDropped] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [viewing, setViewing] = useState<Msg | null>(null);
   const [newOpen, setNewOpen] = useState(false);
   // Laptop: markets, board and insights live in a panel beside the chat, closed until asked for.
   const [sideOpen, setSideOpen] = useState(false);
@@ -80,6 +132,9 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   msgsRef.current = messages;
   const keyRef = useRef<{ key: CryptoKey; raw: Uint8Array } | null>(null);
   const bottom = useRef<HTMLDivElement>(null);
+  // The server's clock minus ours (the admin's demo clock runs ahead), so a new bubble gets the right time.
+  const skew = useRef(0);
+  const retries = useRef(new Map<string, () => void>());
 
   useEffect(() => {
     if (!loading && !me) router.replace(`/?next=/g/${id}`);
@@ -87,15 +142,25 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
 
   const decryptAll = useCallback(async (msgs: Msg[]) => {
     const k = keyRef.current;
-    return Promise.all(msgs.map(async (m) => (m.kind === "chat" && k && m.ciphertext && m.iv ? { ...m, text: await decryptMessage(k.key, m.iv, m.ciphertext) } : m)));
+    return Promise.all(
+      msgs.map(async (m) => {
+        if (m.kind !== "chat" || !k || !m.ciphertext || !m.iv) return m;
+        const payload = await decryptPayload(k.key, m.iv, m.ciphertext);
+        return { ...m, payload, text: payload?.t ?? null };
+      })
+    );
   }, []);
 
   const poll = useCallback(async () => {
     if (polling.current) return;
     polling.current = true;
     try {
-      const f = await api<Feed>(`/api/groups/${id}?after=${lastId.current}`);
+      // With the chat on screen, everything we've shown counts as read.
+      const read = document.visibilityState === "visible" ? lastId.current : 0;
+      const f = await api<Feed>(`/api/groups/${id}?after=${lastId.current}&read=${read}`);
       const { messages: fresh, ...rest } = f;
+      skew.current = Date.parse(f.now) - Date.now();
+      registerPhotos(f.members);
       setFeed(rest);
       if (identity && !keyRef.current && f.myKey) {
         // A key that won't unwrap (e.g. this browser holds keys from before a re-seed) must not
@@ -120,7 +185,17 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       if (fresh.length) {
         lastId.current = fresh[fresh.length - 1].id;
         const dec = await decryptAll(fresh);
-        setMessages((old) => [...old, ...dec.filter((m) => !old.some((o) => o.id === m.id))]);
+        setMessages((old) => {
+          const out = [...old];
+          for (const m of dec) {
+            if (out.some((o) => o.id === m.id)) continue;
+            // Our own "sending…" bubble arriving back from the server: confirm it in place.
+            const mine = m.payload?.n ? out.findIndex((o) => o.pending && o.payload?.n === m.payload!.n) : -1;
+            if (mine >= 0) out[mine] = { ...m, ck: out[mine].ck, local: out[mine].local };
+            else out.push(m);
+          }
+          return sortMsgs(out);
+        });
       }
     } catch (e) {
       setErr((e as Error).message);
@@ -136,9 +211,10 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     return () => clearInterval(t);
   }, [me, poll]);
 
+  const typingCount = feed?.typing?.length ?? 0;
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length]);
+  }, [messages.length, typingCount]);
 
   const members = useMemo(
     () =>
@@ -150,15 +226,70 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   );
   const markets = useMemo(() => new Map(feed?.markets.map((m) => [m.id, m]) ?? []), [feed]);
 
-  async function send(e: React.FormEvent) {
-    e.preventDefault();
-    const text = draft.trim();
-    if (!text || !keyRef.current) return;
-    setDraft("");
-    const payload = await encryptMessage(keyRef.current.key, text);
-    await api(`/api/groups/${id}/messages`, { body: payload });
-    poll();
+  /**
+   * Sends straight away on screen (clock mark), then encrypts, uploads any file and posts. The
+   * bubble turns into a sent message when the server answers, or offers a retry if it can't.
+   */
+  function sendOptimistic(text: string, file?: { kind: Attachment["kind"]; bytes: Uint8Array; url: string; meta: Omit<Attachment, "id" | "kind" | "size"> }) {
+    const k = keyRef.current;
+    if (!k || !me) return;
+    const n = Math.random().toString(36).slice(2, 10);
+    const ck = `c-${n}`;
+    const a: Attachment | undefined = file ? { id: 0, kind: file.kind, size: file.bytes.length, ...file.meta } : undefined;
+    const temp: Msg = {
+      id: -Date.now(),
+      ck,
+      user_id: me.user.id,
+      kind: "chat",
+      ciphertext: null,
+      iv: null,
+      body: null,
+      market_id: null,
+      created_at: new Date(Date.now() + skew.current).toISOString(),
+      text,
+      payload: { t: text, a, n },
+      pending: "sending",
+      local: file?.url,
+    };
+    setMessages((old) => [...old, temp]);
+    const patch = (fn: (m: Msg) => Msg) => setMessages((old) => old.map((m) => (m.ck === ck && m.pending ? fn(m) : m)));
+    const attempt = async () => {
+      patch((m) => ({ ...m, pending: "sending" }));
+      try {
+        if (a && file && !a.id) {
+          a.id = await uploadEncrypted(file.kind, id, k.key, file.bytes);
+          primeAttachment(a.id, file.url);
+        }
+        const body = await encryptMessage(k.key, text, { ...(a ? { a } : {}), n });
+        const { id: realId } = await api<{ id: number }>(`/api/groups/${id}/messages`, { body });
+        retries.current.delete(ck);
+        // If the poll already brought it back, the bubble was confirmed there.
+        setMessages((old) => sortMsgs(old.map((m) => (m.ck === ck && m.pending ? { ...m, id: realId, pending: undefined, payload: { t: text, a, n } } : m))));
+        void poll();
+      } catch {
+        patch((m) => ({ ...m, pending: "failed" }));
+      }
+    };
+    retries.current.set(ck, attempt);
+    void attempt();
   }
+  const sendText = (text: string) => sendOptimistic(text);
+  const sendImage = (img: PickedImage, caption: string) => sendOptimistic(caption, { kind: "image", bytes: img.bytes, url: img.url, meta: { mime: "image/jpeg", w: img.w, h: img.h } });
+  const sendVoice = (r: Recording) => sendOptimistic("", { kind: "voice", bytes: r.bytes, url: URL.createObjectURL(r.blob), meta: { mime: r.mime, dur: Math.round(r.dur * 10) / 10, wave: r.wave } });
+  const typing = (mode: "text" | "voice" | null) => {
+    void api(`/api/groups/${id}/typing`, { body: { mode } }).catch(() => {});
+  };
+
+  /** Your message's marks: everyone else has fetched it (delivered) or had it on screen (read). */
+  const delivery = (m: Msg): { state: Delivery; title?: string } => {
+    if (m.pending) return { state: m.pending };
+    const others = (feed?.members ?? []).filter((x) => x.id !== me?.user.id);
+    if (!others.length) return { state: "sent" };
+    const read = others.filter((x) => (x.read_upto ?? 0) >= m.id).length;
+    const got = others.filter((x) => (x.delivered_upto ?? 0) >= m.id).length;
+    const title = others.length > 1 ? `Read by ${read} of ${others.length}, delivered to ${got}` : undefined;
+    return { state: read === others.length ? "read" : got === others.length ? "delivered" : "sent", title };
+  };
 
   /** Confirm or dispute a proposed result straight from the chat card. */
   async function review(marketId: number, what: "confirm" | "dispute") {
@@ -209,19 +340,31 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   }
   const c = me.config.currency;
   const live = feed.markets.filter((m) => m.status === "open" && !m.closed).length;
+  const dm = !!feed.group.is_dm;
+  const peer = dm ? feed.members.find((m) => m.id !== me.user.id) ?? null : null;
+  const chat = { ...feed.group, peer, my_key: feed.myKey };
+  const typers = (feed.typing ?? []).map((t) => ({ ...t, who: members.get(t.id) })).filter((t) => t.who);
+  const typingNow = typingLine(typers.map((t) => ({ name: t.who!.display_name, mode: t.mode })));
+  const viewingWho = viewing?.user_id ? members.get(viewing.user_id) : null;
 
   const header = (
     <TopBar
       back="/chats"
       title={
-        <button onClick={() => setSettingsOpen(true)} className="flex items-center gap-3 text-left">
-          <GroupMark name={feed.group.name} size={34} />
+        <button onClick={() => setSettingsOpen(true)} className="flex min-w-0 items-center gap-3 text-left">
+          <ChatMark g={chat} size={34} />
           <span className="min-w-0">
-            <div className="truncate leading-tight">{feed.group.name}</div>
+            <div className="truncate leading-tight">{chatName(chat)}</div>
             <div className="flex items-center gap-1.5 text-xs font-normal text-mute">
-              <span>{feed.members.length} members</span>
-              <span className="flex items-center gap-1"><Lock size={11} /> Encrypted</span>
-              {feed.group.ai_reads_chat && <span className="hidden items-center gap-1 lg:flex"><Sparkle size={11} /> AI reads relevant chat</span>}
+              {typingNow ? (
+                <span className="truncate text-brand">{typingNow}</span>
+              ) : (
+                <>
+                  <span className="truncate">{dm ? `@${peer?.username ?? ""}` : `${feed.members.length} members`}</span>
+                  <span className="flex shrink-0 items-center gap-1"><Lock size={11} /> {dm ? "Private" : "Encrypted"}</span>
+                  {feed.group.ai_reads_chat && <span className="hidden items-center gap-1 lg:flex"><Sparkle size={11} /> AI reads relevant chat</span>}
+                </>
+              )}
             </div>
           </span>
         </button>
@@ -247,7 +390,24 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       <div className="lg:hidden">{header}</div>
 
       <div className="flex min-h-0 flex-1">
-        <section className="flex min-w-0 flex-1 flex-col">
+        <section
+          className="relative flex min-w-0 flex-1 flex-col"
+          onDragOver={(e) => {
+            if (!keyRef.current || ![...e.dataTransfer.types].includes("Files")) return;
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={(e) => e.currentTarget === e.target && setDragging(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const f = [...e.dataTransfer.files].find((x) => x.type.startsWith("image/"));
+            if (f) setDropped(f);
+          }}
+        >
+          {dragging && (
+            <div className="pointer-events-none absolute inset-3 z-40 flex items-center justify-center rounded-2xl border-2 border-dashed border-brand/60 bg-ink/80 text-sm font-medium text-brand">Drop a photo to send it</div>
+          )}
           <div className="hidden lg:block">{header}</div>
           {!identity && <UnlockPrompt />}
           {!identity && keyFailed && (
@@ -266,7 +426,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                 const next = nextItem && (Array.isArray(nextItem) ? nextItem[0] : nextItem);
                 const day = dayLabel(first.created_at, feed.now);
                 return (
-                  <div key={first.id}>
+                  <div key={first.ck ?? first.id}>
                     {(!prev || dayLabel(prev.created_at, feed.now) !== day) && (
                       <div className="sticky top-2 z-10 my-3 flex justify-center">
                         <span className="rounded-full border border-line bg-ink/90 px-3 py-1 text-[11px] font-medium text-mute backdrop-blur">{day}</span>
@@ -275,31 +435,40 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                     {Array.isArray(r) ? (
                       <TradeRun trades={r} members={members} />
                     ) : (
-                      <MessageRow m={r} prev={prev} next={next} meId={me.user.id} members={members} markets={markets} now={feed.now} ticker={c.ticker} onReport={setReporting} onReview={review} />
+                      <MessageRow
+                        m={r}
+                        prev={prev}
+                        next={next}
+                        meId={me.user.id}
+                        members={members}
+                        markets={markets}
+                        now={feed.now}
+                        ticker={c.ticker}
+                        groupKey={keyRef.current?.key ?? null}
+                        delivery={delivery}
+                        onReport={setReporting}
+                        onReview={review}
+                        onOpen={setViewing}
+                        onRetry={(ck) => retries.current.get(ck)?.()}
+                      />
                     )}
                   </div>
                 );
               })}
+              {typers.map((t) => <TypingBubble key={t.id} who={t.who!} mode={t.mode} />)}
               <div ref={bottom} />
             </div>
           </div>
-          <form onSubmit={send} className="border-t border-line bg-ink px-3 py-2.5 lg:px-6 lg:py-3">
-            <div className="mx-auto flex max-w-3xl items-center gap-2">
-              <button type="button" onClick={() => setNewOpen(true)} className="flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl bg-brand px-3 text-sm font-semibold text-black hover:brightness-105" title="New situation">
-                <Plus size={17} /> <span className="hidden lg:inline">Situation</span>
-              </button>
-              <input
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                placeholder={keyRef.current ? "Message" : "Unlock to chat"}
-                disabled={!keyRef.current}
-                className="h-[42px] flex-1 rounded-full bg-white/[.07] px-4 outline-none transition placeholder:text-mute focus:bg-white/[.1]"
-              />
-              <button className={`flex h-10 w-10 items-center justify-center rounded-full transition ${draft.trim() ? "scale-100 bg-[#2b6cff] text-white" : "scale-90 bg-white/10 text-mute"}`} disabled={!draft.trim()} aria-label="Send">
-                <Send size={17} />
-              </button>
-            </div>
-          </form>
+          <Composer
+            disabled={!keyRef.current}
+            dropped={dropped}
+            onDropHandled={() => setDropped(null)}
+            onText={sendText}
+            onImage={sendImage}
+            onVoice={sendVoice}
+            onTyping={typing}
+            onSituation={() => setNewOpen(true)}
+          />
         </section>
 
         <aside className={`${sideOpen ? "lg:flex" : "hidden"} hidden min-h-0 w-full flex-col lg:w-[400px] lg:border-l lg:border-line lg:bg-panel/50 xl:w-[440px]`}>
@@ -351,9 +520,23 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         text={reporting?.text}
         onDone={() => reporting && setMessages((old) => old.filter((m) => m.id !== reporting.id))}
       />
+      {viewing && (
+        <ViewPhoto
+          m={viewing}
+          groupKey={keyRef.current?.key ?? null}
+          meta={<><b className="text-white">{viewing.user_id === me.user.id ? "You" : (viewingWho?.display_name ?? "")}</b> · {new Date(viewing.created_at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</>}
+          onClose={() => setViewing(null)}
+        />
+      )}
       <GroupSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} feed={feed} groupId={id} keyRef={keyRef} identity={identity} onChange={() => { poll(); refresh(); }} />
     </main>
   );
+}
+
+/** Stored messages in order, then your own still-sending ones in the order you sent them. */
+function sortMsgs(msgs: Msg[]) {
+  const done = msgs.filter((m) => !m.pending).sort((a, b) => a.id - b.id);
+  return [...done, ...msgs.filter((m) => m.pending)];
 }
 
 /** Consecutive trade notices fold into one line so the chat stays a chat. */
@@ -400,7 +583,37 @@ function dayLabel(t: string, now: string) {
   return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
 }
 
-function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onReport, onReview }: { m: Msg; prev?: Msg; next?: Msg; meId: number; members: Map<number, Member>; markets: Map<number, MarketLite>; now: string; ticker: string; onReport: (m: Msg) => void; onReview: (marketId: number, what: "confirm" | "dispute") => Promise<void> }) {
+function MessageRow({
+  m,
+  prev,
+  next,
+  meId,
+  members,
+  markets,
+  now,
+  ticker,
+  groupKey,
+  delivery,
+  onReport,
+  onReview,
+  onOpen,
+  onRetry,
+}: {
+  m: Msg;
+  prev?: Msg;
+  next?: Msg;
+  meId: number;
+  members: Map<number, Member>;
+  markets: Map<number, MarketLite>;
+  now: string;
+  ticker: string;
+  groupKey: CryptoKey | null;
+  delivery: (m: Msg) => { state: Delivery; title?: string };
+  onReport: (m: Msg) => void;
+  onReview: (marketId: number, what: "confirm" | "dispute") => Promise<void>;
+  onOpen: (m: Msg) => void;
+  onRetry: (ck: string) => void;
+}) {
   // An author who is no longer a member is a deleted account; their messages stay, unnamed.
   const who = m.user_id ? (members.get(m.user_id) ?? ({ id: m.user_id, username: "", display_name: "Deleted user", color: "#52525b" } as Member)) : null;
   const press = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -413,18 +626,45 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onRepo
     const first = !sameBlock(prev, m);
     const last = !sameBlock(m, next);
     const corner = mine ? (last ? "rounded-br-md" : "rounded-r-md") : last ? "rounded-bl-md" : "rounded-l-md";
+    const a = m.payload?.a;
+    const media = a?.kind === "image" || a?.kind === "voice";
+    const d = mine ? delivery(m) : null;
+    const meta = (
+      <span className={`inline-flex items-center gap-1 text-[10px] tabular ${a?.kind === "image" && !m.text ? "text-white/85" : `float-right ml-3 mt-1.5 ${mine ? "text-white/60" : "text-mute"}`}`}>
+        {clock(m.created_at)}
+        {d && <DeliveryMark state={d.state} title={d.title} />}
+      </span>
+    );
     return (
       <div className={`msg-in group flex items-end ${mine ? "justify-end" : "justify-start"} gap-2 ${first ? "mt-2.5" : "mt-0.5"}`}>
-        {!mine && <div className="w-7 shrink-0">{last && who && <Avatar name={who.display_name} color={who.color} size={28} />}</div>}
+        {!mine && (
+          <div className="w-7 shrink-0">
+            {last && who && (who.username ? <Link href={`/u/${who.username}`} aria-label={`${who.display_name}'s profile`}><Avatar id={who.id} name={who.display_name} color={who.color} size={28} /></Link> : <Avatar name={who.display_name} color={who.color} size={28} />)}
+          </div>
+        )}
+        {mine && m.pending === "failed" && m.ck && (
+          <button onClick={() => onRetry(m.ck!)} className="mb-1 flex shrink-0 items-center gap-1 rounded-full bg-down/15 px-2.5 py-1 text-xs font-medium text-down hover:bg-down/25">
+            <Alert size={13} /> Not sent, retry
+          </button>
+        )}
         <div
           onTouchStart={mine ? undefined : () => { stopPress(); press.current = setTimeout(() => onReport(m), 550); }}
           onTouchEnd={stopPress}
           onTouchMove={stopPress}
           onTouchCancel={stopPress}
-          className={`max-w-[78%] rounded-2xl px-3.5 py-1.5 [-webkit-touch-callout:none] lg:max-w-[430px] ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-[#2b6cff] text-white" : "bg-raised"}`}>
-          {first && !mine && who && <div className="text-[13px] font-semibold" style={{ color: who.color }}>{who.display_name}</div>}
-          <span className="whitespace-pre-wrap break-words">{m.text ?? <span className="inline-flex items-center gap-1 italic text-mute"><Lock size={12} /> can&apos;t decrypt yet</span>}</span>
-          <span className={`float-right ml-3 mt-1.5 text-[10px] tabular ${mine ? "text-white/60" : "text-mute"}`}>{clock(m.created_at)}</span>
+          className={`max-w-[78%] rounded-2xl [-webkit-touch-callout:none] lg:max-w-[430px] ${a?.kind === "image" ? "p-1" : "px-3.5 py-1.5"} ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-[#2b6cff] text-white" : "bg-raised"} ${m.pending === "sending" && media ? "opacity-80" : ""}`}>
+          {first && !mine && who && <div className={`text-[13px] font-semibold ${a?.kind === "image" ? "px-2.5 pb-1 pt-0.5" : ""}`} style={{ color: who.color }}>{who.display_name}</div>}
+          {a?.kind === "image" ? (
+            <ChatImage m={m} a={a} groupKey={groupKey} onOpen={() => onOpen(m)}>{!m.text && meta}</ChatImage>
+          ) : a?.kind === "voice" ? (
+            <ChatVoice m={m} a={a} groupKey={groupKey} mine={mine} />
+          ) : null}
+          {(m.text || !a) && (
+            <span className={`whitespace-pre-wrap break-words ${a?.kind === "image" ? "block px-2.5 pt-1.5" : ""}`}>
+              {m.text ?? (m.payload === undefined || !groupKey ? <span className="inline-flex items-center gap-1 italic text-mute"><Lock size={12} /> can&apos;t decrypt yet</span> : null)}
+            </span>
+          )}
+          {!(a?.kind === "image" && !m.text) && <span className={a?.kind === "image" ? "block px-2.5 pb-0.5" : ""}>{meta}</span>}
         </div>
         {!mine && (
           <button onClick={() => onReport(m)} className="mb-1 hidden shrink-0 rounded-md p-1 text-mute opacity-0 transition hover:bg-white/5 hover:text-white focus:opacity-100 group-hover:opacity-100 lg:block" title="Report message" aria-label="Report message">
@@ -451,6 +691,25 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onRepo
       )}
     </div>
   );
+}
+
+/** A photo in the chat: your local copy while it sends, otherwise decrypted on demand. */
+function ChatImage({ m, a, groupKey, onOpen, children }: { m: Msg; a: Attachment; groupKey: CryptoKey | null; onOpen: () => void; children?: React.ReactNode }) {
+  const url = useAttachment(m.local ? null : a.id, groupKey, a.mime);
+  return <ImageBubble a={a} url={m.local ?? url} onOpen={onOpen}>{children}</ImageBubble>;
+}
+
+function ChatVoice({ m, a, groupKey, mine }: { m: Msg; a: Attachment; groupKey: CryptoKey | null; mine: boolean }) {
+  const url = useAttachment(m.local ? null : a.id, groupKey, a.mime);
+  return <VoiceNote a={a} url={m.local ?? (url === "error" ? null : url)} mine={mine} />;
+}
+
+function ViewPhoto({ m, groupKey, meta, onClose }: { m: Msg; groupKey: CryptoKey | null; meta: React.ReactNode; onClose: () => void }) {
+  const a = m.payload?.a;
+  const url = useAttachment(m.local || !a ? null : a.id, groupKey, a?.mime ?? "image/jpeg");
+  const src = m.local ?? (url && url !== "error" ? url : null);
+  if (!src) return null;
+  return <Lightbox url={src} caption={m.text ?? undefined} meta={meta} onClose={onClose} />;
 }
 
 /** The pending-result strip on a chat card: confirm it, or (after a second tap) void it and refund everyone. */
@@ -485,7 +744,7 @@ function MarketCard({ m, mk, who, now, meId, members, onReview }: { m: Msg; mk: 
       <div className="w-full max-w-[92%] overflow-hidden rounded-2xl bg-panel lg:max-w-md">
         <Link href={`/m/${mk.id}`} className="block px-4 pt-3.5 hover:bg-white/[.02]">
           <div className="flex items-center gap-2 text-xs text-mute">
-            {who ? <Avatar name={who.display_name} color={who.color} size={16} /> : <Sparkle size={13} />}
+            {who ? <Avatar id={who.id} name={who.display_name} color={who.color} size={16} /> : <Sparkle size={13} />}
             <span className="truncate"><b className="font-medium text-white/80">{who?.display_name ?? "Someone"}</b> · {type === "Yes or no" ? when : `${type} · ${when}`}</span>
             <span className="ml-auto shrink-0 tabular">{clock(m.created_at)}</span>
           </div>
@@ -611,15 +870,121 @@ function MarketList({ markets, members, now }: { markets: MarketLite[]; members:
   );
 }
 
+/** Group photo, name and description, editable by any member. The description is encrypted like a message. */
+function GroupProfile({ feed, groupId, groupKey, onChange, say }: { feed: Omit<Feed, "messages">; groupId: number; groupKey: CryptoKey | null; onChange: () => void; say: (m: string) => void }) {
+  const g = feed.group;
+  const [desc, setDesc] = useState<string | null>(null);
+  const [editing, setEditing] = useState<"name" | "desc" | null>(null);
+  const [name, setName] = useState(g.name);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const pickPhoto = useRef<HTMLInputElement>(null);
+  const photo = useAttachment(g.photo_id, groupKey, "image/jpeg");
+  useEffect(() => {
+    if (!g.description_ct || !g.description_iv || !groupKey) return setDesc(g.description_ct ? null : "");
+    let alive = true;
+    decryptPayload(groupKey, g.description_iv, g.description_ct).then((p) => alive && setDesc(p?.t ?? null));
+    return () => {
+      alive = false;
+    };
+  }, [g.description_ct, g.description_iv, groupKey]);
+  async function save(body: Record<string, unknown>, done: string) {
+    setBusy(true);
+    try {
+      await api(`/api/groups/${groupId}`, { method: "PATCH", body });
+      setEditing(null);
+      say(done);
+      onChange();
+    } catch (e) {
+      say((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function setPhoto(file: File | undefined) {
+    if (!file || !groupKey) return;
+    setBusy(true);
+    try {
+      const sq = await squarePhoto(file);
+      const photoId = await uploadEncrypted("group_photo", groupId, groupKey, sq.bytes);
+      primeAttachment(photoId, URL.createObjectURL(sq.blob));
+      await save({ photoId }, "Group photo updated");
+    } catch (e) {
+      say((e as Error).message);
+      setBusy(false);
+    }
+  }
+  async function saveDesc() {
+    if (!groupKey) return;
+    const t = text.trim();
+    await save({ description: t ? await encryptMessage(groupKey, t) : null }, "Description saved");
+  }
+  return (
+    <div className="flex flex-col items-center text-center">
+      <button type="button" onClick={() => pickPhoto.current?.click()} disabled={!groupKey || busy} className="group relative rounded-2xl" aria-label="Change group photo" title="Change group photo">
+        {photo && photo !== "error" ? (
+          // eslint-disable-next-line @next/next/no-img-element -- decrypted blob URL
+          <img src={photo} alt="" className="h-24 w-24 rounded-2xl object-cover" />
+        ) : (
+          <GroupMark name={g.name} size={96} />
+        )}
+        <span className="absolute -bottom-1 -right-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-panel bg-white text-black"><Camera size={15} /></span>
+      </button>
+      <input ref={pickPhoto} type="file" accept="image/*" hidden onChange={(e) => { void setPhoto(e.target.files?.[0]); e.target.value = ""; }} />
+      {g.photo_id && <button onClick={() => save({ photoId: null }, "Group photo removed")} disabled={busy} className="mt-2 text-xs text-mute hover:text-white">Remove photo</button>}
+      {editing === "name" ? (
+        <form onSubmit={(e) => { e.preventDefault(); if (name.trim()) void save({ name: name.trim() }, "Renamed"); }} className="mt-3 flex w-full gap-2">
+          <Input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} autoFocus />
+          <Button disabled={busy || !name.trim()}>Save</Button>
+        </form>
+      ) : (
+        <button onClick={() => { setName(g.name); setEditing("name"); }} className="mt-3 flex items-center gap-1.5 text-xl font-semibold tracking-tight hover:text-white/80">
+          {g.name} <Pencil size={14} className="text-mute" />
+        </button>
+      )}
+      <div className="text-sm text-mute">Group · {feed.members.length} members</div>
+      {editing === "desc" ? (
+        <div className="mt-3 w-full text-left">
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={3} maxLength={500} placeholder="What's this group for?" className="w-full rounded-xl border border-line bg-ink p-3 outline-none" autoFocus />
+          <div className="mt-2 flex gap-2">
+            <Button variant="ghost" className="flex-1" onClick={() => setEditing(null)}>Cancel</Button>
+            <Button className="flex-1" disabled={busy} onClick={saveDesc}>Save</Button>
+          </div>
+          <p className="mt-2 flex items-center gap-1.5 text-xs text-mute"><Lock size={12} /> Encrypted. Only members can read it.</p>
+        </div>
+      ) : (
+        <button onClick={() => { setText(desc ?? ""); setEditing("desc"); }} disabled={!groupKey} className="mt-3 w-full rounded-xl border border-line bg-ink px-3.5 py-2.5 text-left text-sm hover:border-white/20">
+          {desc ? <span className="whitespace-pre-wrap text-white/90">{desc}</span> : <span className="text-mute">{g.description_ct && desc === null ? "Unlock to read the description" : "Add a group description"}</span>}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChange }: { open: boolean; onClose: () => void; feed: Omit<Feed, "messages">; groupId: number; keyRef: React.RefObject<{ key: CryptoKey; raw: Uint8Array } | null>; identity: CryptoKey | null; onChange: () => void }) {
   const [ctx, setCtx] = useState(feed.group.ai_context);
   const [username, setUsername] = useState("");
   const [msg, setMsg] = useState("");
   const [askLeave, setAskLeave] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [opening, setOpening] = useState<string | null>(null);
   const router = useRouter();
-  const { refresh } = useSession();
+  const { me, refresh } = useSession();
+  const dm = !!feed.group.is_dm;
+  const peer = dm ? feed.members.find((m) => m.id !== me?.user.id) : undefined;
   useEffect(() => setCtx(feed.group.ai_context), [feed.group.ai_context]);
+  async function message(username: string) {
+    if (!identity || !me) return setMsg("Unlock your chats first");
+    setOpening(username);
+    try {
+      router.push(`/g/${await openDm(identity, me.user.username, username)}`);
+      onClose();
+    } catch (e) {
+      setMsg((e as Error).message);
+    } finally {
+      setOpening(null);
+    }
+  }
   useEffect(() => {
     if (!open) setAskLeave(false);
   }, [open]);
@@ -653,18 +1018,30 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
     }
   }
   return (
-    <Sheet open={open} onClose={onClose} title={feed.group.name}>
+    <Sheet open={open} onClose={onClose} title={dm ? "Private chat" : "Group info"}>
       <div className="space-y-5">
-        <div>
-          <div className="mb-1 text-sm font-semibold">Invite link</div>
-          <button onClick={() => navigator.clipboard?.writeText(link).then(() => setMsg("Link copied"))} className="w-full truncate rounded-xl border border-line bg-ink px-3.5 py-2.5 text-left text-sm text-mute hover:text-white">
-            {link}
-          </button>
-        </div>
-        <form onSubmit={add} className="flex gap-2">
-          <Input placeholder="Add by @username" value={username} onChange={(e) => setUsername(e.target.value)} autoCapitalize="none" />
-          <Button>Add</Button>
-        </form>
+        {dm && peer ? (
+          <div className="flex flex-col items-center text-center">
+            <Avatar id={peer.id} name={peer.display_name} color={peer.color} size={96} />
+            <div className="mt-3 text-xl font-semibold tracking-tight">{peer.display_name}</div>
+            <Link href={`/u/${peer.username}`} className="text-sm text-mute hover:text-white">@{peer.username}</Link>
+            <p className="mt-3 flex items-center gap-1.5 text-xs text-mute"><Lock size={12} /> Only the two of you can read this chat. Nobody else can be added.</p>
+          </div>
+        ) : (
+          <>
+            <GroupProfile feed={feed} groupId={groupId} groupKey={keyRef.current?.key ?? null} onChange={onChange} say={setMsg} />
+            <div>
+              <div className="mb-1 text-sm font-semibold">Invite link</div>
+              <button onClick={() => navigator.clipboard?.writeText(link).then(() => setMsg("Link copied"))} className="w-full truncate rounded-xl border border-line bg-ink px-3.5 py-2.5 text-left text-sm text-mute hover:text-white">
+                {link}
+              </button>
+            </div>
+            <form onSubmit={add} className="flex gap-2">
+              <Input placeholder="Add by @username" value={username} onChange={(e) => setUsername(e.target.value)} autoCapitalize="none" />
+              <Button>Add</Button>
+            </form>
+          </>
+        )}
         <div className="grid grid-cols-2 gap-2 lg:hidden">
           <Link href={`/markets?g=${groupId}`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Markets</Link>
           <Link href={`/g/${groupId}/stats`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Leaderboard and insights</Link>
@@ -700,11 +1077,18 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
           <div className="mb-2 text-sm font-semibold">Members</div>
           {feed.members.map((m) => (
             <div key={m.id} className="flex items-center gap-3 py-1.5">
-              <Avatar name={m.display_name} color={m.color} size={30} />
-              <div className="flex-1">
-                {m.display_name} <span className="text-sm text-mute">@{m.username}</span>
-              </div>
-              <span className="flex items-center gap-1 text-xs text-mute">{m.has_key ? <><Check size={12} /> has key</> : <><Hourglass size={12} /> no key yet</>}</span>
+              <Link href={`/u/${m.username}`} onClick={onClose} className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-85">
+                <Avatar id={m.id} name={m.display_name} color={m.color} size={34} />
+                <span className="min-w-0 truncate">
+                  {m.id === me?.user.id ? "You" : m.display_name} <span className="text-sm text-mute">@{m.username}</span>
+                </span>
+              </Link>
+              <span className="flex shrink-0 items-center gap-1 text-xs text-mute" title={m.has_key ? "Has the chat key" : "Waiting for the chat key"}>{m.has_key ? <Check size={12} /> : <><Hourglass size={12} /> no key yet</>}</span>
+              {!dm && m.id !== me?.user.id && (
+                <button onClick={() => message(m.username)} disabled={opening === m.username} className="flex shrink-0 items-center gap-1.5 rounded-full bg-white/[.06] px-3 py-1.5 text-xs font-medium hover:bg-white/10 disabled:opacity-50" title={`Message ${m.display_name} privately`}>
+                  <Chat size={13} /> Message
+                </button>
+              )}
             </div>
           ))}
         </div>
@@ -712,7 +1096,7 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
           {askLeave ? (
             <div className="space-y-3">
               <p className="text-sm text-mute">
-                Leave {feed.group.name}? You&apos;ll lose access to the chat and its key. Your positions stay and still settle. Open situations about you are called off and refunded.
+                Leave {dm && peer ? `your chat with ${peer.display_name}` : feed.group.name}? You&apos;ll lose access to the chat and its key. Your positions stay and still settle. Open situations about you are called off and refunded.
               </p>
               <div className="flex gap-2">
                 <Button variant="ghost" className="flex-1" onClick={() => setAskLeave(false)}>Stay</Button>
