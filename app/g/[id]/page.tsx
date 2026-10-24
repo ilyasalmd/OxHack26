@@ -57,8 +57,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const id = Number(use(params).id);
   const { me, loading, identity, refresh, setIdentity } = useSession();
   const router = useRouter();
-  // Phone shows one view at a time; a laptop shows the chat with the panel beside it.
-  const [view, setView] = useState<"Chat" | Panel>("Chat");
+  // A phone shows the chat alone (markets live in their own tab); a laptop shows a panel beside it.
   const [panel, setPanel] = useState<Panel>("Markets");
   const [feed, setFeed] = useState<Omit<Feed, "messages"> | null>(null);
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -132,7 +131,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
 
   useEffect(() => {
     bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages.length, view]);
+  }, [messages.length]);
 
   const members = useMemo(
     () =>
@@ -192,12 +191,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
 
   if (!me || !feed) return <main className="p-10 text-center text-mute">{err || "Loading…"}</main>;
   const c = me.config.currency;
-  const live = feed.markets.filter((m) => m.status === "open").length;
-  const shown: Panel = view === "Chat" ? panel : view;
-  const pick = (t: "Chat" | Panel) => {
-    setView(t);
-    if (t !== "Chat") setPanel(t);
-  };
+  const live = feed.markets.filter((m) => m.status === "open" && !m.closed).length;
 
   const header = (
     <TopBar
@@ -208,17 +202,17 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           <span className="min-w-0">
             <div className="truncate leading-tight">{feed.group.name}</div>
             <div className="flex items-center gap-1.5 text-xs font-normal text-mute">
-              <span>{feed.members.length} members · {live} live</span>
+              <span>{feed.members.length} members</span>
               <span className="flex items-center gap-1"><Lock size={11} /> Encrypted</span>
-              {feed.group.ai_reads_chat && <span className="flex items-center gap-1"><Sparkle size={11} /> AI reads relevant chat</span>}
+              {feed.group.ai_reads_chat && <span className="hidden items-center gap-1 lg:flex"><Sparkle size={11} /> AI reads relevant chat</span>}
             </div>
           </span>
         </button>
       }
       right={
         <>
-          <Link href="/portfolio" className="rounded-lg bg-white/5 px-2.5 py-1 text-sm tabular lg:hidden">
-            {me.user.balance.toFixed(0)} {c.ticker}
+          <Link href={`/markets?g=${id}`} className="flex items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1.5 text-sm font-semibold text-brand lg:hidden" aria-label="Open this chat's markets">
+            <TrendUp size={14} /> {live} live
           </Link>
           <button onClick={() => setSettingsOpen(true)} className="hidden rounded-md p-2 text-mute hover:bg-white/5 hover:text-white lg:block" title="Chat settings">
             <Settings size={17} />
@@ -230,19 +224,10 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
 
   return (
     <main className="flex h-dvh flex-col lg:h-full">
-      <div className="lg:hidden">
-        {header}
-        <nav className="flex border-b border-line">
-          {(["Chat", ...PANELS] as const).map((t) => (
-            <button key={t} onClick={() => pick(t)} className={`flex-1 py-2.5 text-sm font-medium ${view === t ? "border-b-2 border-white text-white" : "text-mute"}`}>
-              {t}
-            </button>
-          ))}
-        </nav>
-      </div>
+      <div className="lg:hidden">{header}</div>
 
       <div className="flex min-h-0 flex-1">
-        <section className={`${view === "Chat" ? "flex" : "hidden"} min-w-0 flex-1 flex-col lg:flex`}>
+        <section className="flex min-w-0 flex-1 flex-col">
           <div className="hidden lg:block">{header}</div>
           {!identity && <UnlockPrompt />}
           {!identity && keyFailed && (
@@ -297,7 +282,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           </form>
         </section>
 
-        <aside className={`${view === "Chat" ? "hidden" : "flex"} min-h-0 w-full flex-col lg:flex lg:w-[400px] lg:border-l lg:border-line lg:bg-panel/50 xl:w-[440px]`}>
+        <aside className="hidden min-h-0 w-full flex-col lg:flex lg:w-[400px] lg:border-l lg:border-line lg:bg-panel/50 xl:w-[440px]">
           <nav className="hidden h-[57px] shrink-0 items-center gap-1 border-b border-line px-3 lg:flex">
             {PANELS.map((t) => (
               <button key={t} onClick={() => setPanel(t)} className={`rounded-lg px-3 py-1.5 text-sm ${panel === t ? "bg-white/[.08] text-white" : "text-mute hover:text-white"}`}>
@@ -306,11 +291,11 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             ))}
           </nav>
           <div className="thin-scroll flex-1 overflow-y-auto">
-            {shown === "Markets" && <MarketList markets={feed.markets} members={members} now={feed.now} />}
-            {shown === "Board" && <Board groupId={id} ticker={c.ticker} meId={me.user.id} />}
-            {shown === "Insights" && <Insights groupId={id} moods={moods} stockSnippets={stockSnippets} aiReadsChat={feed.group.ai_reads_chat} onRepriced={poll} />}
+            {panel === "Markets" && <MarketList markets={feed.markets} members={members} now={feed.now} />}
+            {panel === "Board" && <Board groupId={id} ticker={c.ticker} meId={me.user.id} />}
+            {panel === "Insights" && <Insights groupId={id} moods={moods} stockSnippets={stockSnippets} aiReadsChat={feed.group.ai_reads_chat} onRepriced={poll} />}
           </div>
-          {shown === "Markets" && (
+          {panel === "Markets" && (
             <div className="border-t border-line p-3">
               <Button className="flex w-full items-center justify-center gap-2" onClick={() => setNewOpen(true)}><Plus size={16} /> New situation</Button>
             </div>
@@ -633,6 +618,10 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
           <Input placeholder="Add by @username" value={username} onChange={(e) => setUsername(e.target.value)} autoCapitalize="none" />
           <Button>Add</Button>
         </form>
+        <div className="grid grid-cols-2 gap-2 lg:hidden">
+          <Link href={`/markets?g=${groupId}`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Markets</Link>
+          <Link href={`/g/${groupId}/stats`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Leaderboard and insights</Link>
+        </div>
         <div>
           <div className="mb-1 text-sm font-semibold">AI context</div>
           <p className="mb-2 text-xs text-mute">Shared with the AI to price situations: term dates, exam weeks, fixtures, deadlines. Chat messages are only shared if “AI reads relevant chat” below is on.</p>

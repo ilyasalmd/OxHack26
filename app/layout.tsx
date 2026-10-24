@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   description: "Group chats where friends hold each other accountable with prediction markets.",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, themeColor: "#09090b" };
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#09090b" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

@@ -56,7 +56,7 @@ export default function SettingsPage() {
   if (!account)
     return (
       <main className="flex min-h-dvh flex-col lg:min-h-full">
-        <TopBar title="Settings" back="/chats" />
+        <TopBar title="You" />
         <p className="p-10 text-center text-mute">Loading…</p>
       </main>
     );
@@ -96,7 +96,7 @@ export default function SettingsPage() {
 
   return (
     <main className="flex min-h-dvh flex-col lg:min-h-full">
-      <TopBar title="Settings" back="/chats" />
+      <TopBar title="You" />
       {wide ? <Laptop {...props} /> : <Phone {...props} />}
       {sheets}
     </main>

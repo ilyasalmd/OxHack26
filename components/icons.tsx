@@ -38,4 +38,6 @@ export const Home = (p: P) => <Svg {...p}><path d="M3 11l9-7 9 7" /><path d="M5 
 export const Blocks = (p: P) => <Svg {...p}><rect x="3" y="3" width="7" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="7" rx="1.5" /><rect x="3" y="14" width="7" height="7" rx="1.5" /><rect x="14" y="14" width="7" height="7" rx="1.5" /><path d="M10 6.5h4M6.5 10v4M17.5 10v4M10 17.5h4" /></Svg>;
 export const Login = (p: P) => <Svg {...p}><path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l5-5-5-5M15 12H3" /></Svg>;
 export const More = (p: P) => <Svg {...p}><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></Svg>;
+export const User = (p: P) => <Svg {...p}><circle cx="12" cy="8" r="4" /><path d="M4.5 21a7.5 7.5 0 0 1 15 0" /></Svg>;
+export const Search = (p: P) => <Svg {...p}><circle cx="11" cy="11" r="6.5" /><path d="M20 20l-4-4" /></Svg>;
 export const Flag = (p: P) => <Svg {...p}><path d="M5 21V4M5 4h12l-2 4 2 4H5" /></Svg>;

@@ -5,11 +5,9 @@ import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { UnlockPrompt } from "@/components/unlock";
-import { TimeMachine } from "@/components/timemachine";
 import { GroupMark, LastLine, Logo, useChatActions } from "@/components/shell";
 import { Avatar, Button, Coins, ago, fmt, pct, timeLeft } from "@/components/ui";
-import { ChevronRight, Link2, LogOut, Plus, Settings, Users } from "@/components/icons";
-import { forgetIdentities } from "@/lib/e2ee";
+import { ChevronRight, Link2, Plus, Users } from "@/components/icons";
 
 type Situation = { id: number; title: string; kind: string; category: string; group: string; creator: string; resolves_at: string; volume: number; traders: number; price: number; change: number };
 type Call = { id: number; side: string; action: string; coins: number; price_after: number; created_at: string; market_id: number; title: string; kind: string; display_name: string; username: string; color: string };
@@ -19,14 +17,11 @@ type Feed = { markets: Situation[]; calls: Call[]; leaders: Leader[] };
 const CATEGORY: Record<string, string> = { punctuality: "Punctuality", fitness: "Fitness", football: "Sport", sport: "Sport", uni: "Uni", work: "Work", relationships: "Social", social: "Social", other: "Other" };
 const label = (c: string) => CATEGORY[c] ?? c.charAt(0).toUpperCase() + c.slice(1);
 
-type Position = { market_id: number; title: string; kind: string; status: string; group: string; yes: number; no: number; spent: number; price: number; value: number };
-
 export default function Chats() {
   const { me, loading, identity } = useSession();
   const router = useRouter();
   const actions = useChatActions();
   const [copied, setCopied] = useState(false);
-  const [positions, setPositions] = useState<Position[] | null>(null);
   const [feed, setFeed] = useState<Feed | null>(null);
   const [cat, setCat] = useState("All");
 
@@ -36,10 +31,7 @@ export default function Chats() {
   const userId = me?.user.id;
   useEffect(() => {
     if (!userId) return;
-    const load = () => {
-      api<{ positions: Position[] }>("/api/portfolio").then((p) => setPositions(p.positions.filter((x) => x.status === "open"))).catch(() => {});
-      api<Feed>("/api/feed").then(setFeed).catch(() => {});
-    };
+    const load = () => api<Feed>("/api/feed").then(setFeed).catch(() => {});
     load();
     const t = setInterval(load, 5000);
     return () => clearInterval(t);
@@ -58,11 +50,6 @@ export default function Chats() {
       }
     } catch {}
   }
-  async function logout() {
-    await api("/api/auth/logout", { method: "POST" });
-    await forgetIdentities();
-    location.href = "/";
-  }
   const nextAllowance = new Date(me.nextAllowanceAt).toLocaleDateString("en-GB", { weekday: "long" });
   const live = me.groups.reduce((s, g) => s + g.open_markets, 0);
   const cats = ["All", ...new Set((feed?.markets ?? []).map((m) => label(m.category)))];
@@ -70,76 +57,38 @@ export default function Chats() {
 
   return (
     <>
-      {/* Phone: account card and chat list */}
+      {/* Phone: the chat list and nothing else, like a messaging app. Markets, money and the account have their own tabs. */}
       <main className="flex min-h-dvh flex-col lg:hidden">
-        <header className="px-5 pb-4 pt-6">
-          <div className="flex items-center gap-3">
-            <Link href="/settings" aria-label="Account settings"><Avatar name={me.user.display_name} color={me.user.color} size={40} /></Link>
-            <div className="flex-1">
-              <div className="font-semibold">{me.user.display_name}</div>
-              <button onClick={share} className="text-sm text-mute hover:text-white">
-                @{me.user.username} · {copied ? "link copied" : "share"}
-              </button>
-            </div>
-            <Link href="/settings" className="relative rounded-md p-2 text-mute hover:text-white" aria-label="Settings">
-              <Settings size={18} />
-              {!me.account?.hasRecovery && <span className="absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full bg-brand" />}
-            </Link>
-            <button onClick={logout} className="rounded-md p-2 text-mute hover:text-white" aria-label="Log out"><LogOut size={18} /></button>
+        <header className="flex items-center justify-between px-5 pb-3 pt-[calc(env(safe-area-inset-top)+16px)]">
+          <h1 className="text-[28px] font-bold tracking-tight">Chats</h1>
+          <div className="flex gap-2">
+            <button onClick={actions.join} className="flex h-9 w-9 items-center justify-center rounded-full bg-white/[.07] text-white hover:bg-white/10" aria-label="Join with an invite code" title="Join with a code"><Users size={17} /></button>
+            <button onClick={actions.create} disabled={!identity} className="flex h-9 w-9 items-center justify-center rounded-full bg-white text-black hover:bg-white/90 disabled:opacity-40" aria-label="New chat" title="New chat"><Plus size={18} /></button>
           </div>
-          <Link href="/portfolio" className="mt-5 block rounded-2xl border border-line bg-panel p-5 transition hover:border-white/15">
-            <div className="text-sm text-mute">Net worth</div>
-            <div className="mt-1 text-4xl font-semibold tracking-tight">
-              <Coins value={me.netWorth.total} ticker={c.ticker} />
-            </div>
-            <div className="mt-2 flex gap-4 text-sm text-mute tabular">
-              <span>Cash {me.netWorth.balance.toFixed(0)}</span>
-              <span>Invested {me.netWorth.positions.toFixed(0)}</span>
-              <span className="ml-auto">+{me.config.economy.weeklyAllowance} {nextAllowance.slice(0, 3)}</span>
-            </div>
-          </Link>
         </header>
 
         {!identity && <UnlockPrompt />}
-
-        {!!feed?.markets.length && (
-          <section className="pb-5">
-            <h2 className="px-5 pb-2 text-xl font-semibold tracking-tight">Live now</h2>
-            <div className="flex snap-x scroll-px-5 gap-3 overflow-x-auto px-5 pb-1 [scrollbar-width:none]">
-              {feed.markets.slice(0, 8).map((s) => (
-                <div key={s.id} className="w-[78%] shrink-0 snap-start"><SituationCard s={s} now={me.clock.now} /></div>
-              ))}
-            </div>
-          </section>
-        )}
-
-        <div className="flex items-center justify-between px-5 pb-2">
-          <h2 className="text-xl font-semibold tracking-tight">Chats</h2>
-          <div className="flex gap-2">
-            <Button variant="ghost" className="!px-3 !py-1.5 text-sm" onClick={actions.join}>Join</Button>
-            <Button className="flex items-center gap-1 !px-3 !py-1.5 text-sm" onClick={actions.create} disabled={!identity}><Plus size={14} /> New</Button>
-          </div>
-        </div>
 
         <ul className="flex-1">
           {me.groups.length === 0 && <li className="px-5 py-10 text-center text-mute">No chats yet. Start one with your friends&apos; usernames, or join with an invite code.</li>}
           {me.groups.map((g) => (
             <li key={g.id}>
-              <Link href={`/g/${g.id}`} className="flex items-center gap-3 px-5 py-3 hover:bg-white/5">
-                <GroupMark name={g.name} size={46} />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{g.name}</span>
-                    {g.open_markets > 0 && <span className="rounded bg-brand/10 px-1.5 text-[11px] font-semibold text-brand">{g.open_markets} live</span>}
+              <Link href={`/g/${g.id}`} className="flex items-center gap-3.5 px-5 py-3 active:bg-white/5">
+                <GroupMark name={g.name} size={52} />
+                <div className="min-w-0 flex-1 border-b border-line pb-3 pt-0.5">
+                  <div className="flex items-baseline gap-2">
+                    <span className="truncate text-[17px] font-semibold">{g.name}</span>
+                    {g.last && <span className="ml-auto shrink-0 text-xs text-mute">{ago(g.last.created_at, me.clock.now)}</span>}
                   </div>
-                  <div className="truncate text-sm text-mute"><LastLine g={g} /></div>
+                  <div className="mt-0.5 flex items-center gap-2 text-[15px] text-mute">
+                    <span className="truncate"><LastLine g={g} /></span>
+                    {g.open_markets > 0 && <span className="ml-auto shrink-0 rounded-full bg-brand px-1.5 py-px text-[11px] font-bold text-black tabular">{g.open_markets}</span>}
+                  </div>
                 </div>
-                {g.last && <span className="text-xs text-mute">{ago(g.last.created_at, me.clock.now)}</span>}
               </Link>
             </li>
           ))}
         </ul>
-        <div className="sticky bottom-0"><TimeMachine /></div>
       </main>
 
       {/* Laptop: overview */}
@@ -206,42 +155,6 @@ export default function Chats() {
                 </Link>
               ))}
               {!me.groups.length && <p className="text-sm text-mute">No chats yet. Start one with your friends&apos; usernames, or join with an invite code.</p>}
-            </div>
-          </section>
-
-          <section className="mt-10">
-            <h2 className="mb-3 text-lg font-semibold tracking-tight">Open positions</h2>
-            <div className="overflow-hidden rounded-2xl border border-line">
-              <table className="w-full text-sm">
-                <thead className="bg-panel text-left text-xs text-mute">
-                  <tr>
-                    <th className="px-4 py-2.5 font-medium">Situation</th>
-                    <th className="px-4 py-2.5 font-medium">Chat</th>
-                    <th className="px-4 py-2.5 font-medium">Side</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Price</th>
-                    <th className="px-4 py-2.5 text-right font-medium">Value</th>
-                    <th className="px-4 py-2.5 text-right font-medium">P&amp;L</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {positions?.map((x) => (
-                    <tr key={x.market_id} className="cursor-pointer border-t border-line hover:bg-white/[.03]" onClick={() => router.push(`/m/${x.market_id}`)}>
-                      <td className="max-w-[320px] truncate px-4 py-3 font-medium">{x.title}</td>
-                      <td className="px-4 py-3 text-mute">{x.group}</td>
-                      <td className="px-4 py-3">{x.yes > 0.001 ? <span className="text-up">Long</span> : <span className="text-down">Short</span>}</td>
-                      <td className="px-4 py-3 text-right tabular">{pct(x.price)}</td>
-                      <td className="px-4 py-3 text-right tabular">{fmt(x.value)}</td>
-                      <td className={`px-4 py-3 text-right tabular ${x.value >= x.spent ? "text-up" : "text-down"}`}>{x.value >= x.spent ? "+" : "−"}{fmt(Math.abs(x.value - x.spent))}</td>
-                    </tr>
-                  ))}
-                  {positions && !positions.length && (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-mute">No open positions. Open a chat and go long or short on a situation.</td></tr>
-                  )}
-                  {!positions && (
-                    <tr><td colSpan={6} className="px-4 py-8 text-center text-mute">Loading…</td></tr>
-                  )}
-                </tbody>
-              </table>
             </div>
           </section>
 

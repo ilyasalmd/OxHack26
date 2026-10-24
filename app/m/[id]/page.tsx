@@ -4,10 +4,11 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { PriceChart } from "@/components/chart";
+import { BetSlip, odds } from "@/components/bet-slip";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { TimeMachine } from "@/components/timemachine";
-import { applyShares, priceYes, proceedsForShares, sharesForAmount } from "@/lib/lmsr";
-import { Book, Chat, Flag, Hourglass, More, Volume } from "@/components/icons";
+import { proceedsForShares, type Side } from "@/lib/lmsr";
+import { Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
 
@@ -46,14 +47,14 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const { me, refresh } = useSession();
   const [d, setD] = useState<Detail | null>(null);
   const [hover, setHover] = useState<{ t: number; v: number } | null>(null);
-  const [side, setSide] = useState<"yes" | "no" | null>(null);
-  const [amount, setAmount] = useState(10);
+  // The slip's side; on a phone it opens as a sheet, on a laptop it sits beside the chart.
+  const [side, setSide] = useState<Side>("yes");
+  const [slipOpen, setSlipOpen] = useState(false);
   const [resolveOpen, setResolveOpen] = useState(false);
   const [note, setNote] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
-  const [deskSide, setDeskSide] = useState<"yes" | "no">("yes");
   const [menu, setMenu] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
   // Calling a situation off and disputing a result both void it and refund everyone, so they ask first.
@@ -64,8 +65,8 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   useEffect(() => {
     const s = new URLSearchParams(location.search).get("side");
     if (s !== "yes" && s !== "no") return;
-    setDeskSide(s);
-    if (!matchMedia("(min-width: 1024px)").matches) setSide(s);
+    setSide(s);
+    if (!matchMedia("(min-width: 1024px)").matches) setSlipOpen(true);
   }, []);
 
   const load = useCallback(() => api<Detail>(`/api/markets/${id}`).then(setD).catch((e) => setErr(e.message)), [id]);
@@ -94,7 +95,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
     setErr("");
     try {
       await api(`/api/markets/${id}/trade`, { body: { side: s, action, amount: amt } });
-      setSide(null);
+      setSlipOpen(false);
       await Promise.all([load(), refresh()]);
     } catch (e) {
       setErr((e as Error).message);
@@ -153,41 +154,6 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const hasPos = !!pos && (pos.yes_shares > 0.001 || pos.no_shares > 0.001);
   const posValue = pos ? pos.yes_shares * m.price + pos.no_shares * (1 - m.price) : 0;
 
-  function tradeForm(s: "yes" | "no") {
-    const e = amount > 0 ? (() => {
-      const shares = sharesForAmount(book, s, amount);
-      return { shares, after: priceYes(applyShares(book, s, shares)) };
-    })() : null;
-    return (
-      <div className="space-y-4">
-        <p className="text-sm text-mute">{s === "yes" ? `You win if "${m.title}" happens.` : `You win if "${m.title}" doesn't happen.`}</p>
-        <div className="text-center text-5xl font-semibold tracking-tight tabular">{fmt(amount, 0)} <span className="text-xl text-mute">{c.ticker}</span></div>
-        <input type="range" min={1} max={Math.max(1, Math.floor(d!.me.maxStake))} value={amount} onChange={(ev) => setAmount(Number(ev.target.value))} className="w-full accent-white" />
-        <div className="flex justify-between text-xs text-mute">
-          <span>Balance {fmt(d!.me.balance, 0)}</span>
-          <span>Max stake {fmt(d!.me.maxStake, 0)} (keeps {me!.config.economy.balanceFloor} safe)</span>
-        </div>
-        <div className="grid grid-cols-4 gap-2">
-          {[0.1, 0.25, 0.5, 1].map((f) => (
-            <button key={f} onClick={() => setAmount(Math.max(1, Math.floor(d!.me.maxStake * f)))} className="rounded-lg bg-white/5 py-1.5 text-sm hover:bg-white/10">{f === 1 ? "Max" : `${f * 100}%`}</button>
-          ))}
-        </div>
-        {e && (
-          <div className="space-y-1 rounded-xl border border-line bg-ink p-3 text-sm">
-            <div className="flex justify-between"><span className="text-mute">Shares</span><span className="tabular">{fmt(e.shares)}</span></div>
-            <div className="flex justify-between"><span className="text-mute">Pays if right</span><span className="tabular text-up">{fmt(e.shares)} {c.ticker} (+{fmt(e.shares - amount)})</span></div>
-            <div className="flex justify-between"><span className="text-mute">Price moves</span><span className="tabular">{show(m.price)} → {show(e.after)}</span></div>
-          </div>
-        )}
-        {d!.me.maxStake < 1 && <p className="text-sm text-down">You&apos;re at the safety floor. Your weekly +{me!.config.economy.weeklyAllowance} will top you up.</p>}
-        {err && <p className="text-sm text-down">{err}</p>}
-        <Button variant={s === "yes" ? "up" : "down"} className="w-full" disabled={busy || d!.me.maxStake < 1} onClick={() => doTrade("buy", s, amount)}>
-          {busy ? "Placing…" : `Confirm ${s === "yes" ? "long" : "short"}`}
-        </Button>
-      </div>
-    );
-  }
-
   const positionCard = hasPos && pos && (
     <section className="rounded-2xl border border-line bg-panel p-4">
       <div className="mb-2 text-sm font-semibold">Your position</div>
@@ -201,14 +167,14 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       </div>
       {pos.yes_shares > 0.001 && (
         <div className="mt-2 flex items-center justify-between gap-2 text-sm">
-          <span className="text-up">Long {fmt(pos.yes_shares)} sh · pays {fmt(pos.yes_shares)} if YES</span>
-          {!resolved && !m.closed && <button className="shrink-0 text-mute hover:text-white" disabled={busy} onClick={() => doTrade("sell", "yes", pos.yes_shares)}>Sell for {fmt(proceedsForShares(book, "yes", pos.yes_shares))}</button>}
+          <span className="text-up">{isStock ? "Holding" : "Yes"} {fmt(pos.yes_shares)} shares</span>
+          {!resolved && !m.closed && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "yes", pos.yes_shares)}>Sell for {fmt(proceedsForShares(book, "yes", pos.yes_shares))}</button>}
         </div>
       )}
       {pos.no_shares > 0.001 && (
         <div className="mt-1 flex items-center justify-between gap-2 text-sm">
-          <span className="text-down">Short {fmt(pos.no_shares)} sh · pays {fmt(pos.no_shares)} if NO</span>
-          {!resolved && !m.closed && <button className="shrink-0 text-mute hover:text-white" disabled={busy} onClick={() => doTrade("sell", "no", pos.no_shares)}>Sell for {fmt(proceedsForShares(book, "no", pos.no_shares))}</button>}
+          <span className="text-down">{isStock ? "Short" : "No"} {fmt(pos.no_shares)} shares</span>
+          {!resolved && !m.closed && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "no", pos.no_shares)}>Close for {fmt(proceedsForShares(book, "no", pos.no_shares))}</button>}
         </div>
       )}
     </section>
@@ -319,10 +285,18 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             )}
           </section>
         )}
-        {!resolved && d.me.canTrade && (
+        {!resolved && !voided && d.me.canTrade && !m.closed && (
           <div className="mt-5 grid grid-cols-2 gap-2 lg:hidden">
-            <Button variant="up" onClick={() => { setSide("yes"); setAmount(Math.min(10, d.me.maxStake)); }}>Long · {show(m.price)}</Button>
-            <Button variant="down" onClick={() => { setSide("no"); setAmount(Math.min(10, d.me.maxStake)); }} disabled={!d.me.canShort}>Short · {show(1 - m.price)}</Button>
+            <button onClick={() => { setSide("yes"); setSlipOpen(true); }} className="rounded-2xl bg-up px-4 py-3 text-left text-black transition active:scale-[.98]">
+              <div className="text-sm font-semibold">{isStock ? "Buy" : "Yes"}</div>
+              <div className="text-2xl font-semibold tracking-tight tabular">{show(m.price)}</div>
+              {!isStock && <div className="text-[11px] text-black/60">odds {odds(m.price)}</div>}
+            </button>
+            <button onClick={() => { setSide("no"); setSlipOpen(true); }} disabled={!d.me.canShort} className="rounded-2xl bg-down px-4 py-3 text-left text-white transition active:scale-[.98] disabled:opacity-40">
+              <div className="text-sm font-semibold">{isStock ? "Short" : "No"}</div>
+              <div className="text-2xl font-semibold tracking-tight tabular">{show(1 - m.price)}</div>
+              {!isStock && <div className="text-[11px] text-white/60">odds {odds(1 - m.price)}</div>}
+            </button>
           </div>
         )}
         {!resolved && !voided && d.me.isSubject && (
@@ -338,12 +312,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
         {positionCard && <div className="mt-5 lg:hidden">{positionCard}</div>}
 
-        <section className="mt-5 rounded-2xl border border-line bg-panel p-4 text-sm">
-          <div className="mb-2 flex items-center gap-2">
-            <span className="font-semibold">How it was priced</span>
-            <Badge tone="brand">{m.ai_source === "ollama" ? "Local AI" : m.ai_source === "gemini" ? "Gemini" : "Stats model"}</Badge>
-            {m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}
-          </div>
+        <Fold title="Why this price" summary={<><Badge tone="brand">{m.ai_source === "ollama" ? "Local AI" : m.ai_source === "gemini" ? "Gemini" : "Stats model"}</Badge>{m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}</>}>
           <p className="text-mute">{m.ai_rationale}</p>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-xl bg-ink p-2"><div className="text-xs text-mute">AI</div><div className="font-semibold tabular">{pct(m.ai_prob)}</div></div>
@@ -374,11 +343,10 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               {m.decay === "hazard" ? " With no news, the price drifts down as maturity gets closer." : " The outcome is only known at maturity."}
             </p>
           )}
-        </section>
+        </Fold>
 
         {d.similar.length > 0 && (
-          <section className="mt-5">
-            <h3 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mute"><Book size={12} /> Past data</h3>
+          <Fold title="Past data" summary={<span className="flex items-center gap-1.5 text-xs text-mute"><Book size={12} /> {d.similar.length} similar</span>}>
             {d.similar.map((s) => (
               <div key={s.id} className="mb-2 rounded-xl border border-line bg-panel p-3 text-sm">
                 <div className="flex gap-2">
@@ -388,11 +356,10 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                 <div className="mt-1 text-mute">{s.summary}</div>
               </div>
             ))}
-          </section>
+          </Fold>
         )}
 
-        <section className="mt-5">
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-mute">Activity</h3>
+        <Fold title="Activity" summary={<span className="text-xs text-mute tabular">{d.trades.length} trades</span>}>
           {d.trades.map((t) => (
             <div key={t.id} className="flex items-center gap-3 py-2 text-sm">
               <Avatar name={t.display_name} color={t.color} size={26} />
@@ -405,7 +372,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             </div>
           ))}
           {!d.trades.length && <p className="text-sm text-mute">No trades yet. Be first.</p>}
-        </section>
+        </Fold>
 
         {d.me.canResolve && (
           <Button variant="ghost" className="mt-6 w-full lg:hidden" onClick={() => setResolveOpen(true)}>Propose the result</Button>
@@ -414,13 +381,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
        {/* Laptop: trade ticket beside the chart */}
        <aside className="sticky top-20 mt-6 hidden space-y-4 lg:block">
-        {!resolved && d.me.canTrade && !m.closed && (
+        {!resolved && !voided && d.me.canTrade && !m.closed && (
           <section className="rounded-2xl border border-line bg-panel p-4">
-            <div className="mb-4 grid grid-cols-2 gap-1 rounded-xl bg-ink p-1">
-              <button onClick={() => setDeskSide("yes")} className={`rounded-lg py-2 text-sm font-semibold ${deskSide === "yes" ? "bg-up text-black" : "text-mute hover:text-white"}`}>Long · {show(m.price)}</button>
-              <button onClick={() => d.me.canShort && setDeskSide("no")} disabled={!d.me.canShort} className={`rounded-lg py-2 text-sm font-semibold disabled:opacity-40 ${deskSide === "no" ? "bg-down text-white" : "text-mute hover:text-white"}`}>Short · {show(1 - m.price)}</button>
-            </div>
-            {tradeForm(deskSide)}
+            <BetSlip kind={m.kind} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
           </section>
         )}
         {positionCard}
@@ -429,8 +392,8 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       </div>
       <div className="lg:hidden"><TimeMachine onJump={load} /></div>
 
-      <Sheet open={!!side && !wide} onClose={() => setSide(null)} title={side === "yes" ? "Go long" : "Go short"}>
-        {side && tradeForm(side)}
+      <Sheet open={slipOpen && !wide} onClose={() => setSlipOpen(false)} title={isStock ? "Trade" : "Bet slip"}>
+        <BetSlip kind={m.kind} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
       </Sheet>
 
       <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Propose the result">
@@ -469,5 +432,19 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
       <ReportSheet open={reportOpen} onClose={() => { setReportOpen(false); load(); }} kind="situation" url={`/api/markets/${id}/report`} onDone={() => load()} />
     </main>
+  );
+}
+
+/** A quiet, closed-by-default section, so the page leads with the price and the slip. */
+function Fold({ title, summary, children }: { title: string; summary?: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <details className="group mt-3 rounded-2xl border border-line bg-panel text-sm open:pb-4">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3.5 [&::-webkit-details-marker]:hidden">
+        <span className="font-semibold">{title}</span>
+        <span className="ml-auto flex items-center gap-2">{summary}</span>
+        <ChevronRight size={16} className="text-mute transition group-open:rotate-90" />
+      </summary>
+      <div className="px-4">{children}</div>
+    </details>
   );
 }

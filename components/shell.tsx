@@ -7,12 +7,21 @@ import { api } from "./api";
 import { createGroup, groupKey } from "./groupkeys";
 import { TimeMachine } from "./timemachine";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
-import { Blocks, Chart, Home, LogOut, Plus, Settings, TrendUp, Users } from "./icons";
+import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, User as UserIcon, Wallet, Users } from "./icons";
 import { decryptMessage, forgetIdentities } from "@/lib/e2ee";
+
+/** The phone's four tabs. Each screen does one job; everything else is a page you go into and back out of. */
+const TABS = [
+  { href: "/chats", label: "Chats", icon: Chat },
+  { href: "/markets", label: "Markets", icon: TrendUp },
+  { href: "/portfolio", label: "Wallet", icon: Wallet },
+  { href: "/settings", label: "You", icon: UserIcon },
+];
+const hasTabs = (path: string) => TABS.some((t) => t.href === path);
 
 /**
  * Laptop: a three-part workspace (sidebar with account + chats, then the page).
- * Phone: the page on its own, full width, as before.
+ * Phone: one screen at a time, with a tab bar on the four top-level screens, like any iPhone app.
  */
 export function Frame({ children }: { children: React.ReactNode }) {
   const { me } = useSession();
@@ -20,13 +29,39 @@ export function Frame({ children }: { children: React.ReactNode }) {
   // Sign-in screens own the whole window (and must not re-mount when a session appears mid-flow).
   if (path === "/" || path === "/recover") return <>{children}</>;
   if (!me) return <div className="mx-auto min-h-dvh max-w-xl">{children}</div>;
+  const tabs = hasTabs(path);
   return (
     <div className="lg:flex lg:h-dvh lg:overflow-hidden">
       <Sidebar me={me} path={path} />
-      <div className="mx-auto min-h-dvh w-full max-w-xl sm:border-x sm:border-line lg:mx-0 lg:h-dvh lg:min-h-0 lg:max-w-none lg:flex-1 lg:overflow-y-auto lg:border-0 thin-scroll">
+      <div className={`mx-auto min-h-dvh w-full max-w-xl sm:border-x sm:border-line lg:mx-0 lg:h-dvh lg:min-h-0 lg:max-w-none lg:flex-1 lg:overflow-y-auto lg:border-0 thin-scroll ${tabs ? (me.config.demo ? "pb-[calc(100px+env(safe-area-inset-bottom))]" : "pb-[calc(64px+env(safe-area-inset-bottom))]") + " lg:pb-0" : ""}`}>
         {children}
       </div>
+      {tabs && (
+        <>
+          {me.config.demo && <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 mx-auto max-w-xl bg-ink lg:hidden"><TimeMachine /></div>}
+          <TabBar path={path} me={me} />
+        </>
+      )}
     </div>
+  );
+}
+
+function TabBar({ path, me }: { path: string; me: Me }) {
+  return (
+    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-ink/92 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" aria-label="Main">
+      <div className="mx-auto flex h-16 max-w-xl items-stretch">
+        {TABS.map(({ href, label, icon: Icon }) => {
+          const on = path === href;
+          return (
+            <Link key={href} href={href} aria-current={on ? "page" : undefined} className={`relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition ${on ? "text-white" : "text-mute"}`}>
+              <Icon size={23} className={on ? "" : "opacity-80"} />
+              {label}
+              {href === "/settings" && !me.account?.hasRecovery && <span className="absolute right-[calc(50%-16px)] top-3 h-1.5 w-1.5 rounded-full bg-brand" />}
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
   );
 }
 
@@ -90,8 +125,9 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
     location.href = "/";
   }
   const nav = [
-    { href: "/chats", label: "Overview", icon: Home },
-    { href: "/portfolio", label: "Portfolio", icon: Chart },
+    { href: "/chats", label: "Home", icon: Chat },
+    { href: "/markets", label: "Markets", icon: TrendUp },
+    { href: "/portfolio", label: "Wallet", icon: Wallet },
     { href: "/chain", label: "Chain", icon: Blocks },
     { href: "/settings", label: "Settings", icon: Settings, dot: !me.account?.hasRecovery },
   ];

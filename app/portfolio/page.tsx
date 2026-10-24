@@ -5,7 +5,6 @@ import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { PriceChart } from "@/components/chart";
 import { Badge, Coins, TopBar, fmt, pct } from "@/components/ui";
-import { TimeMachine } from "@/components/timemachine";
 import { ArrowUpRight, Wallet } from "@/components/icons";
 
 type P = {
@@ -66,7 +65,7 @@ export default function Portfolio() {
 
   return (
     <main className="flex min-h-dvh flex-col lg:min-h-full">
-      <TopBar back="/chats" title="Portfolio" />
+      <TopBar title="Wallet" />
       <div className="flex-1 px-4 pb-6 lg:mx-auto lg:grid lg:w-full lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-10 lg:px-8 lg:pt-4">
        <div className="min-w-0">
         <div className="mt-5 text-sm text-mute">Net worth</div>
@@ -112,7 +111,7 @@ export default function Portfolio() {
         {walletCard}
        </aside>
       </div>
-      <div className="lg:hidden"><TimeMachine onJump={load} /></div>
+      
     </main>
   );
 }
