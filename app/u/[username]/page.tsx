@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { openDm } from "@/components/groupkeys";
+import { warmChat } from "@/components/chat/cache";
 import { registerPhotos, type PhotoInfo } from "@/components/media";
 import { UnlockPrompt } from "@/components/unlock";
 import { Avatar, Button, TopBar } from "@/components/ui";
@@ -35,7 +36,9 @@ export default function Profile({ params }: { params: Promise<{ username: string
     if (!identity || !me || !u) return;
     setBusy(true);
     try {
-      router.push(`/g/${await openDm(identity, me.user.username, u.username)}`);
+      const dm = await openDm(identity, me.user.username, u.username);
+      await warmChat(me.user.id, dm, identity);
+      router.push(`/g/${dm}`);
     } catch (e) {
       setErr((e as Error).message);
       setBusy(false);

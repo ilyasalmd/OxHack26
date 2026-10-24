@@ -7,6 +7,7 @@ import { api } from "@/components/api";
 import { UnlockPrompt } from "@/components/unlock";
 import { LastLine, useChatActions } from "@/components/shell";
 import { ChatMark, chatName } from "@/components/chat/mark";
+import { prefetchChat } from "@/components/chat/cache";
 import { Avatar, Button, Coins, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { ChevronRight, Link2, Plus, Users } from "@/components/icons";
 
@@ -44,6 +45,22 @@ export default function Chats() {
   useEffect(() => {
     if (latest != null && matchMedia("(min-width: 1024px)").matches) router.replace(`/g/${latest}`);
   }, [latest, router]);
+  // On a phone, fetch the chats at the top of the list ahead, three at a time, so tapping one slides it in already drawn.
+  useEffect(() => {
+    if (!me || !identity || matchMedia("(min-width: 1024px)").matches) return;
+    let stop = false;
+    const top = [...me.groups].sort((a, b) => (b.last ? Date.parse(b.last.created_at) : 0) - (a.last ? Date.parse(a.last.created_at) : 0)).slice(0, 8);
+    const next = async (): Promise<void> => {
+      const g = top.shift();
+      if (g && !stop) return prefetchChat(me.user.id, g.id, identity).then(next);
+    };
+    void Promise.all([next(), next(), next()]);
+    return () => {
+      stop = true;
+    };
+    // The list of chats changes on every session refresh; fetching ahead once is enough.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, identity]);
   if (!me) return null;
   const c = me.config.currency;
 
@@ -115,6 +132,7 @@ export default function Chats() {
           <p className="text-sm text-mute">Opening your latest chat…</p>
         )}
       </main>
+      {actions.sheets}
     </>
   );
 }

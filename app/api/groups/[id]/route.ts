@@ -15,37 +15,41 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
   // newest message means all of it).
   const read = Number(req.nextUrl.searchParams.get("read") ?? 0) || 0;
   const db = await getDb();
-  const [group] = await db.query(
-    `SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by, is_dm, description_ct, description_iv, photo_id::int AS photo_id FROM groups WHERE id = $1`,
-    [id]
-  );
-  const members = await db.query(
-    `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, u.subject_policy, (k.user_id IS NOT NULL) AS has_key,
-       ${AVATAR_COLS("u", "$2")}, gm.delivered_upto::int AS delivered_upto, gm.read_upto::int AS read_upto
-     FROM group_members gm JOIN users u ON u.id = gm.user_id
-     LEFT JOIN group_keys k ON k.group_id = gm.group_id AND k.user_id = u.id
-     WHERE gm.group_id = $1 ORDER BY u.balance DESC`,
-    [id, user.id]
-  );
-  const [prefs] = await db.query<{ wallpaper: string | null; muted: boolean }>(`SELECT wallpaper, muted FROM group_members WHERE group_id = $1 AND user_id = $2`, [id, user.id]);
-  const [myKey] = await db.query(
-    `SELECT k.wrapped_key, w.public_key AS wrapper_public_key FROM group_keys k JOIN users w ON w.id = k.wrapped_by WHERE k.group_id = $1 AND k.user_id = $2`,
-    [id, user.id]
-  );
-  // People who left still wrote some of the chat; the page needs their name and colour, not their keys.
-  const former = await db.query(
-    `SELECT DISTINCT u.id, u.username, u.display_name, u.color FROM messages m JOIN users u ON u.id = m.user_id
-     WHERE m.group_id = $1 AND NOT EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = $1 AND gm.user_id = u.id)`,
-    [id]
-  );
-  // A message you reported is hidden for you from then on.
-  const messages = await db.query(
-    `SELECT id::int, user_id, kind, ciphertext, iv, body, market_id, created_at FROM (
-       SELECT * FROM messages m WHERE group_id = $1 AND id > $2
-         AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.reporter_id = $3 AND r.message_id = m.id)
-       ORDER BY id DESC LIMIT 200) t ORDER BY id`,
-    [id, after, user.id]
-  );
+  // These reads don't depend on each other, so they go to the database together, not one after another.
+  const [[group], members, [prefs], [myKey], former, messages, markets] = await Promise.all([
+    db.query(
+      `SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by, is_dm, description_ct, description_iv, photo_id::int AS photo_id FROM groups WHERE id = $1`,
+      [id]
+    ),
+    db.query(
+      `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, u.subject_policy, (k.user_id IS NOT NULL) AS has_key,
+         ${AVATAR_COLS("u", "$2")}, gm.delivered_upto::int AS delivered_upto, gm.read_upto::int AS read_upto
+       FROM group_members gm JOIN users u ON u.id = gm.user_id
+       LEFT JOIN group_keys k ON k.group_id = gm.group_id AND k.user_id = u.id
+       WHERE gm.group_id = $1 ORDER BY u.balance DESC`,
+      [id, user.id]
+    ),
+    db.query<{ wallpaper: string | null; muted: boolean }>(`SELECT wallpaper, muted FROM group_members WHERE group_id = $1 AND user_id = $2`, [id, user.id]),
+    db.query(
+      `SELECT k.wrapped_key, w.public_key AS wrapper_public_key FROM group_keys k JOIN users w ON w.id = k.wrapped_by WHERE k.group_id = $1 AND k.user_id = $2`,
+      [id, user.id]
+    ),
+    // People who left still wrote some of the chat; the page needs their name and colour, not their keys.
+    db.query(
+      `SELECT DISTINCT u.id, u.username, u.display_name, u.color FROM messages m JOIN users u ON u.id = m.user_id
+       WHERE m.group_id = $1 AND NOT EXISTS (SELECT 1 FROM group_members gm WHERE gm.group_id = $1 AND gm.user_id = u.id)`,
+      [id]
+    ),
+    // A message you reported is hidden for you from then on.
+    db.query(
+      `SELECT id::int, user_id, kind, ciphertext, iv, body, market_id, created_at FROM (
+         SELECT * FROM messages m WHERE group_id = $1 AND id > $2
+           AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.reporter_id = $3 AND r.message_id = m.id)
+         ORDER BY id DESC LIMIT 200) t ORDER BY id`,
+      [id, after, user.id]
+    ),
+    db.query<MarketRow>(`SELECT * FROM markets WHERE group_id = $1 ORDER BY created_at DESC`, [id]),
+  ]);
   // Ticks: whatever this app just fetched is delivered; what it says is on screen is read.
   const newest = messages.length ? (messages[messages.length - 1] as { id: number }).id : 0;
   if (newest || read)
@@ -56,7 +60,6 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
          AND (gm.read_upto < LEAST($4::bigint, x.top) OR gm.delivered_upto < LEAST(GREATEST($3::bigint, $4::bigint), x.top))`,
       [id, user.id, newest, read]
     );
-  const markets = await db.query<MarketRow>(`SELECT * FROM markets WHERE group_id = $1 ORDER BY created_at DESC`, [id]);
   return {
     group,
     members,

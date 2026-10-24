@@ -44,7 +44,10 @@ input, textarea, select { font-size: 16px; }
 }
 @keyframes msg-in { from { transform: translateY(6px); opacity: 0 } to { transform: none; opacity: 1 } }
 .msg-in { animation: msg-in .22s ease-out both; }
-@media (prefers-reduced-motion: reduce) { .msg-in, .pop { animation: none; } }
+/* A chat slides in from the right as it opens, like WhatsApp on a laptop. */
+@keyframes chat-in { from { transform: translateX(18px); opacity: .35 } to { transform: none; opacity: 1 } }
+.chat-in { animation: chat-in .18s cubic-bezier(.2, .8, .2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .msg-in, .pop, .chat-in { animation: none; } }
 
 /* Typing indicator: three dots rising in turn. */
 @keyframes typing { 0%, 60%, 100% { transform: none; opacity: .45 } 30% { transform: translateY(-3px); opacity: 1 } }

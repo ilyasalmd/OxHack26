@@ -5,6 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useSession, type Me } from "./session";
 import { api } from "./api";
 import { createGroup, groupKey } from "./groupkeys";
+import { warmChat } from "./chat/cache";
 import { TimeMachine } from "./timemachine";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
 import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, User as UserIcon, Wallet, Users } from "./icons";
@@ -214,6 +215,9 @@ export function useChatActions() {
     try {
       const id = await fn();
       if (label) pendingChatNames.set(id, label);
+      // Load the new chat before leaving the sheet, so it slides in already drawn instead of empty.
+      router.prefetch(`/g/${id}`);
+      if (me) await warmChat(me.user.id, id, identity);
       setOpen(null);
       router.push(`/g/${id}`);
       // The chat list catches up in the background; the chat itself is already on screen.

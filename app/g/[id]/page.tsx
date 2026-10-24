@@ -9,6 +9,7 @@ import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, fmt, pct, timeLeft } from "@/components/ui";
 import { GroupMark, pendingChatNames } from "@/components/shell";
+import { cacheFor, decryptWith, prefetchChat, sortMsgs, warmChat, type ChatKey } from "@/components/chat/cache";
 import { Alert, Camera, Chart, Plus, Chat, Check, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
@@ -65,7 +66,7 @@ export type MarketLite = {
   resolves_at: string;
   volume: number;
 };
-type Msg = {
+export type Msg = {
   id: number;
   user_id: number | null;
   kind: string;
@@ -83,7 +84,7 @@ type Msg = {
   /** A photo or voice note you just sent, played from this device while it uploads. */
   local?: string;
 };
-type Feed = {
+export type Feed = {
   group: {
     id: number;
     name: string;
@@ -107,50 +108,6 @@ type Feed = {
   typing?: { id: number; mode: "text" | "voice" }[];
   now: string;
 };
-
-type ChatKey = { key: CryptoKey; raw: Uint8Array };
-
-async function decryptWith(k: ChatKey | null, msgs: Msg[]) {
-  return Promise.all(
-    msgs.map(async (m) => {
-      if (m.kind !== "chat" || !k || !m.ciphertext || !m.iv) return m;
-      const payload = await decryptPayload(k.key, m.iv, m.ciphertext);
-      return { ...m, payload, text: payload?.t ?? null };
-    })
-  );
-}
-
-// Chats this tab has opened or fetched ahead, so switching chats draws the new one at once
-// instead of an empty wall while it loads. The live poll takes over from there.
-type Cached = { feed: Omit<Feed, "messages">; messages: Msg[]; lastId: number; key: ChatKey | null };
-const chatCache = new Map<number, Cached>();
-const fetching = new Set<number>();
-let cacheOwner = 0;
-/** The cache belongs to one account: logging in as someone else in this tab starts it afresh. */
-function cacheFor(userId: number) {
-  if (cacheOwner !== userId) {
-    chatCache.clear();
-    cacheOwner = userId;
-  }
-  return chatCache;
-}
-
-/** Fetches a chat in the background (feed, key and decrypted history) for an instant open. */
-async function prefetchChat(userId: number, id: number, identity: CryptoKey | null) {
-  const chatCache = cacheFor(userId);
-  if (chatCache.has(id) || fetching.has(id)) return;
-  fetching.add(id);
-  try {
-    const { messages, ...feed } = await api<Feed>(`/api/groups/${id}?after=0&read=0`);
-    registerPhotos(feed.members);
-    const key = identity && feed.myKey ? await groupKey(id, identity, feed.myKey).catch(() => null) : null;
-    if (cacheOwner === userId && !chatCache.has(id)) chatCache.set(id, { feed, messages: sortMsgs(await decryptWith(key, messages)), lastId: messages.at(-1)?.id ?? 0, key });
-  } catch {
-    // Prefetching is a nicety: the chat still loads normally when opened.
-  } finally {
-    fetching.delete(id);
-  }
-}
 
 const PANELS = ["Markets", "Board", "Insights"] as const;
 type Panel = (typeof PANELS)[number];
@@ -404,7 +361,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     // The chat exists in the sidebar already (a brand-new one included); draw its frame while the first feed loads.
     const known = me.groups.find((g) => g.id === id) ?? (pendingChatNames.has(id) ? { name: pendingChatNames.get(id)!, members: 1 } : undefined);
     return (
-      <main className="flex min-h-dvh flex-col lg:min-h-full">
+      <main className="chat-in flex min-h-dvh flex-col lg:min-h-full">
         <TopBar back="/chats" title={<div className="flex items-center gap-3"><GroupMark name={known?.name ?? ""} size={36} /><div><div className="font-semibold leading-tight">{known?.name ?? ""}</div><div className="text-xs text-mute">{err || (known ? `${known.members} members` : "")}</div></div></div>} />
         <div className="chat-wall flex flex-1 flex-col justify-end gap-3 px-4 pb-24 lg:px-8" aria-hidden>
           {[62, 44, 70, 38, 56].map((w, k) => (
@@ -462,7 +419,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   );
 
   return (
-    <main className="flex h-dvh flex-col lg:h-full">
+    <main className="chat-in flex h-dvh flex-col lg:h-full">
       <div className="lg:hidden">{header}</div>
 
       <div className="flex min-h-0 flex-1">
@@ -610,11 +567,6 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
 }
 
 /** Stored messages in order, then your own still-sending ones in the order you sent them. */
-function sortMsgs(msgs: Msg[]) {
-  const done = msgs.filter((m) => !m.pending).sort((a, b) => a.id - b.id);
-  return [...done, ...msgs.filter((m) => m.pending)];
-}
-
 /** Consecutive trade notices fold into one line so the chat stays a chat. */
 function runs(msgs: Msg[]) {
   const out: (Msg | Msg[])[] = [];
@@ -1091,7 +1043,9 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
     if (!identity || !me) return setMsg("Unlock your chats first");
     setOpening(username);
     try {
-      router.push(`/g/${await openDm(identity, me.user.username, username)}`);
+      const dm = await openDm(identity, me.user.username, username);
+      await warmChat(me.user.id, dm, identity);
+      router.push(`/g/${dm}`);
       onClose();
     } catch (e) {
       setMsg((e as Error).message);
