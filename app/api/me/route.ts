@@ -5,12 +5,22 @@ import { clockOffset, now } from "@/lib/clock";
 import { CURRENCY, DEMO_MODE, ECONOMY, AI, isAdminUsername } from "@/lib/config";
 import { solanaConfig } from "@/lib/solana";
 import { ensureWorker } from "@/lib/worker";
+import { AVATAR_COLS } from "@/lib/chat";
 
 export const GET = route(async (_req, user) => {
   ensureWorker();
   const db = await getDb();
+  // Your app has fetched the chat list, so the newest message in each chat counts as delivered.
+  await db.query(
+    `UPDATE group_members gm SET delivered_upto = x.top
+     FROM (SELECT group_id, max(id) AS top FROM messages WHERE group_id IN (SELECT group_id FROM group_members WHERE user_id = $1) GROUP BY group_id) x
+     WHERE gm.group_id = x.group_id AND gm.user_id = $1 AND gm.delivered_upto < x.top`,
+    [user.id]
+  );
   const groups = await db.query(
-    `SELECT g.id, g.name, g.emoji, g.invite_code,
+    `SELECT g.id, g.name, g.emoji, g.invite_code, g.is_dm, g.photo_id::int AS photo_id,
+       (SELECT row_to_json(p) FROM (SELECT u.id, u.username, u.display_name, u.color, u.public_key, ${AVATAR_COLS("u", "$1")}
+         FROM group_members o JOIN users u ON u.id = o.user_id WHERE g.is_dm AND o.group_id = g.id AND o.user_id <> $1 LIMIT 1) p) AS peer,
        (SELECT count(*) FROM group_members x WHERE x.group_id = g.id)::int AS members,
        (SELECT count(*) FROM markets m WHERE m.group_id = g.id AND m.status = 'open')::int AS open_markets,
        (SELECT row_to_json(t) FROM (SELECT x.kind, x.body, x.created_at, x.user_id, x.ciphertext, x.iv, u.display_name AS author
@@ -38,6 +48,16 @@ export const GET = route(async (_req, user) => {
     [user.id]
   );
   const [prof] = await db.query<{ done: boolean }>(`SELECT done FROM profiles WHERE user_id = $1`, [user.id]);
+  // Your profile photo key, wrapped for you, and the people you share a chat with who don't have it yet.
+  const [photo] = await db.query<{ avatar_id: number | null; avatar_key: string | null }>(`SELECT ${AVATAR_COLS("u", "$1")} FROM users u WHERE u.id = $1`, [user.id]);
+  const photoMissing = photo.avatar_key
+    ? await db.query(
+        `SELECT DISTINCT u.id, u.public_key FROM group_members mine JOIN group_members o ON o.group_id = mine.group_id JOIN users u ON u.id = o.user_id
+         WHERE mine.user_id = $1 AND u.id <> $1 AND u.deleted_at IS NULL
+           AND NOT EXISTS (SELECT 1 FROM profile_keys pk WHERE pk.owner_id = $1 AND pk.viewer_id = u.id) LIMIT 50`,
+        [user.id]
+      )
+    : [];
   return {
     user,
     netWorth: await netWorth(db, user.id),
@@ -45,6 +65,7 @@ export const GET = route(async (_req, user) => {
     nextAllowanceAt: new Date(new Date(u.last_allowance_at).getTime() + ECONOMY.allowancePeriodMs),
     groups,
     pendingKeys,
+    photo: { avatarId: photo.avatar_id, key: photo.avatar_key, missing: photoMissing },
     account: { hasRecovery: u.has_recovery, isAdmin: isAdminUsername(user.username), profilePending: !!prof && !prof.done },
     clock: { now: now(), offsetMs: clockOffset() },
     config: {

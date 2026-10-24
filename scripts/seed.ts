@@ -243,6 +243,10 @@ async function main() {
   }
 
   g.__fsScriptOffset = 0;
+  // The seeded history has been delivered and read by everyone (blue ticks), like a real chat.
+  await db.query(
+    `UPDATE group_members gm SET delivered_upto = x.m, read_upto = x.m FROM (SELECT group_id, max(id) AS m FROM messages GROUP BY group_id) x WHERE x.group_id = gm.group_id`
+  );
   // Don't hand the demo a backlog of thousands of chain transactions.
   await db.query(`UPDATE chain_ops SET status = 'skipped' WHERE status = 'pending'`);
   // One mint per wallet for today's balance instead, so the first stake has tokens to burn.

@@ -4,6 +4,7 @@ import { requireMember, route } from "@/lib/auth";
 import { body, idParam, type IdCtx } from "@/lib/http";
 import { now } from "@/lib/clock";
 import { limit } from "@/lib/ratelimit";
+import { setTyping } from "@/lib/chat";
 
 // The server only ever receives AES-GCM ciphertext for chat messages.
 export const POST = route<IdCtx>(async (req, user, ctx) => {
@@ -16,5 +17,8 @@ export const POST = route<IdCtx>(async (req, user, ctx) => {
     `INSERT INTO messages (group_id, user_id, kind, ciphertext, iv, created_at) VALUES ($1,$2,'chat',$3,$4,$5) RETURNING id::int`,
     [id, user.id, b.ciphertext, b.iv, now()]
   );
+  setTyping(id, user.id, null);
+  // Your own message is delivered to and read by you.
+  await db.query(`UPDATE group_members SET delivered_upto = GREATEST(delivered_upto, $3), read_upto = GREATEST(read_upto, $3) WHERE group_id = $1 AND user_id = $2`, [id, user.id, m.id]);
   return m;
 });

@@ -16,7 +16,8 @@ const nextConfig: NextConfig = {
         headers: [
           { key: "Referrer-Policy", value: "no-referrer" },
           { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+          // Our own pages may use the microphone (voice notes) and camera (photos); nothing embedded may.
+          { key: "Permissions-Policy", value: "camera=(self), microphone=(self), geolocation=()" },
           { key: "X-Frame-Options", value: "DENY" },
         ],
       },

@@ -1,23 +1,30 @@
 import { z } from "zod";
 import { getDb } from "@/lib/db";
-import { requireMember, route } from "@/lib/auth";
+import { HttpError, requireMember, route } from "@/lib/auth";
 import { body, idParam, type IdCtx } from "@/lib/http";
 import { price, isClosed, type MarketRow } from "@/lib/markets";
 import { now } from "@/lib/clock";
+import { AVATAR_COLS, whoIsTyping } from "@/lib/chat";
 
 // One poll endpoint for the chat screen: new messages, live prices, members and key handshakes.
 export const GET = route<IdCtx>(async (req, user, ctx) => {
   const id = await idParam(ctx);
   await requireMember(id, user.id);
   const after = Number(req.nextUrl.searchParams.get("after") ?? 0) || 0;
+  // `read`: the newest message this app has on screen with the chat in view.
+  const read = Number(req.nextUrl.searchParams.get("read") ?? 0) || 0;
   const db = await getDb();
-  const [group] = await db.query(`SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by FROM groups WHERE id = $1`, [id]);
+  const [group] = await db.query(
+    `SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by, is_dm, description_ct, description_iv, photo_id::int AS photo_id FROM groups WHERE id = $1`,
+    [id]
+  );
   const members = await db.query(
-    `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, u.subject_policy, (k.user_id IS NOT NULL) AS has_key
+    `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, u.subject_policy, (k.user_id IS NOT NULL) AS has_key,
+       ${AVATAR_COLS("u", "$2")}, gm.delivered_upto::int AS delivered_upto, gm.read_upto::int AS read_upto
      FROM group_members gm JOIN users u ON u.id = gm.user_id
      LEFT JOIN group_keys k ON k.group_id = gm.group_id AND k.user_id = u.id
      WHERE gm.group_id = $1 ORDER BY u.balance DESC`,
-    [id]
+    [id, user.id]
   );
   const [myKey] = await db.query(
     `SELECT k.wrapped_key, w.public_key AS wrapper_public_key FROM group_keys k JOIN users w ON w.id = k.wrapped_by WHERE k.group_id = $1 AND k.user_id = $2`,
@@ -37,6 +44,15 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
        ORDER BY id DESC LIMIT 200) t ORDER BY id`,
     [id, after, user.id]
   );
+  // Ticks: whatever this app just fetched is delivered; what it says is on screen is read.
+  const newest = messages.length ? (messages[messages.length - 1] as { id: number }).id : 0;
+  if (newest || read)
+    await db.query(
+      `UPDATE group_members gm SET delivered_upto = GREATEST(gm.delivered_upto, LEAST(GREATEST($3, $4), x.top)), read_upto = GREATEST(gm.read_upto, LEAST($4, x.top))
+       FROM (SELECT coalesce(max(id), 0) AS top FROM messages WHERE group_id = $1) x
+       WHERE gm.group_id = $1 AND gm.user_id = $2`,
+      [id, user.id, newest, read]
+    );
   const markets = await db.query<MarketRow>(`SELECT * FROM markets WHERE group_id = $1 ORDER BY created_at DESC`, [id]);
   return {
     group,
@@ -44,6 +60,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
     former,
     myKey: myKey ?? null,
     messages,
+    typing: whoIsTyping(id, user.id),
     markets: markets.map((m) => ({
       id: m.id,
       title: m.title,
@@ -73,13 +90,41 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
 export const PATCH = route<IdCtx>(async (req, user, ctx) => {
   const id = await idParam(ctx);
   await requireMember(id, user.id);
-  const b = await body(req, z.object({ aiContext: z.string().max(2000).optional(), aiReadsChat: z.boolean().optional() }));
+  const b = await body(
+    req,
+    z.object({
+      aiContext: z.string().max(2000).optional(),
+      aiReadsChat: z.boolean().optional(),
+      name: z.string().trim().min(1).max(40).optional(),
+      // Encrypted with the group key in the browser, like a message. null clears it.
+      description: z.object({ ciphertext: z.string().min(8).max(4000), iv: z.string().min(8).max(64) }).nullable().optional(),
+      photoId: z.number().int().nullable().optional(),
+    })
+  );
   const db = await getDb();
+  const [g] = await db.query<{ is_dm: boolean }>(`SELECT is_dm FROM groups WHERE id = $1`, [id]);
   const say = (text: string) =>
     db.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1,$2,'system',$3,$4)`, [id, user.id, text, now()]);
   if (b.aiContext !== undefined) {
     await db.query(`UPDATE groups SET ai_context = $2 WHERE id = $1`, [id, b.aiContext]);
     await say("updated the AI context (dates & deadlines)");
+  }
+  if (g.is_dm && (b.name !== undefined || b.description !== undefined || b.photoId !== undefined)) throw new HttpError(400, "A private chat shows the other person's name and photo");
+  if (b.name !== undefined) {
+    await db.query(`UPDATE groups SET name = $2 WHERE id = $1`, [id, b.name]);
+    await say(`renamed the group to “${b.name}”`);
+  }
+  if (b.description !== undefined) {
+    await db.query(`UPDATE groups SET description_ct = $2, description_iv = $3 WHERE id = $1`, [id, b.description?.ciphertext ?? null, b.description?.iv ?? null]);
+    await say(b.description ? "changed the group description" : "removed the group description");
+  }
+  if (b.photoId !== undefined) {
+    if (b.photoId !== null) {
+      const [a] = await db.query(`SELECT 1 FROM attachments WHERE id = $1 AND group_id = $2 AND kind = 'group_photo'`, [b.photoId, id]);
+      if (!a) throw new HttpError(400, "Upload the photo first");
+    }
+    await db.query(`UPDATE groups SET photo_id = $2 WHERE id = $1`, [id, b.photoId]);
+    await say(b.photoId ? "changed the group photo" : "removed the group photo");
   }
   if (b.aiReadsChat !== undefined) {
     const changed = await db.query(`UPDATE groups SET ai_reads_chat = $2 WHERE id = $1 AND ai_reads_chat <> $2 RETURNING id`, [id, b.aiReadsChat]);
