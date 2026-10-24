@@ -69,6 +69,7 @@ export const DEMO_MODE = process.env.DEMO_MODE !== "false";
 export const isAdminUsername = (username: string) =>
   (process.env.ADMIN_USERNAMES ?? "").toLowerCase().split(/[,\s]+/).filter(Boolean).includes(username.toLowerCase());
 
-// Demo: drop new sign-ups into the seeded sample chats. Off unless DEMO_AUTOJOIN=true, so a real
-// account only sees the chats it's actually in; the sample history stays in the database for the AI.
-export const DEMO_AUTOJOIN = process.env.DEMO_AUTOJOIN === "true";
+// Demo: every account gets the synthetic sample chats (three months of bets, trades and chat).
+// New sign-ups join them automatically and `npm run demo:join` adds existing accounts. Set
+// DEMO_DATA_FOR_ALL=false for real use, so an account only sees the chats it's actually in.
+export const DEMO_DATA_FOR_ALL = process.env.DEMO_DATA_FOR_ALL !== "false";

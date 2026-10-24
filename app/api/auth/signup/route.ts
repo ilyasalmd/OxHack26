@@ -12,7 +12,7 @@ import { clientIp, limit } from "@/lib/ratelimit";
 import { cleanUsername, usernameProblem } from "@/lib/accounts";
 import { startSession } from "@/lib/sessions";
 import { joinSampleGroups } from "@/lib/demo";
-import { DEMO_AUTOJOIN } from "@/lib/config";
+import { DEMO_DATA_FOR_ALL } from "@/lib/config";
 
 const COLORS = ["#00d26a", "#4f8cff", "#ff6b6b", "#ffb020", "#b26bff", "#00c2d1", "#ff7ac6", "#9be15d"];
 
@@ -59,7 +59,7 @@ export const POST = route(
       throw e;
     });
     // Demo: start in the sample chats rather than an empty app. A failure here must not fail the sign-up.
-    if (DEMO_AUTOJOIN) await joinSampleGroups(id).catch((e) => console.warn("[demo] joining sample chats failed:", (e as Error).message));
+    if (DEMO_DATA_FOR_ALL) await joinSampleGroups(id).catch((e) => console.warn("[demo] joining sample chats failed:", (e as Error).message));
     const res = NextResponse.json({ id, username });
     await startSession(req, res, id);
     return res;

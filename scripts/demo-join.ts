@@ -1,31 +1,41 @@
 /**
- * Puts every account that isn't in any sample chat into all of them (demo only).
- * New sign-ups get this automatically; this catches accounts made before that.
+ * Puts every real account into every sample chat it isn't in yet (demo only), so everyone sees
+ * the synthetic history. The sample people stay in the chats their story puts them in. New sign-ups get this automatically; this catches existing accounts.
+ * Memberships parked earlier (group_members_parked) come back first with their original keys.
  *
  *   npm run demo:join
  */
 import { getDb } from "../lib/db";
+import { DEMO_DATA_FOR_ALL } from "../lib/config";
 import { joinSampleGroups } from "../lib/demo";
+import { PEOPLE } from "./seed-content";
 
 async function main() {
+  if (!DEMO_DATA_FOR_ALL) throw new Error("DEMO_DATA_FOR_ALL is false, so accounts don't get the sample chats");
   const db = await getDb();
-  const users = await db.query<{ id: number; username: string }>(
-    `SELECT u.id, u.username FROM users u
-      WHERE u.deleted_at IS NULL
-        AND NOT EXISTS (SELECT 1 FROM group_members gm JOIN groups g ON g.id = gm.group_id
-                         WHERE gm.user_id = u.id AND g.invite_code LIKE '%-demo')
-      ORDER BY u.id`
-  ).catch(() =>
-    // Before the accounts migration there is no deleted_at column.
-    db.query<{ id: number; username: string }>(
-      `SELECT u.id, u.username FROM users u
-        WHERE NOT EXISTS (SELECT 1 FROM group_members gm JOIN groups g ON g.id = gm.group_id
-                           WHERE gm.user_id = u.id AND g.invite_code LIKE '%-demo')
-        ORDER BY u.id`
-    )
+  const [parked] = await db.query<{ t: string | null }>(`SELECT to_regclass('group_keys_parked')::text AS t`);
+  if (parked?.t) {
+    const back = await db.query(
+      `INSERT INTO group_members SELECT p.* FROM group_members_parked p JOIN users u ON u.id = p.user_id AND u.deleted_at IS NULL
+        ON CONFLICT DO NOTHING RETURNING user_id`
+    );
+    await db.query(
+      `INSERT INTO group_keys SELECT k.* FROM group_keys_parked k
+         JOIN group_members m ON m.group_id = k.group_id AND m.user_id = k.user_id
+        ON CONFLICT DO NOTHING`
+    );
+    console.log(`Put back ${back.length} parked memberships`);
+  }
+  const users = await db.query<{ id: number; username: string }>(`SELECT id, username FROM users WHERE deleted_at IS NULL AND NOT (username = ANY($1)) ORDER BY id`,
+    [PEOPLE.map((p) => p.username)]
   );
-  for (const u of users) console.log(`@${u.username}: joined ${await joinSampleGroups(u.id)} sample chats`);
-  if (!users.length) console.log("Every account is already in the sample chats.");
+  let total = 0;
+  for (const u of users) {
+    const n = await joinSampleGroups(u.id);
+    if (n) console.log(`@${u.username}: joined ${n} sample chats`);
+    total += n;
+  }
+  if (!total) console.log("Every account is already in every sample chat.");
   process.exit(0);
 }
 
