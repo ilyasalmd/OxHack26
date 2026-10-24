@@ -1,0 +1,12 @@
+export async function api<T = any>(url: string, init?: { method?: string; body?: unknown }): Promise<T> {
+  const r = await fetch(url, {
+    method: init?.method ?? (init?.body ? "POST" : "GET"),
+    headers: init?.body ? { "content-type": "application/json" } : undefined,
+    body: init?.body ? JSON.stringify(init.body) : undefined,
+    cache: "no-store",
+  });
+  const isJson = r.headers.get("content-type")?.includes("json");
+  const data = isJson ? await r.json() : await r.blob();
+  if (!r.ok) throw new Error((data as any)?.error ?? `Request failed (${r.status})`);
+  return data as T;
+}
