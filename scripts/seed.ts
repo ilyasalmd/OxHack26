@@ -154,12 +154,18 @@ async function main() {
   }
 
   // Nobody can call a market the way that pays them, so the first friend (creator first) who can, does.
+  // Only the poster may call it until a day after the deadline, so each market also gets a second
+  // try then (settleLater), for when the poster held the winning side.
   async function settle(members: string[], first: string, subject: string | null | undefined, id: number, outcome: boolean) {
     for (const who of [first, ...members.filter((m) => m !== first && m !== subject)]) {
       const ok = await resolveMarket(users[who], id, outcome, "", { waitForMemory: true }).then(() => true, () => false);
       if (ok) return;
     }
   }
+  const settleLater = (deadline: number, holder: { id: number }, members: string[], first: string, subject: string | null | undefined, outcome: boolean) =>
+    add(deadline + DAY + HOUR, async () => {
+      if (holder.id && (await getMarket(db, holder.id)).status === "open") await settle(members, first, subject, holder.id, outcome);
+    });
 
   // Recurring situations, settled before today, so the AI has a track record per person.
   const perWeek = GROUPS.flatMap((s) => s.templates.map((x) => x.perWeek)).reduce((a, b) => a + b, 0);
@@ -188,6 +194,7 @@ async function main() {
         add(close + HOUR, async () => {
           if (holder.id) await settle(c.spec.members, creator, tpl.subject, holder.id, outcome);
         });
+        settleLater(close, holder, c.spec.members, creator, tpl.subject, outcome);
         add(close + HOUR + 4 * 60e3, () => speak(c, pick(outcome ? tpl.yes : tpl.no), close + HOUR + 4 * 60e3, tpl.subject));
       }
     }
@@ -215,6 +222,7 @@ async function main() {
       if (settled) add(end, async () => {
         if (holder.id) await settle(c.spec.members, s.by, s.subject, holder.id, s.outcome!);
       });
+      if (settled) settleLater(end, holder, c.spec.members, s.by, s.subject, s.outcome!);
     }
   }
 
