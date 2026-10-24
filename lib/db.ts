@@ -20,9 +20,12 @@ async function connect(): Promise<Db> {
   const url = process.env.DATABASE_URL;
   if (url) {
     const { Pool } = await import("pg");
+    const tls = /sslmode=require|tsdb\.cloud|timescale\.com/.test(url);
     const pool = new Pool({
-      connectionString: url,
-      ssl: /sslmode=require|tsdb\.cloud|timescale\.com/.test(url) ? { rejectUnauthorized: false } : undefined,
+      // pg lets ?sslmode= in the URL override the ssl option below (and treats "require" as
+      // verify-full), so drop it and keep the TLS setting in one place.
+      connectionString: tls ? url.replace(/([?&])sslmode=[^&]*&?/, "$1").replace(/[?&]$/, "") : url,
+      ssl: tls ? { rejectUnauthorized: false } : undefined,
       max: 8,
     });
     return {
