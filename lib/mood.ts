@@ -3,6 +3,13 @@
 const POS = "great good love win won smashed nailed proud happy yes lets amazing offer passed first congrats congratulations sorted easy gym early ontime fire goat legend top improved finished date".split(" ");
 const NEG = "bad hate lost lose fail failed late sad no never stressed stress dumped single quit tired skipped missed rejected behind broke ill sick hungover cancelled worried panic".split(" ");
 
+export function lexiconScore(text: string) {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9@]+/)
+    .reduce((s, w) => s + (POS.includes(w) ? 1 : NEG.includes(w) ? -1 : 0), 0);
+}
+
 export function moodScores(messages: { text: string; authorId: number | null }[], members: { id: number; username: string; display_name: string }[]) {
   const sums: Record<number, { s: number; n: number }> = {};
   for (const m of messages) {

@@ -1,10 +1,16 @@
 import { GoogleGenAI } from "@google/genai";
 import { AI, MARKET } from "./config";
+import { guessCategory } from "./text";
+import { lexiconScore } from "./mood";
+import type { Snippet } from "./chat-context";
 
-// Privacy rule: nothing in this file ever receives chat messages. Gemini sees the
-// situation itself, resolved-history stats, the group's opt-in "AI context"
-// (term dates etc.) and, if the group enables it, an aggregate mood score that
-// members' browsers compute locally from the encrypted chat.
+export { guessCategory };
+
+// Privacy rule: Gemini sees the situation itself, resolved-history stats, the
+// group's "AI context" (term dates etc.) and an optional on-device mood score.
+// Chat text only arrives if the group has switched on "AI reads relevant chat":
+// then members' browsers send at most 20 snippets they picked as relevant, with
+// names replaced by roles and contact details removed (lib/chat-context.ts).
 
 let client: GoogleGenAI | null = null;
 function gemini() {
@@ -69,6 +75,8 @@ export type Analysis = {
   rationale: string;
   resolutionRule: string;
   source: "gemini" | "heuristic";
+  /** Snippets the AI kept as relevant, with its reason. Everything else was ignored. */
+  chatUsed: (Snippet & { why: string })[];
 };
 
 export const CATEGORIES = ["punctuality", "football", "sport", "work", "uni", "relationships", "friendship", "fitness", "social", "other"];
@@ -84,7 +92,9 @@ export async function analyzeSituation(input: {
   groupContext: string;
   mood: number | null;
   history: HistoryEvidence;
+  snippets?: Snippet[];
 }): Promise<Analysis> {
+  const snippets = input.snippets ?? [];
   const days = (input.resolvesAt.getTime() - input.now.getTime()) / 86400000;
   const prompt = `You are the pricing desk of "Friend Stocks", a play-money prediction market inside a friends' group chat.
 Friends post situations about each other. Decide how to list this one and its fair probability.
@@ -98,6 +108,8 @@ ${input.mood != null ? `Aggregate chat mood about the subject, computed on-devic
 Past resolved situations in this group that look similar (${input.history.n.toFixed(1)} effective samples, base rate ${input.history.baseRate == null ? "n/a" : (input.history.baseRate * 100).toFixed(0) + "%"}):
 ${input.history.examples.map((e) => `- "${e.title}" → ${e.outcome ? "YES" : "NO"}. ${e.summary}`).join("\n") || "- none yet"}
 ${input.history.subjectRecord ? `Subject's record: ${input.history.subjectRecord}` : ""}
+${snippets.length ? `Recent group-chat snippets the friends chose to share (names replaced: [SUBJECT] is who it's about, Friend A/B are others). Many may be noise:
+${snippets.map((s, i) => `[${i}] ${s.age}, ${s.who}: ${s.text}`).join("\n")}` : ""}
 
 Rules:
 - kind "bet" = short-term yes/no with a deadline (lateness, a match result, a night out). kind "stock" = long-term outcome that trades like a maturing bond until its date (relationships, grades, promotions, fitness goals). Anything > ${MARKET.stockThresholdDays} days away is usually a stock.
@@ -105,7 +117,8 @@ Rules:
 - probability: your honest calibrated estimate from the evidence, between ${MARKET.minProb} and ${MARKET.maxProb}. Anchor on the base rate when there are several similar past cases; move away only for clear reasons.
 - resolutionRule: one precise sentence saying exactly what counts as YES, so nobody argues later.
 - title: tidy the situation into a short market question (max 70 chars).
-- rationale: one or two friendly sentences citing the evidence used.`;
+- rationale: one or two friendly sentences citing the evidence used.
+- usefulSnippets: only the chat snippets that genuinely change the odds (plans, excuses, admissions, schedules, track record), each with a short reason. Ignore banter, jokes and anything off-topic. Empty if none.`;
 
   const out = await askJson<Omit<Analysis, "source">>(prompt, {
     type: "object",
@@ -117,30 +130,20 @@ Rules:
       probability: { type: "number" },
       rationale: { type: "string" },
       resolutionRule: { type: "string" },
+      usefulSnippets: {
+        type: "array",
+        items: { type: "object", properties: { i: { type: "integer" }, why: { type: "string" } }, required: ["i", "why"] },
+      },
     },
-    required: ["title", "kind", "decay", "category", "probability", "rationale", "resolutionRule"],
+    required: ["title", "kind", "decay", "category", "probability", "rationale", "resolutionRule", "usefulSnippets"],
   });
   if (out && Number.isFinite(out.probability)) {
-    return { ...out, probability: clampP(out.probability), source: "gemini" };
+    const { usefulSnippets, ...rest } = out as typeof out & { usefulSnippets?: { i: number; why: string }[] };
+    const chatUsed = (usefulSnippets ?? []).filter((u) => snippets[u.i]).slice(0, 8).map((u) => ({ ...snippets[u.i], why: u.why }));
+    return { ...rest, probability: clampP(out.probability), source: "gemini", chatUsed };
   }
-  return heuristicAnalysis(input.title, days, input.history);
-}
-
-const CATEGORY_WORDS: Record<string, RegExp> = {
-  punctuality: /\blate|on time|early|show up|turn up|arrive/i,
-  football: /football|goal|match|league|arsenal|chelsea|united|city|liverpool|spurs|fc\b/i,
-  sport: /tennis|f1|race|cricket|rugby|boxing|fight|game\b/i,
-  uni: /\bfirst\b|2:1|exam|grade|module|dissertation|uni|degree|coursework|lecture/i,
-  work: /intern|job|offer|promot|boss|shift|work|spring week|interview/i,
-  relationships: /girlfriend|boyfriend|date|dating|crush|single|relationship|text back/i,
-  fitness: /gym|run|marathon|weight|kg|steps|bench|lift/i,
-  social: /party|club|pres|night out|drink|holiday|trip/i,
-  friendship: /friend|fall out|argue|reply|call/i,
-};
-
-export function guessCategory(text: string) {
-  for (const [c, re] of Object.entries(CATEGORY_WORDS)) if (re.test(text)) return c;
-  return "other";
+  const h = heuristicAnalysis(input.title, days, input.history);
+  return snippets.length ? applySnippetTilt(h, snippets) : h;
 }
 
 /** No API key (or Gemini down): still produce sensible odds from history alone. */
@@ -162,6 +165,22 @@ export function heuristicAnalysis(title: string, days: number, history: HistoryE
         : `No history yet, so this opens near a neutral ${(prior * 100).toFixed(0)}% for ${category} situations.`,
     resolutionRule: `Resolves YES if "${title}" is true by ${days > 0 ? `the resolve date` : "now"}, as agreed by the group; otherwise NO.`,
     source: "heuristic",
+    chatUsed: [],
+  };
+}
+
+/** Offline fallback: nudge odds a little by the tone of snippets about the subject. */
+function applySnippetTilt(a: Analysis, snippets: Snippet[]): Analysis {
+  const scored = snippets.map((s) => ({ s, v: lexiconScore(s.text) })).filter((x) => x.v !== 0 && /\[SUBJECT\]/.test(x.s.who + x.s.text));
+  if (!scored.length) return a;
+  const tone = scored.reduce((t, x) => t + Math.sign(x.v), 0) / (scored.length + 2);
+  // For bad-news questions (late, fail, single...) negative chat means MORE likely.
+  const badNews = /late|fail|miss|skip|dump|single|lose|lost|quit/i.test(a.title) ? -1 : 1;
+  return {
+    ...a,
+    probability: clampP(a.probability + 0.06 * tone * badNews),
+    rationale: `${a.rationale} Adjusted slightly for the tone of ${scored.length} shared chat snippet(s).`,
+    chatUsed: scored.slice(0, 8).map((x) => ({ ...x.s, why: x.v > 0 ? "positive about them" : "negative about them" })),
   };
 }
 
@@ -194,6 +213,7 @@ export type RepriceInput = {
   subjectName: string | null;
   mood: number | null;
   history: string;
+  snippets?: Snippet[];
 };
 
 export async function repriceStocks(input: { today: Date; groupContext: string; stocks: RepriceInput[] }) {
@@ -206,7 +226,8 @@ For each stock, give a fair probability. Consider time left, upcoming dates from
 ${input.stocks
   .map(
     (s) =>
-      `- id ${s.id}: "${s.title}" | current ${(s.price * 100).toFixed(1)}% | ${s.daysLeft.toFixed(0)} days left | subject ${s.subjectName ?? "n/a"} | mood ${s.mood == null ? "null" : s.mood.toFixed(2)} | history: ${s.history || "none"}`
+      `- id ${s.id}: "${s.title}" | current ${(s.price * 100).toFixed(1)}% | ${s.daysLeft.toFixed(0)} days left | subject ${s.subjectName ?? "n/a"} | mood ${s.mood == null ? "null" : s.mood.toFixed(2)} | history: ${s.history || "none"}` +
+        (s.snippets?.length ? `\n  shared chat snippets ([SUBJECT] = the subject; ignore anything off-topic):\n${s.snippets.map((c) => `  · ${c.age}, ${c.who}: ${c.text}`).join("\n")}` : "")
   )
   .join("\n")}
 Give each reason in under 15 words.`,

@@ -13,6 +13,7 @@ type Detail = {
   market: {
     id: number; group_id: number; kind: "bet" | "stock"; decay: string; title: string; description: string; category: string; resolution_rule: string;
     ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string;
+    chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
     b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean;
   };
   creator: Person;
@@ -52,7 +53,8 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const show = (p: number) => (isStock ? fmt(p * 100) : pct(p));
   const resolved = m.status === "resolved";
   const book = { b: m.b, qYes: m.q_yes, qNo: m.q_no };
-  const now = Date.parse(me.clock.now);
+  // Live app clock (real time + demo offset), so a brand-new market still draws a line.
+  const now = Date.now() + me.clock.offsetMs;
   const points = d.ticks.map((t) => ({ t: Date.parse(t.ts), v: t.price }));
 
   async function doTrade(action: "buy" | "sell", s: "yes" | "no", amt: number) {
@@ -194,6 +196,20 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             <div className="rounded-2xl bg-black/40 p-2"><div className="text-xs text-mute">History</div><div className="font-semibold tabular">{m.base_rate == null ? "–" : pct(m.base_rate)}</div></div>
             <div className="rounded-2xl bg-black/40 p-2"><div className="text-xs text-mute">Opened</div><div className="font-semibold tabular">{pct(m.open_prob)}</div></div>
           </div>
+          {m.chat_context && (
+            <div className="mt-3 border-t border-line pt-3">
+              <div className="text-xs font-semibold uppercase tracking-wider text-mute">
+                💬 Chat used ({m.chat_context.used.length} of {m.chat_context.shared} shared, anonymised)
+              </div>
+              {m.chat_context.used.map((s, i) => (
+                <div key={i} className="mt-1.5 rounded-xl bg-black/40 p-2">
+                  <div className="text-xs text-mute">{s.who} · {s.age} · {s.why}</div>
+                  <div>{s.text}</div>
+                </div>
+              ))}
+              {!m.chat_context.used.length && <p className="mt-1 text-mute">None of the shared messages were relevant.</p>}
+            </div>
+          )}
           <div className="mt-3 border-t border-line pt-3">
             <div className="text-xs font-semibold uppercase tracking-wider text-mute">Resolution rule</div>
             <p className="mt-1">{m.resolution_rule}</p>

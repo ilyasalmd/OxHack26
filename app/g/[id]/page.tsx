@@ -12,6 +12,7 @@ import { NewSituation } from "@/components/new-situation";
 import { Board, Insights } from "@/components/group-stats";
 import { decryptMessage, encryptMessage } from "@/lib/e2ee";
 import { moodScores } from "@/lib/mood";
+import { selectSnippets, type Snippet } from "@/lib/chat-context";
 
 export type Member = { id: number; username: string; display_name: string; color: string; public_key: string; balance: number; has_key: boolean };
 export type MarketLite = {
@@ -31,7 +32,7 @@ export type MarketLite = {
 };
 type Msg = { id: number; user_id: number | null; kind: string; ciphertext: string | null; iv: string | null; body: string | null; market_id: number | null; created_at: string; text?: string | null };
 type Feed = {
-  group: { id: number; name: string; emoji: string; invite_code: string; ai_context: string };
+  group: { id: number; name: string; emoji: string; invite_code: string; ai_context: string; ai_reads_chat: boolean };
   members: Member[];
   myKey: { wrapped_key: string; wrapper_public_key: string } | null;
   messages: Msg[];
@@ -126,6 +127,30 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     [messages, feed]
   );
 
+  /** Relevant, redacted snippets for one situation, picked on this device. Empty unless the group opted in. */
+  const chatSnippets = useCallback(
+    (subjectId: number | null, title: string): Snippet[] =>
+      feed?.group.ai_reads_chat
+        ? selectSnippets({
+            messages: messages.filter((m) => m.kind === "chat" && m.text).map((m) => ({ text: m.text!, authorId: m.user_id, at: m.created_at })),
+            members: feed.members,
+            subjectId,
+            title,
+            now: feed.now,
+          })
+        : [],
+    [messages, feed]
+  );
+  const stockSnippets = useCallback(() => {
+    if (!feed?.group.ai_reads_chat) return null;
+    const out: Record<string, Snippet[]> = {};
+    for (const m of feed.markets.filter((x) => x.kind === "stock" && x.status === "open")) {
+      const s = chatSnippets(m.subject_id, m.title).slice(-8);
+      if (s.length) out[m.id] = s;
+    }
+    return out;
+  }, [feed, chatSnippets]);
+
   if (!me || !feed) return <main className="p-10 text-center text-mute">{err || "Loading…"}</main>;
   const c = me.config.currency;
   const live = feed.markets.filter((m) => m.status === "open").length;
@@ -139,7 +164,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             <span className="text-2xl">{feed.group.emoji}</span>
             <span>
               <div className="leading-tight">{feed.group.name}</div>
-              <div className="text-xs font-normal text-mute">{feed.members.length} members · {live} live · 🔒 E2EE</div>
+              <div className="text-xs font-normal text-mute">{feed.members.length} members · {live} live · 🔒 E2EE{feed.group.ai_reads_chat ? " · 🤖 AI reads relevant chat" : ""}</div>
             </span>
           </button>
         }
@@ -175,7 +200,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         )}
         {tab === "Markets" && <MarketList markets={feed.markets} members={members} now={feed.now} />}
         {tab === "Board" && <Board groupId={id} ticker={c.ticker} meId={me.user.id} />}
-        {tab === "Insights" && <Insights groupId={id} moods={moods} onRepriced={poll} />}
+        {tab === "Insights" && <Insights groupId={id} moods={moods} stockSnippets={stockSnippets} aiReadsChat={feed.group.ai_reads_chat} onRepriced={poll} />}
       </div>
 
       {tab === "Chat" && (
@@ -209,6 +234,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         members={feed.members}
         now={feed.now}
         aiContext={feed.group.ai_context}
+        aiReadsChat={feed.group.ai_reads_chat}
+        chatSnippets={chatSnippets}
         moods={moods}
         onCreated={(mid) => {
           setNewOpen(false);
@@ -390,9 +417,30 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
         </form>
         <div>
           <div className="mb-1 text-sm font-semibold">AI context</div>
-          <p className="mb-2 text-xs text-mute">Shared with the AI to price situations: term dates, exam weeks, fixtures, deadlines. Chat messages are never sent.</p>
+          <p className="mb-2 text-xs text-mute">Shared with the AI to price situations: term dates, exam weeks, fixtures, deadlines. Chat messages are only shared if “AI reads relevant chat” below is on.</p>
           <textarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={4} placeholder="e.g. Autumn term ends 12 Dec. Exams 5–16 Jan. Results out 1 Jul." className="w-full rounded-2xl border border-line bg-black/40 p-3 outline-none" />
           <Button variant="ghost" className="mt-2 w-full" onClick={saveCtx}>Save context</Button>
+        </div>
+        <div className="rounded-2xl border border-line p-3">
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={feed.group.ai_reads_chat}
+              onChange={async (e) => {
+                await api(`/api/groups/${groupId}`, { method: "PATCH", body: { aiReadsChat: e.target.checked } });
+                onChange();
+              }}
+            />
+            <span>
+              <span className="text-sm font-semibold">AI reads relevant chat</span>
+              <span className="mt-1 block text-xs text-mute">
+                Off by default. When on, each phone picks up to 20 messages that match a situation, swaps names for roles (subject, Friend A…), strips emails,
+                numbers and links, and sends only those to the AI. You see exactly what was sent before listing. Everything else stays end-to-end encrypted.
+                Everyone in the chat is told when this changes.
+              </span>
+            </span>
+          </label>
         </div>
         <div>
           <div className="mb-2 text-sm font-semibold">Members</div>

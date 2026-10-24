@@ -44,7 +44,7 @@ export default function Portfolio() {
           {p.netWorth.total >= first ? "▲" : "▼"} {fmt(Math.abs(p.netWorth.total - first))} all time
         </div>
         <div className="mt-4">
-          <PriceChart points={points} now={Date.parse(me.clock.now)} format={(v) => `${fmt(v)} ${c.ticker}`} onHover={setHover} />
+          <PriceChart points={points} now={Date.now() + me.clock.offsetMs} format={(v) => `${fmt(v)} ${c.ticker}`} onHover={setHover} />
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-2">

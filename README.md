@@ -7,7 +7,7 @@
 - **Invest in yourself:** you can go long on stocks about you, never short them, and you can't bet on short-term situations about yourself.
 - **Nobody gets wiped out:** a single trade is capped at 25% of your balance and you can't go below a 50-coin floor. Everyone starts with **500** and gets **+50 every week**.
 - **The group remembers:** every settled situation is summarised and stored. New questions pull up similar past outcomes (per person, per category) to set the opening odds and show friends the record.
-- **Private by design:** chats are end-to-end encrypted in the browser. The server and the AI never see message text.
+- **Private by design:** chats are end-to-end encrypted in the browser. Neither the server nor the AI sees message text unless the group switches on "AI reads relevant chat", and then only a few filtered, anonymised snippets picked on the phone.
 
 ## Run it
 
@@ -43,7 +43,15 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 - Your password never leaves the device. The browser derives two keys with PBKDF2: an auth key (sent and bcrypt-hashed on the server) and an encryption key (never sent) that locks your ECDH P-256 identity key.
 - Each group has a random AES-256-GCM key, wrapped separately for every member with ECDH + HKDF. People who join by invite link get the key from the next member whose app is open.
 - The server stores ciphertext, sender and timestamp only. Market events (listings, trades, results) are plaintext because the server has to run the market.
-- Gemini receives the situation text, settled-history stats, the group's opt-in "AI context" (term dates, fixtures) and, only if a user ticks the box, a single mood number per person computed on the device from the decrypted chat. Never message text.
+- Gemini always receives the situation text, settled-history stats and the group's "AI context" (term dates, fixtures). If a user ticks the box, it also gets one mood number per person, worked out on the device from the decrypted chat.
+- **AI reads relevant chat (opt-in per group, off by default).** Any member can switch it on or off in group settings, and the chat announces the change to everyone. While it's on, the phone of whoever lists a situation or re-marks stocks does the following with the chat it has already decrypted (`lib/chat-context.ts`):
+  1. Keeps only messages about the subject or topic (mentions, same keywords or category, weighted towards recent ones). Max 20 per situation, 8 per stock.
+  2. Replaces names with roles (`[SUBJECT]`, `Friend A`…) and removes emails, phone numbers, long numbers, links and @handles.
+  3. Sends those snippets with the request. Gemini picks the ones that actually change the odds and says why, and ignores the rest.
+  4. Shows the user every snippet that was sent and whether it was used, before they list. The market page keeps only the used snippets so everyone can see what moved the price.
+
+  The server drops any snippets it receives while the group setting is off.
+- **The tradeoff:** with the setting on, a handful of anonymised messages leave the end-to-end encryption for that request. They go to our server and to Google's Gemini API, and the used ones are stored with the market. Redaction can't catch everything: a message that describes someone without naming them still gets through, and the text of a message can identify its author. That's why it's per group, off by default, announced to everyone, and fully shown. Leave it off for chats that should stay fully private.
 - No analytics, trackers or third-party scripts; strict referrer and permissions headers.
 - **Prototype limits:** no forward secrecy or key rotation yet (Signal's Double Ratchet / Matrix's Megolm would add that), no safety-number verification, and new members can read history from before they joined. Solana wallets are custodial devnet keys encrypted with `APP_SECRET`.
 
@@ -51,7 +59,7 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 
 | Sponsor | Used for |
 | --- | --- |
-| **Google Gemini** | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past situations", stock re-marks. Set `GEMINI_API_KEY`. |
+| **Google Gemini** | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past situations", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Set `GEMINI_API_KEY`. |
 | **Solana** | In-game coin as an SPL token on devnet with mint/burn for every stake and payout, memos for market lifecycle. `npm run solana:setup` creates the mint. |
 | **Tiger Data (Timescale)** | Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
 | **ElevenLabs** | "🔊 Recap" on any market reads a trading-floor style update or the final result. Set `ELEVENLABS_API_KEY`. |

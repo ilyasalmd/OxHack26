@@ -171,3 +171,8 @@ CREATE TABLE IF NOT EXISTS chain_ops (
   created_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS chain_ops_status_idx ON chain_ops (status, id);
+
+-- Opt-in per group: members' apps may send a few filtered, redacted chat snippets to the AI.
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS ai_reads_chat boolean NOT NULL DEFAULT false;
+-- The snippets the AI judged relevant when pricing a market, kept so everyone can see what was used.
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS chat_context jsonb;

@@ -55,7 +55,7 @@ export function Board({ groupId, ticker, meId }: { groupId: number; ticker: stri
   );
 }
 
-export function Insights({ groupId, moods, onRepriced }: { groupId: number; moods: () => Record<string, number>; onRepriced: () => void }) {
+export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onRepriced }: { groupId: number; moods: () => Record<string, number>; stockSnippets: () => Record<string, { who: string; text: string; age: string }[]> | null; aiReadsChat: boolean; onRepriced: () => void }) {
   const { d, load } = useInsights(groupId);
   const [shareMood, setShareMood] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -66,7 +66,7 @@ export function Insights({ groupId, moods, onRepriced }: { groupId: number; mood
   async function reprice() {
     setBusy(true);
     try {
-      const r = await api<{ applied: { title: string; from: number; to: number; reason: string }[]; source: string }>(`/api/groups/${groupId}/reprice`, { body: { moods: shareMood ? moods() : null } });
+      const r = await api<{ applied: { title: string; from: number; to: number; reason: string }[]; source: string }>(`/api/groups/${groupId}/reprice`, { body: { moods: shareMood ? moods() : null, chat: stockSnippets() } });
       setNote(r.applied.length ? `Re-marked ${r.applied.length} stock(s) (${r.source}).` : "No stock needed re-marking.");
       onRepriced();
       load();
@@ -129,7 +129,10 @@ export function Insights({ groupId, moods, onRepriced }: { groupId: number; mood
 
       <section className="rounded-3xl bg-panel p-4">
         <h3 className="font-semibold">AI re-mark long-term stocks</h3>
-        <p className="mb-3 text-xs text-mute">Gemini re-prices open stocks from time left, your group&apos;s AI context (term dates, fixtures) and, if you allow it, mood scores computed on this phone.</p>
+        <p className="mb-3 text-xs text-mute">
+          Gemini re-prices open stocks from time left, your group&apos;s AI context (term dates, fixtures) and, if you allow it, mood scores computed on this phone.
+          {aiReadsChat && " This group also lets it see up to 8 relevant, anonymised messages per stock."}
+        </p>
         <label className="mb-3 flex items-center gap-2 text-sm">
           <input type="checkbox" checked={shareMood} onChange={(e) => setShareMood(e.target.checked)} />
           Share on-device mood scores (numbers only)

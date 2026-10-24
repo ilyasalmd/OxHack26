@@ -11,7 +11,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
   await requireMember(id, user.id);
   const after = Number(req.nextUrl.searchParams.get("after") ?? 0);
   const db = await getDb();
-  const [group] = await db.query(`SELECT id, name, emoji, invite_code, ai_context, created_by FROM groups WHERE id = $1`, [id]);
+  const [group] = await db.query(`SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by FROM groups WHERE id = $1`, [id]);
   const members = await db.query(
     `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, (k.user_id IS NOT NULL) AS has_key
      FROM group_members gm JOIN users u ON u.id = gm.user_id
@@ -56,9 +56,23 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
 export const PATCH = route<IdCtx>(async (req, user, ctx) => {
   const id = await idParam(ctx);
   await requireMember(id, user.id);
-  const b = await body(req, z.object({ aiContext: z.string().max(2000) }));
+  const b = await body(req, z.object({ aiContext: z.string().max(2000).optional(), aiReadsChat: z.boolean().optional() }));
   const db = await getDb();
-  await db.query(`UPDATE groups SET ai_context = $2 WHERE id = $1`, [id, b.aiContext]);
-  await db.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1,$2,'system','updated the AI context (dates & deadlines)',$3)`, [id, user.id, now()]);
+  const say = (text: string) =>
+    db.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1,$2,'system',$3,$4)`, [id, user.id, text, now()]);
+  if (b.aiContext !== undefined) {
+    await db.query(`UPDATE groups SET ai_context = $2 WHERE id = $1`, [id, b.aiContext]);
+    await say("updated the AI context (dates & deadlines)");
+  }
+  if (b.aiReadsChat !== undefined) {
+    const changed = await db.query(`UPDATE groups SET ai_reads_chat = $2 WHERE id = $1 AND ai_reads_chat <> $2 RETURNING id`, [id, b.aiReadsChat]);
+    // Announced to everyone, because it changes what leaves their phones.
+    if (changed.length)
+      await say(
+        b.aiReadsChat
+          ? "🤖 turned ON “AI reads relevant chat”: when pricing, apps may share up to 20 matching messages with the AI, names and contact details removed"
+          : "🔒 turned OFF “AI reads relevant chat”: no chat text is shared with the AI"
+      );
+  }
   return { ok: true };
 });

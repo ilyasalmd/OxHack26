@@ -1,5 +1,6 @@
 import type { Q } from "./db";
-import { embed, guessCategory, type HistoryEvidence } from "./ai";
+import { embed, type HistoryEvidence } from "./ai";
+import { guessCategory } from "./text";
 
 export type Memory = {
   id: number;

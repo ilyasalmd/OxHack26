@@ -3,9 +3,11 @@ import { useState } from "react";
 import { api } from "./api";
 import { Badge, Button, Input, Sheet, pct } from "./ui";
 import type { Member } from "@/app/g/[id]/page";
+import type { Snippet } from "@/lib/chat-context";
 
 type Preview = {
-  analysis: { title: string; kind: "bet" | "stock"; decay: string; category: string; probability: number; rationale: string; resolutionRule: string; source: string };
+  analysis: { title: string; kind: "bet" | "stock"; decay: string; category: string; probability: number; rationale: string; resolutionRule: string; source: string; chatUsed: (Snippet & { why: string })[] };
+  chatShared: Snippet[];
   openProb: number;
   baseRate: number | null;
   baseRateN: number;
@@ -17,7 +19,7 @@ function localInput(d: Date) {
   return z.toISOString().slice(0, 16);
 }
 
-export function NewSituation({ open, onClose, groupId, members, now, aiContext, moods, onCreated }: { open: boolean; onClose: () => void; groupId: number; members: Member[]; now: string; aiContext: string; moods: () => Record<string, number>; onCreated: (id: number) => void }) {
+export function NewSituation({ open, onClose, groupId, members, now, aiContext, aiReadsChat, chatSnippets, moods, onCreated }: { open: boolean; onClose: () => void; groupId: number; members: Member[]; now: string; aiContext: string; aiReadsChat: boolean; chatSnippets: (subjectId: number | null, title: string) => Snippet[]; moods: () => Record<string, number>; onCreated: (id: number) => void }) {
   const base = new Date(now);
   const presets: [string, Date][] = [
     ["Tonight", new Date(new Date(base).setHours(23, 0, 0, 0) <= base.getTime() ? base.getTime() + 3 * 3600e3 : new Date(base).setHours(23, 0, 0, 0))],
@@ -38,7 +40,8 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
   const payload = () => {
     const s = members.find((m) => m.username === subject);
     const mood = useMood && s ? (moods()[s.id] ?? 0) : null;
-    return { title, description: details, resolvesAt: new Date(when).toISOString(), subjectUsername: subject || null, mood };
+    const snippets = aiReadsChat ? chatSnippets(s?.id ?? null, `${title} ${details}`) : [];
+    return { title, description: details, resolvesAt: new Date(when).toISOString(), subjectUsername: subject || null, mood, chatSnippets: snippets.length ? snippets : undefined };
   };
 
   async function getOdds(e: React.FormEvent) {
@@ -97,6 +100,7 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
             </label>
           )}
           {!aiContext && <p className="text-xs text-mute">Tip: add term dates or fixtures in group settings so the AI can use them.</p>}
+          {aiReadsChat && <p className="text-xs text-mute">🤖 This group lets the AI read relevant chat. You&apos;ll see exactly which messages were shared on the next screen.</p>}
           {err && <p className="text-sm text-down">{err}</p>}
           <Button className="w-full" disabled={busy}>{busy ? "Pricing…" : "Get AI odds"}</Button>
         </form>
@@ -127,6 +131,23 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
             <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-mute">Resolution rule</div>
             {preview.analysis.resolutionRule}
           </div>
+          {preview.chatShared.length > 0 && (
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-mute">💬 What the AI saw from the chat ({preview.chatShared.length})</div>
+              <div className="space-y-1.5">
+                {preview.chatShared.map((s, i) => {
+                  const used = preview.analysis.chatUsed.find((u) => u.text === s.text && u.who === s.who);
+                  return (
+                    <div key={i} className={`rounded-2xl p-2.5 text-sm ${used ? "bg-brand/10" : "bg-black/40 opacity-60"}`}>
+                      <div className="text-xs text-mute">{s.who} · {s.age} · {used ? <span className="text-brand">used: {used.why}</span> : "ignored as not relevant"}</div>
+                      <div>{s.text}</div>
+                    </div>
+                  );
+                })}
+              </div>
+              <p className="mt-1 text-xs text-mute">Names, emails, phone numbers and links were removed on your phone before sending.</p>
+            </div>
+          )}
           {preview.similar.length > 0 && (
             <div>
               <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-mute">📚 Past data from this group</div>
