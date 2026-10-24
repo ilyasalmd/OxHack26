@@ -162,7 +162,7 @@ Friends post situations about each other. Decide how to list this one and its fa
 Situation: "${input.title}"
 Details: ${input.description || "(none)"}
 About: ${input.subjectName ?? "nobody specific"}
-Today: ${input.now.toISOString().slice(0, 10)}; resolves on ${input.resolvesAt.toISOString().slice(0, 10)} (${days.toFixed(1)} days away).
+Today: ${day(input.now)}; resolves on ${day(input.resolvesAt)} (${days.toFixed(1)} days away).
 Group context the friends chose to share (term dates, fixtures, deadlines): ${input.groupContext || "(none)"}
 ${input.mood != null ? `Aggregate chat mood about the subject, computed on-device (-1 negative .. +1 positive): ${input.mood.toFixed(2)}` : ""}
 Past resolved situations in this group that look similar (${input.history.n.toFixed(1)} effective samples, base rate ${input.history.baseRate == null ? "n/a" : (input.history.baseRate * 100).toFixed(0) + "%"}):
@@ -276,11 +276,14 @@ export type RepriceInput = {
   snippets?: Snippet[];
 };
 
+/** "Saturday 2026-10-24": small models get weekdays wrong when left to work them out. */
+const day = (d: Date) => `${d.toLocaleDateString("en-GB", { weekday: "long", timeZone: "UTC" })} ${d.toISOString().slice(0, 10)}`;
+
 export async function repriceStocks(input: { today: Date; groupContext: string; stocks: RepriceInput[] }) {
   if (!input.stocks.length) return [];
   const out = await askJson<{ updates: { id: number; probability: number; reason: string }[] }>(
     `You re-mark long-term "stocks" in a friends' play-money prediction market. Each pays out if the outcome happens by maturity.
-Today: ${input.today.toISOString().slice(0, 10)}
+Today: ${day(input.today)}
 Group context (term dates, fixtures, deadlines): ${input.groupContext || "(none)"}
 For each stock, give a fair probability. Consider time left, upcoming dates from the context, the on-device chat mood about the subject (-1..+1, null = not shared) and history. Only move a price for a concrete reason; otherwise keep it close to the current price.
 ${input.stocks

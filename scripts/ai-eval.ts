@@ -96,7 +96,7 @@ function report() {
   const base: Result[] = runs[0].results;
   const line = (name: string, rs: { p: number; y: boolean }[], extra = "") =>
     `| ${name} | ${brier(rs).toFixed(3)} | ${logLoss(rs).toFixed(3)} | ${(acc(rs) * 100).toFixed(0)}% | ${extra}`;
-  const out = ["| Model | Brier (lower is better) | Log loss | Called right | Answered / kind matches / median time |", "|---|---|---|---|---|"];
+  const out = ["| Model | Brier (lower is better) | Log loss | Called right | Answered | Bet or stock right | Median time |", "|---|---|---|---|---|---|---|"];
   out.push(line("Coin flip (50%)", base.map((r) => ({ p: 0.5, y: r.outcome })), `${base.length} situations | | |`));
   out.push(line("Stats model (no AI)", base.map((r) => ({ p: r.stats, y: r.outcome })), "every one | n/a | instant |"));
   for (const run of runs) {
