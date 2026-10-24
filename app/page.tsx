@@ -12,7 +12,6 @@ export default function Landing() {
   const [username, setUsername] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
-  const [adult, setAdult] = useState(false);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   // Shown once right after sign-up. The session arrives meanwhile, so hold the redirect until it's saved.
@@ -29,9 +28,8 @@ export default function Landing() {
     try {
       const uname = username.trim().toLowerCase().replace(/^@/, "");
       if (mode === "signup") {
-        if (!adult) throw new Error("Please confirm you're 18 or over.");
         const s = await prepareSignup({ username: uname, displayName, password });
-        const r = await api<{ id: number }>("/api/auth/signup", { body: { ...s.body, ageConfirmed: true } });
+        const r = await api<{ id: number }>("/api/auth/signup", { body: s.body });
         await saveIdentity(r.id, s.privateKey);
         setRecovery(s.recoveryCode);
         setIdentity(s.privateKey);
@@ -52,7 +50,7 @@ export default function Landing() {
   }
 
   const p: AuthProps = {
-    username, setUsername, displayName, setDisplayName, password, setPassword, adult, setAdult, busy, err, setErr, submit,
+    username, setUsername, displayName, setDisplayName, password, setPassword, busy, err, setErr, submit,
     recovery, finish: async () => { await refresh(); setRecovery(null); },
   };
   return (

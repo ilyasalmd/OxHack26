@@ -26,8 +26,6 @@ const Schema = z.object({
   recoveryAuthKey: z.string().length(64).optional(),
   recoverySalt: z.string().min(8).optional(),
   encPrivateKeyRecovery: z.string().min(20).optional(),
-  // The sign-up form's "I'm 18 or over and understand this is play money" box.
-  ageConfirmed: z.literal(true, { message: "Please confirm you're 18 or over" }),
 });
 
 export const POST = route(

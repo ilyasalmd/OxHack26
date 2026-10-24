@@ -154,16 +154,16 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
           const active = path === `/g/${g.id}` || path.startsWith(`/g/${g.id}/`);
           return (
             <li key={g.id}>
-              <Link href={`/g/${g.id}`} className={`flex items-center gap-3 rounded-xl px-3 py-2.5 ${active ? "bg-white/[.07]" : "hover:bg-white/[.04]"}`}>
-                <GroupMark name={g.name} size={44} />
+              <Link href={`/g/${g.id}`} className={`flex min-h-[64px] items-center gap-3 rounded-xl px-3 py-2 ${active ? "bg-white/[.08]" : "hover:bg-white/[.04]"}`}>
+                <GroupMark name={g.name} size={48} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-[15px] font-medium">{g.name}</span>
+                    <span className={`truncate text-[15px] ${g.open_markets > 0 ? "font-semibold text-white" : "font-medium text-white/85"}`}>{g.name}</span>
                     {g.last && <span className="ml-auto text-[11px] text-mute">{ago(g.last.created_at, me.clock.now)}</span>}
                   </div>
                   <div className="flex items-center gap-2">
                     <div className="min-w-0 flex-1 truncate text-[13px] text-mute"><LastLine g={g} /></div>
-                    {g.open_markets > 0 && <span className="shrink-0 rounded-full bg-brand px-1.5 text-[10px] font-semibold text-black tabular">{g.open_markets}</span>}
+                    {g.open_markets > 0 && <span className="flex h-5 min-w-[20px] shrink-0 items-center justify-center rounded-full bg-brand px-1.5 text-[11px] font-semibold text-black tabular">{g.open_markets > 99 ? "99+" : g.open_markets}</span>}
                   </div>
                 </div>
               </Link>

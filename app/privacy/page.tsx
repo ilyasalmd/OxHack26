@@ -45,7 +45,7 @@ export default function Privacy() {
       <p>Go to Settings and choose Delete account. That signs you out everywhere, removes you from your groups and scrubs your name, username, password hash, keys and wallet secret. Your past trades, positions and messages stay in your groups under &ldquo;Deleted user&rdquo; because the markets have to keep adding up, and messages stay unreadable to us. Anything already written to the blockchain stays there. Open situations about you are not kept going after you leave.</p>
 
       <H>Your rights</H>
-      <p>You can ask to see, correct or delete what we hold about you, or object to how we use it, by writing to <span className="text-white">[contact email to be added]</span>. If you&apos;re in the UK or EU you can also complain to your data protection authority. You must be 18 or over to use FriendStakes, so we don&apos;t knowingly hold data about children.</p>
+      <p>You can ask to see, correct or delete what we hold about you, or object to how we use it, by writing to <span className="text-white">[contact email to be added]</span>. If you&apos;re in the UK or EU you can also complain to your data protection authority. FriendStakes is for people aged 16 and over, and we don&apos;t knowingly hold data about anyone younger.</p>
     </LegalPage>
   );
 }

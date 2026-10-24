@@ -29,8 +29,6 @@ export type AuthProps = {
   setDisplayName: (v: string) => void;
   password: string;
   setPassword: (v: string) => void;
-  adult: boolean;
-  setAdult: (v: boolean) => void;
   busy: boolean;
   err: string;
   setErr: (v: string) => void;
@@ -99,7 +97,7 @@ export function PhoneAuth(p: AuthProps) {
           <button type="button" onClick={() => go("login")} className="flex h-14 w-full items-center justify-center rounded-full bg-white text-[17px] font-semibold text-black transition active:scale-[.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">
             Log in
           </button>
-          <p className="pt-2 text-center text-[13px] text-black/55">Play money only. 18+.</p>
+          <p className="pt-2 text-center text-[13px] text-black/55">Play money only.</p>
         </div>
       </div>
     );
@@ -160,7 +158,7 @@ export function DeskAuth(p: AuthProps) {
             )}
           </div>
         </div>
-        <p className="mt-6 text-xs text-black/50 [@media(max-height:820px)]:hidden">Play money only. 18+.</p>
+        <p className="mt-6 text-xs text-black/50 [@media(max-height:820px)]:hidden">Play money only.</p>
       </div>
     </div>
   );
@@ -302,7 +300,7 @@ function UsernameStep({ username, setUsername, displayName, err, setErr, next }:
   );
 }
 
-function PasswordStep({ username, password, setPassword, adult, setAdult, busy, err, submit }: AuthProps) {
+function PasswordStep({ username, password, setPassword, busy, err, submit }: AuthProps) {
   const id = useId();
   const hintId = useId();
   const [show, setShow] = useState(false);
@@ -345,16 +343,8 @@ function PasswordStep({ username, password, setPassword, adult, setAdult, busy, 
       </div>
       <Hint tone={tone} id={hintId}>{hint}</Hint>
 
-      <label className="mt-4 flex cursor-pointer items-start gap-3 text-[15px] leading-snug text-black/70">
-        <input type="checkbox" className="peer sr-only" checked={adult} onChange={(e) => setAdult(e.target.checked)} />
-        <span className="mt-px flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-[7px] border-2 border-black/25 text-white transition peer-checked:border-black peer-checked:bg-black peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-black">
-          {adult && <Check size={14} />}
-        </span>
-        <span>I&apos;m 18 or over and understand coins are play money with no cash value.</span>
-      </label>
-
       <ErrorLine err={/username/i.test(err) ? "" : err} />
-      <button className={`${primary} mt-6`} disabled={busy || pw.length < 4 || !adult}>{busy ? "Setting up your keys…" : "Create account"}</button>
+      <button className={`${primary} mt-6`} disabled={busy || pw.length < 4}>{busy ? "Setting up your keys…" : "Create account"}</button>
       <p className="mt-4 text-center text-xs leading-relaxed text-black/45">
         By creating an account you agree to our{" "}
         <Link href="/terms" target="_blank" className="font-semibold text-black/70 underline-offset-2 hover:underline">Terms</Link> and{" "}

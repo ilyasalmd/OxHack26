@@ -16,8 +16,8 @@ export default function Terms() {
         <li>Every coin movement is also mirrored as a token on a Solana test network (devnet). Those tokens are part of the game, not an investment, and are worth nothing.</li>
       </UL>
 
-      <H>2. You must be 18 or over</H>
-      <p>You confirm you&apos;re 18 or over when you create an account. If we believe someone is younger, we can close their account.</p>
+      <H>2. You must be 16 or over</H>
+      <p>FriendStakes is for people aged 16 and over. Coins are play money with no cash value, so this isn&apos;t gambling, but if we believe someone is younger than 16 we can close their account.</p>
 
       <H>3. Keep it to things people choose to do</H>
       <p>Situations should be about choices and plans: turning up on time, finishing a run, getting the flat sorted. They must not be about anyone&apos;s health, pregnancy, death or self-harm, sexuality, weight or body, religion or ethnicity, and must not harass, humiliate, expose private information about, or put anyone at risk. The app blocks the obvious cases, but the rule is yours to follow too, including in chat.</p>

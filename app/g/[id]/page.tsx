@@ -283,7 +283,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder={keyRef.current ? "Message" : "Unlock to chat"}
                 disabled={!keyRef.current}
-                className="h-10 flex-1 rounded-full border border-line bg-panel px-4 outline-none transition placeholder:text-mute focus:border-white/25"
+                className="h-[42px] flex-1 rounded-full bg-white/[.07] px-4 outline-none transition placeholder:text-mute focus:bg-white/[.1]"
               />
               <button className={`flex h-10 w-10 items-center justify-center rounded-full transition ${draft.trim() ? "scale-100 bg-[#2b6cff] text-white" : "scale-90 bg-white/10 text-mute"}`} disabled={!draft.trim()} aria-label="Send">
                 <Send size={17} />
@@ -411,7 +411,7 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onRepo
           onTouchEnd={stopPress}
           onTouchMove={stopPress}
           onTouchCancel={stopPress}
-          className={`max-w-[78%] rounded-2xl px-3.5 py-1.5 [-webkit-touch-callout:none] lg:max-w-[540px] ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-[#2b6cff] text-white" : "border border-white/[.06] bg-raised"}`}>
+          className={`max-w-[78%] rounded-2xl px-3.5 py-1.5 [-webkit-touch-callout:none] lg:max-w-[430px] ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-[#2b6cff] text-white" : "bg-raised"}`}>
           {first && !mine && who && <div className="text-[13px] font-semibold" style={{ color: who.color }}>{who.display_name}</div>}
           <span className="whitespace-pre-wrap break-words">{m.text ?? <span className="inline-flex items-center gap-1 italic text-mute"><Lock size={12} /> can&apos;t decrypt yet</span>}</span>
           <span className={`float-right ml-3 mt-1.5 text-[10px] tabular ${mine ? "text-white/60" : "text-mute"}`}>{clock(m.created_at)}</span>
@@ -459,9 +459,20 @@ function MarketCard({ m, mk, who, now, meId, members, onReview }: { m: Msg; mk: 
   const lbl = sides(mk);
   const type = typeLabel(mk);
   const when = voided ? "called off" : resolved ? "settled" : pending ? "result proposed" : stock ? `matures ${new Date(mk.resolves_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : timeLeft(mk.resolves_at, now);
+  if ((resolved || voided) && !settledNow) {
+    // Old news: one line, so the chat isn't a wall of finished cards.
+    return (
+      <div className="msg-in my-2 flex justify-center">
+        <Link href={`/m/${mk.id}`} className="flex w-full max-w-[92%] items-center gap-2 rounded-full bg-white/[.04] px-4 py-2 text-[13px] text-mute hover:bg-white/[.07] lg:max-w-md">
+          <span className="truncate">{mk.title}</span>
+          <span className={`ml-auto shrink-0 font-semibold ${voided ? "text-mute" : mk.outcome ? "text-up" : "text-down"}`}>{voided ? "Called off" : mk.outcome ? lbl.yes : lbl.no}</span>
+        </Link>
+      </div>
+    );
+  }
   return (
     <div className="msg-in my-4 flex justify-center">
-      <div className={`w-full max-w-[92%] overflow-hidden rounded-2xl bg-panel lg:max-w-md ${settledNow ? (mk.outcome ? "ring-1 ring-up/40" : "ring-1 ring-down/40") : ""}`}>
+      <div className="w-full max-w-[92%] overflow-hidden rounded-2xl bg-panel lg:max-w-md">
         <Link href={`/m/${mk.id}`} className="block px-4 pt-3.5 hover:bg-white/[.02]">
           <div className="flex items-center gap-2 text-xs text-mute">
             {who ? <Avatar name={who.display_name} color={who.color} size={16} /> : <Sparkle size={13} />}
