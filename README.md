@@ -17,11 +17,11 @@ npm run seed      # demo data: 15 people, 6 group chats, 3 months of history
 npm run dev       # http://localhost:3000
 ```
 
-Log in as `ilyas`, `jake`, `priya`, `sam`, `maya`, `omar`, `chloe`, `aisha`, `leo`, `dan`, `tom`, `zara`, `mum`, `dad` or `yasmin` with password `demo1234`. Use two browsers to chat between friends. The **+1h / +1d / +1w** buttons (bottom of the sidebar on a laptop, bottom of the screen on a phone) move the app clock so you can show allowances, deadlines and stock decay live.
+Log in as `ilyas`, `jake`, `priya`, `sam`, `maya`, `omar`, `chloe`, `aisha`, `leo`, `dan`, `tom`, `zara`, `mum`, `dad` or `yasmin` with password `demo1234`. Use two browsers to chat between friends. Put your admin account's username in `ADMIN_USERNAMES`: that account alone sees the **Chain** page, the pricing records and the **+1h / +1d / +1w** buttons (bottom of the sidebar on a laptop, bottom of the screen on a phone). The buttons move only the admin's own clock, and its own groups, so you can show allowances, deadlines and stock decay live while everyone else stays on the real date.
 
 On a laptop (1024px and wider) the app is a workspace: chats and your balance in a sidebar, the chat in the middle, and markets, leaderboard and insights beside it. On a phone it's one screen at a time.
 
-No keys are needed to run it: without `DATABASE_URL` it uses embedded Postgres (PGlite in `.data/`), and without `GEMINI_API_KEY` it prices from history with a statistical model. Copy `.env.example` to `.env.local` to switch things on. Stop `npm run dev` before re-seeding when using PGlite. After a re-seed the demo users get fresh encryption keys, so each browser asks for the password once to unlock the chats again.
+No keys are needed to run it: without `DATABASE_URL` it uses embedded Postgres (PGlite in `.data/`), and without `OLLAMA_MODEL` it prices from history with a statistical model. Copy `.env.example` to `.env.local` to switch things on. Stop `npm run dev` before re-seeding when using PGlite. After a re-seed the demo users get fresh encryption keys, so each browser asks for the password once to unlock the chats again.
 
 ### Turning on the free services
 
@@ -32,8 +32,8 @@ Everything here is free; none of it needs a card.
   - **Local validator (no faucet, no limits):** `brew install solana`, then `solana-test-validator --ledger .data/solana-ledger --quiet` in its own terminal, `solana -u localhost airdrop 50 <payer address>`, and add `SOLANA_RPC_URL=http://127.0.0.1:8899` and `SOLANA_CLUSTER=localnet` to `.env.local` before `npm run solana:setup`.
   - **Devnet:** request devnet SOL for the payer address at faucet.solana.com (the RPC airdrop is often rate limited), then rerun `npm run solana:setup`.
 
-  Restart the app, and every stake (burn), payout or allowance (mint) shows up in each person's wallet on the Portfolio page, and on the **Chain** page, which reads the transactions straight from the Solana RPC.
-- **Gemini:** make a key in Google AI Studio under a project with **no billing attached** (the free tier covers the Flash models) and set `GEMINI_API_KEY`. A key from a project with prepaid billing and no credit fails with HTTP 402, and the app falls back to the statistical model.
+  Restart the app, and every stake (burn), payout or allowance (mint) shows up in each person's wallet on the Portfolio page, and on the admin's **Chain** page, which reads the transactions straight from the Solana RPC.
+- **Gemma (the AI):** runs on your own machine through Ollama, so there is no API key and nothing leaves the machine. `brew install ollama`, then `ollama pull gemma4:12b` and `ollama pull embeddinggemma-2:270m`, and set `AI_PROVIDER=ollama` and `OLLAMA_MODEL=gemma4:12b` (or `gemma4:26b` on a bigger Mac). If Ollama isn't running, the app falls back to the statistical model.
 
 `npm test` runs the market-maths tests. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
 
@@ -48,10 +48,10 @@ Everything here is free; none of it needs a card.
    bash deploy/setup.sh
    ```
    It installs Docker, adds swap, opens ports 80/443, writes `deploy/.env` with random secrets and starts everything. With no domain the site lives at `https://<server-ip>.sslip.io`. For your own domain, point an A record at the server and run `DOMAIN=stocks.example.com bash deploy/setup.sh` instead (or edit `DOMAIN` in `deploy/.env`).
-3. Optional: paste `GEMINI_API_KEY`, the `SOLANA_*` values and `ELEVENLABS_API_KEY` from your `.env.local` into `deploy/.env`, then run `docker compose up -d` from `deploy/`.
+3. Optional: paste the `SOLANA_*` values and `ELEVENLABS_API_KEY` from your `.env.local` into `deploy/.env`, and point `OLLAMA_URL` and `OLLAMA_MODEL` at an Ollama server running Gemma, then run `docker compose up -d` from `deploy/`.
 4. Optional demo data (wipes the database): `docker compose exec app npm run seed && docker compose restart app` from `deploy/`.
 
-To update: `git pull && docker compose up -d --build` from `deploy/`. Logs: `docker compose logs -f app`. Keep `APP_SECRET` unchanged once people have signed up. `DEMO_MODE=true` lets anyone move the shared clock, so set it to `false` for real use.
+To update: `git pull && docker compose up -d --build` from `deploy/`. Logs: `docker compose logs -f app`. Keep `APP_SECRET` unchanged once people have signed up. `DEMO_MODE=true` lets the admin move their own demo clock; set it to `false` for real use.
 
 ## How it works
 
@@ -59,8 +59,9 @@ To update: `git pull && docker compose up -d --build` from `deploy/`. Logs: `doc
 | --- | --- |
 | `lib/lmsr.ts` | Hanson's LMSR market maker. Long = buy YES shares, short = buy NO shares, each pays 1 coin. Max house loss per market is `b·ln 2`. Also the hazard-decay formula `P(by T) = 1 − (1 − p)^((T − t₂)/(T − t₁))`. |
 | `lib/markets.ts` | Preview → list → trade → resolve, AI re-marks, time decay. Trades run in a DB transaction with row locks. |
-| `lib/ai.ts` | Gemini with JSON-schema output: routes a situation to bet or stock, decides decay, writes the resolution rule, estimates the probability from the group's evidence, summarises outcomes, re-marks stocks. Falls back to a heuristic model. |
-| `lib/memory.ts` | Similar-situation search (Gemini embeddings + keyword overlap, boosted for the same person and category) and a similarity-weighted Beta(1,1) base rate. |
+| `lib/ai.ts` | Gemma through Ollama with JSON-schema output: routes a situation to bet or stock, decides decay, writes the resolution rule, estimates the probability from the group's evidence, summarises outcomes, re-marks stocks. Falls back to a heuristic model. |
+| `lib/pricing-record.ts` | Saves every AI pricing decision (inputs, prompt, raw reply, maths) as the exact JSON text that is hashed with SHA-256. The opening hash also goes in the market's Solana memo, and the admin can recheck it in the browser. |
+| `lib/memory.ts` | Similar-situation search (EmbeddingGemma vectors + keyword overlap, boosted for the same person and category) and a similarity-weighted Beta(1,1) base rate. |
 | `lib/stats.ts` | Leaderboard (net worth, P&L in this group, Brier skill score) and AI vs crowd vs coin-flip calibration. |
 | `lib/solana.ts` | Outbox worker mirroring every balance change to an SPL token on devnet: stakes **burn**, payouts and allowances **mint**, market opens/resolutions are **memos**. |
 | `lib/e2ee.ts` | WebCrypto E2EE (below). |
@@ -73,25 +74,25 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 - Your password never leaves the device. The browser derives two keys with PBKDF2: an auth key (sent and bcrypt-hashed on the server) and an encryption key (never sent) that locks your ECDH P-256 identity key.
 - Each group has a random AES-256-GCM key, wrapped separately for every member with ECDH + HKDF. People who join by invite link get the key from the next member whose app is open.
 - The server stores ciphertext, sender and timestamp only. Market events (listings, trades, results) are plaintext because the server has to run the market.
-- Gemini always receives the situation text, settled-history stats and the group's "AI context" (term dates, fixtures). If a user ticks the box, it also gets one mood number per person, worked out on the device from the decrypted chat.
+- Gemma runs on the app's own machine, so nothing goes to an outside AI company. It always receives the situation text, settled-history stats and the group's "AI context" (term dates, fixtures), plus the subject's answers to the optional sign-up questions if they gave any. Those answers are never shown to other members, and the stored pricing records blank them out. If a user ticks the box, it also gets one mood number per person, worked out on the device from the decrypted chat.
 - **AI reads relevant chat (opt-in per group, off by default).** Any member can switch it on or off in group settings, and the chat announces the change to everyone. While it's on, the phone of whoever lists a situation or re-marks stocks does the following with the chat it has already decrypted (`lib/chat-context.ts`):
   1. Keeps only messages about the subject or topic (mentions, same keywords or category, weighted towards recent ones). Max 20 per situation, 8 per stock.
   2. Replaces names with roles (`[SUBJECT]`, `Friend A`…) and removes emails, phone numbers, long numbers, links and @handles.
-  3. Sends those snippets with the request. Gemini picks the ones that actually change the odds and says why, and ignores the rest.
+  3. Sends those snippets with the request. Gemma picks the ones that actually change the odds and says why, and ignores the rest.
   4. Shows the user every snippet that was sent and whether it was used, before they list. The market page keeps only the used snippets so everyone can see what moved the price.
 
   The server drops any snippets it receives while the group setting is off.
-- **The tradeoff:** with the setting on, a handful of anonymised messages leave the end-to-end encryption for that request. They go to our server and to Google's Gemini API, and the used ones are stored with the market. Redaction can't catch everything: a message that describes someone without naming them still gets through, and the text of a message can identify its author. That's why it's per group, off by default, announced to everyone, and fully shown. Leave it off for chats that should stay fully private.
+- **The tradeoff:** with the setting on, a handful of anonymised messages leave the end-to-end encryption for that request. They go to our server, where Gemma reads them locally, and the used ones are stored with the market. Redaction can't catch everything: a message that describes someone without naming them still gets through, and the text of a message can identify its author. That's why it's per group, off by default, announced to everyone, and fully shown. Leave it off for chats that should stay fully private.
 - No analytics, trackers or third-party scripts; strict referrer and permissions headers.
 - **Prototype limits:** no forward secrecy or key rotation yet (Signal's Double Ratchet / Matrix's Megolm would add that), no safety-number verification, and new members can read history from before they joined. Solana wallets are custodial devnet keys encrypted with `APP_SECRET`.
 
-## Sponsor tech
+## Integrated services
 
-| Sponsor | Used for |
+| Service | Used for |
 | --- | --- |
-| **Google Gemini** | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past situations", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Set `GEMINI_API_KEY`. |
-| **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every stake and payout, memos for market lifecycle, and an in-app Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
-| **Tiger Data (Timescale)** | Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
+| **Tiger Data (Tiger Cloud)** | The app's database. Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression, and the pricing records. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
+| **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every stake and payout, memos for market lifecycle carrying each opening price's record hash, and an admin Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
+| **Gemma** (open model, local) | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past situations", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Runs through Ollama with no API key. |
 | **ElevenLabs** | "🔊 Recap" on any market reads a trading-floor style update or the final result. Set `ELEVENLABS_API_KEY`. |
 | **Vultr** | `deploy/`: Docker Compose stack (app, TimescaleDB, Caddy HTTPS) and a setup script for a Vultr VM. |
 

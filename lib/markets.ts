@@ -90,7 +90,7 @@ async function consentedSubject(q: Q, groupId: number, username: string | null |
   return u ? { id: u.id, display_name: u.display_name, username: u.username } : null;
 }
 
-// Preview and create share one Gemini call: the analysis is cached briefly by input.
+// Preview and create share one Gemma call: the analysis is cached briefly by input.
 const g = globalThis as unknown as { __fsPreview?: Map<string, { at: number; value: Preview }> };
 const previewCache = (g.__fsPreview ??= new Map());
 
@@ -383,7 +383,7 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     return out;
   });
 
-  // Write the memory outside the transaction: Gemini can take a second.
+  // Write the memory outside the transaction: Gemma can take a second.
   const memory = rememberOutcome(m, outcome, crowd, payouts, note).catch((e) => console.warn("[memory]", e));
   if (opts.waitForMemory) await memory;
   return { payouts };

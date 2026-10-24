@@ -1,4 +1,3 @@
-import { GoogleGenAI } from "@google/genai";
 import { AI, MARKET } from "./config";
 import { guessCategory } from "./text";
 import { lexiconScore } from "./mood";
@@ -13,27 +12,18 @@ export { guessCategory };
 // then members' browsers send at most 20 snippets they picked as relevant, with
 // names replaced by roles and contact details removed (lib/chat-context.ts).
 
-let client: GoogleGenAI | null = null;
-// After a refusal (quota, billing, Ollama not running), stop asking for a while and use
-// the fallbacks, so the log carries one line instead of one per request.
+// When Ollama isn't running, stop asking for a minute and use the stats fallback, so the log
+// carries one line instead of one per request.
 let pausedUntil = 0;
 const ready = () => AI.enabled && Date.now() >= pausedUntil;
-function gemini() {
-  client ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
-  return client;
-}
 function failed(what: string, e: unknown) {
   const msg = (e as Error).message;
-  if (/"code":\s*(402|403|429)|RESOURCE_EXHAUSTED|PERMISSION_DENIED/.test(msg)) {
-    pausedUntil = Date.now() + 10 * 60_000;
-    console.warn(`[ai] Gemini refused (${msg.match(/"code":\s*(\d+)/)?.[1] ?? "quota"}); using fallbacks for 10 minutes`);
-  } else if (/ECONNREFUSED|fetch failed|not found, try pulling/i.test(msg)) {
+  if (/ECONNREFUSED|fetch failed|not found, try pulling/i.test(msg)) {
     pausedUntil = Date.now() + 60_000;
     console.warn(`[ai] Ollama unavailable (${msg}); using fallbacks for a minute`);
   } else console.warn(`[ai] ${what}:`, msg);
 }
 
-const timeout = (ms: number) => new Promise<never>((_, rej) => setTimeout(() => rej(new Error(`${AI.provider} timeout`)), ms));
 
 /** Ollama's REST API on this machine (or OLLAMA_URL). */
 async function ollama<T>(path: string, body: object, timeoutMs: number): Promise<T> {
@@ -80,31 +70,14 @@ async function askOllama<T>(prompt: string, schema: object, timeoutMs: number, t
 }
 
 /** The prompt's answer as JSON matching `schema`, or null so the caller can fall back. */
-export async function askJson<T>(prompt: string, schema: object, timeoutMs = AI.provider === "ollama" ? 45000 : 12000, trace?: Trace): Promise<T | null> {
+export async function askJson<T>(prompt: string, schema: object, timeoutMs = 45000, trace?: Trace): Promise<T | null> {
   if (!ready()) return null;
   const t0 = Date.now();
   if (trace) Object.assign(trace, { provider: AI.provider, model: AI.model });
   try {
-    if (AI.provider === "ollama") {
-      const out = await askOllama<T>(prompt, schema, timeoutMs, trace);
-      if (trace) trace.ms = Date.now() - t0;
-      return out;
-    }
-    const res = await Promise.race([
-      gemini().models.generateContent({
-        model: AI.model,
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseJsonSchema: schema,
-          temperature: 0.3,
-          ...(AI.model.includes("2.5") ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-        },
-      }),
-      timeout(timeoutMs),
-    ]);
-    if (trace) Object.assign(trace, { raw: res.text ?? null, ms: Date.now() - t0 });
-    return JSON.parse(res.text ?? "null") as T;
+    const out = await askOllama<T>(prompt, schema, timeoutMs, trace);
+    if (trace) trace.ms = Date.now() - t0;
+    return out;
   } catch (e) {
     if (trace) Object.assign(trace, { ms: Date.now() - t0, error: (e as Error).message.slice(0, 200) });
     failed(`${AI.provider} call failed, using fallback`, e);
@@ -115,16 +88,8 @@ export async function askJson<T>(prompt: string, schema: object, timeoutMs = AI.
 export async function embed(text: string): Promise<number[] | null> {
   if (!ready()) return null;
   try {
-    if (AI.provider === "ollama") {
-      const res = await ollama<{ embeddings: number[][] }>("/api/embed", { model: AI.embeddingModel, input: text, keep_alive: "30m" }, 15000);
-      return res.embeddings?.[0] ?? null;
-    }
-    const res = await gemini().models.embedContent({
-      model: AI.embeddingModel,
-      contents: text,
-      config: { outputDimensionality: 256 },
-    });
-    return res.embeddings?.[0]?.values ?? null;
+    const res = await ollama<{ embeddings: number[][] }>("/api/embed", { model: AI.embeddingModel, input: text, keep_alive: "30m" }, 15000);
+    return res.embeddings?.[0] ?? null;
   } catch (e) {
     failed("embedding failed", e);
     return null;
@@ -150,7 +115,7 @@ export type Analysis = {
   probability: number;
   rationale: string;
   resolutionRule: string;
-  source: "gemini" | "ollama" | "heuristic";
+  source: "ollama" | "heuristic";
   /** Snippets the AI kept as relevant, with its reason. Everything else was ignored. */
   chatUsed: (Snippet & { why: string })[];
   /** The exact model call, with the subject's private profile answers blanked out of the prompt. */
@@ -246,7 +211,7 @@ Rules:
   if (out && Number.isFinite(out.probability)) {
     const { usefulSnippets, ...rest } = out as typeof out & { usefulSnippets?: { i: number; why: string }[] };
     const chatUsed = (usefulSnippets ?? []).filter((u) => snippets[u.i]).slice(0, 8).map((u) => ({ ...snippets[u.i], why: u.why }));
-    return applyWants({ ...rest, probability: clampP(out.probability), source: AI.provider as "gemini" | "ollama", chatUsed, trace }, want);
+    return applyWants({ ...rest, probability: clampP(out.probability), source: "ollama", chatUsed, trace }, want);
   }
   const h = heuristicAnalysis(input.title, days, input.history);
   return applyWants({ ...(snippets.length ? applySnippetTilt(h, snippets) : h), trace }, want);
@@ -381,7 +346,7 @@ Give each reason in under 15 words.`;
     undefined,
     trace
   );
-  if (out?.updates) return out.updates.map((u) => ({ ...u, probability: clampP(u.probability), source: AI.provider as "gemini" | "ollama" }));
+  if (out?.updates) return out.updates.map((u) => ({ ...u, probability: clampP(u.probability), source: "ollama" as const }));
   // Fallback: nudge by mood only.
   return input.stocks
     .filter((s) => s.mood != null && Math.abs(s.mood) > 0.15)

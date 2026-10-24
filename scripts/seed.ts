@@ -11,7 +11,6 @@
  */
 // Deterministic and fast: the stats model prices the history; the live AI is used in the app itself.
 process.env.AI_PROVIDER = "none";
-delete process.env.GEMINI_API_KEY;
 process.env.DEMO_MODE ??= "true";
 
 import bcrypt from "bcryptjs";

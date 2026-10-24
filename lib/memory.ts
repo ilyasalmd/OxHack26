@@ -45,7 +45,7 @@ function cosine(a: number[], b: number[]) {
 export type Similar = Memory & { similarity: number };
 
 /** Rank this group's past outcomes by how much they resemble a new question.
- * Embedding cosine when Gemini is on, keyword overlap otherwise, with a boost
+ * Embedding cosine when Gemma is on, keyword overlap otherwise, with a boost
  * for the same person and the same category. */
 export async function findSimilar(q: Q, groupId: number, text: string, subjectId: number | null, limit = 6) {
   const rows = await q.query<Memory>(`SELECT * FROM memories WHERE group_id = $1 ORDER BY created_at DESC LIMIT 500`, [groupId]);

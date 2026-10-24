@@ -51,7 +51,7 @@ export const GET = route(async (_req, user) => {
       currency: CURRENCY,
       economy: ECONOMY,
       demo: DEMO_MODE,
-      gemini: AI.enabled,
+      ai: AI.enabled,
       solana: !!solanaConfig(),
       timescale: db.timescale,
       db: db.driver,

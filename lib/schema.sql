@@ -75,7 +75,7 @@ CREATE TABLE IF NOT EXISTS markets (
   base_rate_n double precision NOT NULL DEFAULT 0,
   open_prob double precision NOT NULL,
   ai_rationale text NOT NULL,
-  ai_source text NOT NULL,       -- 'gemini' | 'ollama' | 'heuristic'
+  ai_source text NOT NULL,       -- 'ollama' (Gemma) | 'heuristic'
   b double precision NOT NULL,
   q_yes double precision NOT NULL,
   q_no double precision NOT NULL,

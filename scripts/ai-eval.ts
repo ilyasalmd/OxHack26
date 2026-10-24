@@ -2,7 +2,6 @@
  * Walk-forward test of the pricing AI on the seeded history.
  *
  *   npm run ai:eval -- ollama:gemma4:12b      # one model; writes .data/ai-eval/<model>.json
- *   npm run ai:eval -- gemini:gemini-2.5-flash
  *   npm run ai:eval -- report                 # table of every model run so far
  *
  * For each settled situation, oldest first, the model sees exactly what the app would have
@@ -53,12 +52,10 @@ async function load(db: PGlite) {
 async function run(spec: string) {
   const [provider, ...rest] = spec.split(":");
   const model = rest.join(":");
-  if (provider !== "ollama" && provider !== "gemini") throw new Error(`Use ollama:<model> or gemini:<model>, not ${spec}`);
+  if (provider !== "ollama") throw new Error(`Use ollama:<model>, not ${spec}`);
   process.env.AI_PROVIDER = provider;
-  if (provider === "ollama") process.env.OLLAMA_MODEL = model;
-  else process.env.GEMINI_MODEL = model;
-  // Gemini's free tier allows about 10 requests a minute.
-  const gap = provider === "gemini" ? Number(process.env.EVAL_GAP_MS ?? 6500) : 0;
+  process.env.OLLAMA_MODEL = model;
+  const gap = Number(process.env.EVAL_GAP_MS ?? 0);
 
   const db = await PGlite.create(SOURCE);
   const q: Q = { query: async (sql, params) => (await db.query(sql, params as unknown[])).rows as never[] };

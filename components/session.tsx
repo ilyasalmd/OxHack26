@@ -19,7 +19,7 @@ export type Me = {
     currency: { name: string; ticker: string };
     economy: { startingBalance: number; weeklyAllowance: number; maxStakeFraction: number; balanceFloor: number; stockFee: number; freeTrades: number };
     demo: boolean;
-    gemini: boolean;
+    ai: boolean;
     solana: boolean;
     timescale: boolean;
     db: string;

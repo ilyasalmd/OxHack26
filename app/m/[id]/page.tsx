@@ -346,7 +346,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
         {positionCard && <div className="mt-5 lg:hidden">{positionCard}</div>}
 
-        <Fold title="Why this price" summary={<><Badge tone="brand">{m.ai_source === "ollama" ? "Local AI" : m.ai_source === "gemini" ? "Gemini" : "Stats model"}</Badge>{m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}</>}>
+        <Fold title="Why this price" summary={<><Badge tone="brand">{m.ai_source === "ollama" ? "Gemma" : "Stats model"}</Badge>{m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}</>}>
           <p className="text-mute">{m.ai_rationale}</p>
           <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-xl bg-ink p-2"><div className="text-xs text-mute">AI</div><div className="font-semibold tabular">{pct(m.ai_prob)}</div></div>
