@@ -206,5 +206,11 @@ ALTER TABLE users ADD COLUMN IF NOT EXISTS enc_private_key_recovery text;
 -- Deleted accounts keep their row (trades and positions point at it) but are scrubbed.
 ALTER TABLE users ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
 
+-- Number questions ("how late is Jake?") trade as over/under a line: YES means over.
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS answer text NOT NULL DEFAULT 'yesno';  -- 'yesno' | 'number'
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS line double precision;
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS unit text NOT NULL DEFAULT '';
+ALTER TABLE markets ADD COLUMN IF NOT EXISTS actual double precision;  -- the number it settled on
+
 -- When the group last asked the AI to re-mark its stocks (rate limit).
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS last_reprice_at timestamptz;

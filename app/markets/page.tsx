@@ -7,8 +7,9 @@ import { api } from "@/components/api";
 import { odds } from "@/components/bet-slip";
 import { Change, LiveNumber, fmt, pct, timeLeft } from "@/components/ui";
 import { Timer, TrendUp } from "@/components/icons";
+import { fmtLine } from "@/lib/labels";
 
-type Situation = { id: number; title: string; kind: "bet" | "stock"; category: string; group: string; group_id: number; creator: string; resolves_at: string; volume: number; traders: number; price: number; change: number };
+type Situation = { id: number; title: string; kind: "bet" | "stock"; answer: "yesno" | "number"; line: number | null; unit: string; category: string; group: string; group_id: number; creator: string; resolves_at: string; volume: number; traders: number; price: number; change: number };
 type Feed = { markets: Situation[] };
 
 const KINDS = [
@@ -118,6 +119,7 @@ function Row({ s, now, showGroup }: { s: Situation; now: string; showGroup: bool
         <div className="truncate text-[16px] font-medium leading-snug">{s.title}</div>
         <div className="mt-0.5 truncate text-[13px] text-mute">
           {showGroup && <>{s.group} · </>}
+          {s.answer === "number" && s.line != null && <>over/under {fmtLine(s.line, s.unit)} · </>}
           {stock ? `matures ${new Date(s.resolves_at).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}` : timeLeft(s.resolves_at, now)}
           {s.volume > 0 && <> · {fmt(s.volume, 0)} staked</>}
         </div>

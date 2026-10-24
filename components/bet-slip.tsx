@@ -1,13 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
 import { applyShares, priceYes, sharesForAmount, type Book, type Side } from "@/lib/lmsr";
+import { sides, type Sided } from "@/lib/labels";
 import { Button, fmt, pct } from "./ui";
 
 /** Decimal odds, the way a bookmaker shows them: stake 1 returns this. */
 export const odds = (p: number) => (p > 0.005 ? (1 / p).toFixed(2) : "–");
 
 type Props = {
-  kind: "bet" | "stock";
+  market: Sided;
   book: Book;
   side: Side;
   onSide: (s: Side) => void;
@@ -25,12 +26,15 @@ type Props = {
  * One slip for every trade. A bet reads like a bookmaker's: pick Yes or No, type a stake, see what
  * it returns, one tap. A stock reads like a broker's: Buy or Short, the price, what the shares pay.
  */
-export function BetSlip({ kind, book, side, onSide, canShort, balance, maxStake, floor, ticker, busy, err, onPlace }: Props) {
+export function BetSlip({ market, book, side, onSide, canShort, balance, maxStake, floor, ticker, busy, err, onPlace }: Props) {
   const [amount, setAmount] = useState(Math.min(10, Math.max(1, Math.floor(maxStake))));
   const [raw, setRaw] = useState(String(Math.min(10, Math.max(1, Math.floor(maxStake)))));
   useEffect(() => setRaw(String(amount)), [amount]);
   const max = Math.max(0, Math.floor(maxStake));
+  const kind = market.kind;
   const stock = kind === "stock";
+  const lbl = sides(market);
+  const number = market.answer === "number" && market.line != null;
   const pYes = priceYes(book);
   const price = side === "yes" ? pYes : 1 - pYes;
   const ok = amount >= 1 && amount <= max;
@@ -46,13 +50,13 @@ export function BetSlip({ kind, book, side, onSide, canShort, balance, maxStake,
   }
   const bump = (d: number) => setAmount((a) => Math.min(max, Math.max(1, a + d)));
 
-  const yesLabel = stock ? "Buy" : "Yes";
-  const noLabel = stock ? "Short" : "No";
+  const yesLabel = lbl.yes;
+  const noLabel = lbl.no;
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2">
-        <Pick on={side === "yes"} tone="up" onClick={() => onSide("yes")} label={yesLabel} value={show(pYes)} sub={stock ? "share price" : `odds ${odds(pYes)}`} />
-        <Pick on={side === "no"} tone="down" disabled={!canShort} onClick={() => canShort && onSide("no")} label={noLabel} value={show(1 - pYes)} sub={!canShort ? "not for you" : stock ? "if it doesn't happen" : `odds ${odds(1 - pYes)}`} />
+        <Pick on={side === "yes"} tone="up" onClick={() => onSide("yes")} label={yesLabel} value={show(pYes)} sub={stock && !number ? "share price" : `odds ${odds(pYes)}`} />
+        <Pick on={side === "no"} tone="down" disabled={!canShort} onClick={() => canShort && onSide("no")} label={noLabel} value={show(1 - pYes)} sub={!canShort ? "not for you" : stock && !number ? "if it doesn't happen" : `odds ${odds(1 - pYes)}`} />
       </div>
 
       <div className="rounded-2xl border border-line bg-ink p-4">
@@ -82,7 +86,7 @@ export function BetSlip({ kind, book, side, onSide, canShort, balance, maxStake,
 
       <div className="flex items-end justify-between px-1">
         <div>
-          <div className="text-xs text-mute">{stock ? (side === "yes" ? "Pays if it happens" : "Pays if it doesn't") : "Returns if right"}</div>
+          <div className="text-xs text-mute">{number ? `Returns if it's ${side === "yes" ? lbl.yes.toLowerCase() : lbl.no.toLowerCase()}` : stock ? (side === "yes" ? "Pays if it happens" : "Pays if it doesn't") : "Returns if right"}</div>
           <div className="text-2xl font-semibold tracking-tight tabular">
             {ok ? fmt(shares) : "–"} <span className="text-base text-mute">{ticker}</span>
           </div>
@@ -96,7 +100,7 @@ export function BetSlip({ kind, book, side, onSide, canShort, balance, maxStake,
       {max < 1 && <p className="text-sm text-down">You&apos;re at the safety floor ({floor} {ticker} stays untouched). Your weekly allowance tops you up.</p>}
       {err && <p className="text-sm text-down">{err}</p>}
       <Button variant={side === "yes" ? "up" : "down"} className="w-full !py-3.5 text-[17px]" disabled={busy || !ok} onClick={() => onPlace(side, amount)}>
-        {busy ? "Placing…" : stock ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount, 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
+        {busy ? "Placing…" : stock && !number ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount, 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
       </Button>
       <p className="text-center text-[11px] text-mute">Each share pays 1 {ticker} if you&apos;re right, nothing if not. Price {show(price)} per share now.</p>
     </div>

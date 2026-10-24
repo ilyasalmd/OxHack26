@@ -1,19 +1,44 @@
 "use client";
 import { useState } from "react";
 import { api } from "./api";
-import { Badge, Button, Input, Sheet, pct } from "./ui";
-import { Book, Chat, Hourglass, Sparkle } from "./icons";
+import { Avatar, Badge, Button, Input, Sheet, pct } from "./ui";
+import { Book, Chat, Check, Hourglass, Sparkle, Timer, TrendUp } from "./icons";
 import type { Member } from "@/app/g/[id]/page";
 import type { Snippet } from "@/lib/chat-context";
+import { fmtLine, sides, typeLabel } from "@/lib/labels";
 
+type Analysis = {
+  title: string;
+  kind: "bet" | "stock";
+  answer: "yesno" | "number";
+  line: number | null;
+  unit: string;
+  decay: string;
+  category: string;
+  probability: number;
+  rationale: string;
+  resolutionRule: string;
+  source: string;
+  chatUsed: (Snippet & { why: string })[];
+};
 type Preview = {
-  analysis: { title: string; kind: "bet" | "stock"; decay: string; category: string; probability: number; rationale: string; resolutionRule: string; source: string; chatUsed: (Snippet & { why: string })[] };
+  analysis: Analysis;
   chatShared: Snippet[];
   openProb: number;
   baseRate: number | null;
   baseRateN: number;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number; created_at: string }[];
 };
+
+/** How the poster wants it settled. "auto" leaves the choice to the AI, which is the default. */
+type Answer = "auto" | "yesno" | "number" | "stock";
+const ANSWERS: { k: Answer; label: string; blurb: string; icon: React.ReactNode }[] = [
+  { k: "auto", label: "Let the AI decide", blurb: "It reads the situation and picks the type that fits.", icon: <Sparkle size={16} /> },
+  { k: "yesno", label: "Yes or no", blurb: "Did it happen? Settles on the deadline.", icon: <Check size={16} /> },
+  { k: "number", label: "A number", blurb: "How many, how late, what mark. Bet over or under a line.", icon: <Timer size={16} /> },
+  { k: "stock", label: "Long-term stock", blurb: "Months away. The price moves as news comes in.", icon: <TrendUp size={16} /> },
+];
+const EXAMPLES = ["Jake is late to dinner again", "How many pints does Sam have on Friday", "Priya gets a first this year"];
 
 function localInput(d: Date) {
   const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
@@ -25,45 +50,70 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
   const presets: [string, Date][] = [
     ["Tonight", new Date(new Date(base).setHours(23, 0, 0, 0) <= base.getTime() ? base.getTime() + 3 * 3600e3 : new Date(base).setHours(23, 0, 0, 0))],
     ["Tomorrow", new Date(base.getTime() + 864e5)],
-    ["1 week", new Date(base.getTime() + 7 * 864e5)],
+    ["This week", new Date(base.getTime() + 7 * 864e5)],
     ["3 months", new Date(base.getTime() + 90 * 864e5)],
     ["1 year", new Date(base.getTime() + 365 * 864e5)],
   ];
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
+  const [answer, setAnswer] = useState<Answer>("auto");
+  const [line, setLine] = useState("");
   const [when, setWhen] = useState(localInput(presets[1][1]));
   const [details, setDetails] = useState("");
   const [useMood, setUseMood] = useState(false);
   const [preview, setPreview] = useState<Preview | null>(null);
+  // On the preview the poster can still change the type or move the line; both re-price.
+  const [override, setOverride] = useState<{ answer: Answer; line: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
-  const payload = () => {
+  const payload = (o?: { answer: Answer; line: string }) => {
     const s = members.find((m) => m.username === subject);
     const mood = useMood && s ? (moods()[s.id] ?? 0) : null;
     const snippets = aiReadsChat ? chatSnippets(s?.id ?? null, `${title} ${details}`) : [];
-    return { title, description: details, resolvesAt: new Date(when).toISOString(), subjectUsername: subject || null, mood, chatSnippets: snippets.length ? snippets : undefined };
+    const a = o?.answer ?? answer;
+    const rawLine = o?.line ?? line;
+    const l = Number(rawLine.replace(",", "."));
+    return {
+      title,
+      description: details,
+      resolvesAt: new Date(when).toISOString(),
+      subjectUsername: subject || null,
+      mood,
+      chatSnippets: snippets.length ? snippets : undefined,
+      kind: a === "stock" ? "stock" : a === "auto" ? "auto" : "bet",
+      answer: a === "number" ? "number" : a === "yesno" || a === "stock" ? "yesno" : "auto",
+      line: a === "number" && rawLine !== "" && Number.isFinite(l) ? l : undefined,
+    } as const;
   };
 
-  async function getOdds(e: React.FormEvent) {
-    e.preventDefault();
+  async function price(o?: { answer: Answer; line: string }) {
     setBusy(true);
     setErr("");
     try {
-      setPreview(await api<Preview>(`/api/groups/${groupId}/preview`, { body: payload() }));
+      const p = await api<Preview>(`/api/groups/${groupId}/preview`, { body: payload(o) });
+      setPreview(p);
+      setOverride(o ?? null);
     } catch (e) {
       setErr((e as Error).message);
     } finally {
       setBusy(false);
     }
   }
+  async function getOdds(e: React.FormEvent) {
+    e.preventDefault();
+    await price();
+  }
   async function list() {
     setBusy(true);
     try {
-      const { id } = await api<{ id: number }>(`/api/groups/${groupId}/markets`, { body: payload() });
+      const { id } = await api<{ id: number }>(`/api/groups/${groupId}/markets`, { body: payload(override ?? undefined) });
       setPreview(null);
+      setOverride(null);
       setTitle("");
       setDetails("");
+      setLine("");
+      setAnswer("auto");
       onCreated(id);
     } catch (e) {
       setErr((e as Error).message);
@@ -72,119 +122,267 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
     }
   }
 
+  const who = members.find((m) => m.username === subject);
+  const whenDate = new Date(when);
+  const whenLabel = Number.isNaN(whenDate.getTime()) ? "" : whenDate.toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
   return (
-    <Sheet open={open} onClose={onClose} title="New situation">
+    <Sheet open={open} onClose={onClose} title={preview ? "Check the odds" : "New situation"}>
       {!preview ? (
-        <form onSubmit={getOdds} className="space-y-3">
-          <Input placeholder="What's the situation? e.g. Jake is late to dinner" value={title} onChange={(e) => setTitle(e.target.value)} autoFocus required minLength={4} />
-          <div className="no-scrollbar flex gap-2 overflow-x-auto">
-            <button type="button" onClick={() => setSubject("")} className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${!subject ? "bg-white text-black" : "bg-white/5"}`}>Nobody</button>
-            {members.map((m) => {
-              // People who turned off situations about them are greyed out (you can always pick yourself).
-              const off = m.subject_policy === "nobody" && m.id !== meId;
-              return (
-                <button
-                  type="button"
-                  key={m.id}
-                  disabled={off}
-                  title={off ? `${m.display_name} has turned off situations about them` : undefined}
-                  onClick={() => setSubject(m.username)}
-                  className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${off ? "cursor-not-allowed bg-white/[.03] text-mute/50 line-through" : subject === m.username ? "bg-white text-black" : "bg-white/5"}`}
-                >
-                  {m.display_name}
+        <form onSubmit={getOdds} className="space-y-6">
+          <Field n={1} label="What's the situation?">
+            <textarea
+              value={title}
+              onChange={(e) => setTitle(e.target.value.replace(/\n/g, " "))}
+              autoFocus
+              required
+              minLength={4}
+              maxLength={140}
+              rows={2}
+              placeholder="Say it the way you'd say it in the chat"
+              className="w-full resize-none rounded-2xl border border-line bg-ink px-4 py-3 !text-[18px] font-medium leading-snug outline-none placeholder:text-white/25 focus:border-white/30"
+            />
+            {!title && (
+              <div className="no-scrollbar -mx-1 mt-2 flex gap-2 overflow-x-auto px-1">
+                {EXAMPLES.map((x) => (
+                  <button type="button" key={x} onClick={() => setTitle(x)} className="shrink-0 rounded-full bg-white/[.05] px-3 py-1.5 text-[13px] text-mute hover:text-white">{x}</button>
+                ))}
+              </div>
+            )}
+          </Field>
+
+          <Field n={2} label="Who's it about?" hint="Optional. Their past record feeds the odds, and they can call it off.">
+            <div className="no-scrollbar -mx-1 flex gap-3 overflow-x-auto px-1 pb-1">
+              <Person on={!subject} label="Nobody" onClick={() => setSubject("")} />
+              {members.map((m) => {
+                // People who turned off situations about them are greyed out (you can always pick yourself).
+                const off = m.subject_policy === "nobody" && m.id !== meId;
+                return <Person key={m.id} on={subject === m.username} off={off} label={m.id === meId ? "Me" : m.display_name} avatar={<Avatar name={m.display_name} color={m.color} size={44} />} onClick={() => !off && setSubject(m.username)} />;
+              })}
+            </div>
+          </Field>
+
+          <Field n={3} label="How does it settle?">
+            <div className="grid grid-cols-2 gap-2">
+              {ANSWERS.map((a) => (
+                <button type="button" key={a.k} onClick={() => setAnswer(a.k)} aria-pressed={answer === a.k} className={`rounded-2xl border p-3 text-left transition ${answer === a.k ? "border-white bg-white/[.08]" : "border-line bg-ink hover:border-white/25"}`}>
+                  <div className={`flex items-center gap-1.5 text-[14px] font-semibold ${answer === a.k ? "" : "text-white/85"}`}>{a.icon}{a.label}</div>
+                  <div className="mt-1 text-[12px] leading-snug text-mute">{a.blurb}</div>
                 </button>
+              ))}
+            </div>
+            {answer === "number" && (
+              <div className="mt-2 rounded-2xl border border-line bg-ink p-3">
+                <div className="text-[13px] font-medium">The line</div>
+                <div className="mt-1 flex items-center gap-2">
+                  <input inputMode="decimal" value={line} onChange={(e) => setLine(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder="AI picks" aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none placeholder:font-normal placeholder:text-white/25" />
+                  <span className="text-sm text-mute">Leave it blank and the AI sets a line that makes it a fair 50/50.</span>
+                </div>
+              </div>
+            )}
+          </Field>
+
+          <Field n={4} label="When do we find out?">
+            <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1">
+              {presets.map(([l, d]) => (
+                <button type="button" key={l} onClick={() => setWhen(localInput(d))} className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium ${when === localInput(d) ? "bg-white text-black" : "bg-white/[.06] hover:bg-white/10"}`}>{l}</button>
+              ))}
+            </div>
+            <div className="mt-2 flex items-center gap-3">
+              <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required className="flex-1" />
+              {whenLabel && <span className="shrink-0 text-xs text-mute">{whenLabel}</span>}
+            </div>
+          </Field>
+
+          <details className="group rounded-2xl border border-line">
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-medium text-mute group-open:text-white">Details and what counts <span className="font-normal">(optional)</span></summary>
+            <div className="space-y-3 px-4 pb-4">
+              <Input placeholder="Where, what counts, any rule you want" value={details} onChange={(e) => setDetails(e.target.value)} maxLength={500} />
+              {who && (
+                <label className="flex items-start gap-2 text-sm text-mute">
+                  <input type="checkbox" checked={useMood} onChange={(e) => setUseMood(e.target.checked)} className="mt-1" />
+                  <span>Let the AI use a mood score for {who.display_name} worked out on this phone from the chat. Only a single number is shared, never messages.</span>
+                </label>
+              )}
+              {!aiContext && <p className="text-xs text-mute">Tip: add term dates or fixtures in group settings so the AI can use them.</p>}
+              {aiReadsChat && <p className="flex items-start gap-1.5 text-xs text-mute"><Sparkle size={13} className="mt-px" /> This group lets the AI read relevant chat. You&apos;ll see exactly which messages were shared on the next screen.</p>}
+            </div>
+          </details>
+
+          {err && <p className="text-sm text-down">{err}</p>}
+          <Button className="w-full !py-3.5 text-[17px]" disabled={busy || title.trim().length < 4}>{busy ? "Working out the odds…" : "Get the odds"}</Button>
+          <p className="text-center text-xs text-mute">Nothing is posted yet. You check the odds first.</p>
+        </form>
+      ) : (
+        <PreviewPane
+          key={`${preview.analysis.answer}-${preview.analysis.line}-${preview.analysis.kind}`}
+          preview={preview}
+          busy={busy}
+          err={err}
+          who={who}
+          whenLabel={whenLabel}
+          chosen={override?.answer ?? answer}
+          onType={(a) => price({ answer: a, line: a === "number" ? (override?.line ?? line) : "" })}
+          onLine={(l) => price({ answer: "number", line: l })}
+          onEdit={() => { setPreview(null); setOverride(null); }}
+          onList={list}
+        />
+      )}
+    </Sheet>
+  );
+}
+
+function Field({ n, label, hint, children }: { n: number; label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <div className="mb-2 flex items-baseline gap-2">
+        <span className="flex h-5 w-5 items-center justify-center rounded-full bg-white/[.08] text-[11px] font-semibold tabular text-mute">{n}</span>
+        <h3 className="text-[15px] font-semibold">{label}</h3>
+      </div>
+      {children}
+      {hint && <p className="mt-1.5 text-xs text-mute">{hint}</p>}
+    </section>
+  );
+}
+
+function Person({ on, off, label, avatar, onClick }: { on: boolean; off?: boolean; label: string; avatar?: React.ReactNode; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} disabled={off} aria-pressed={on} title={off ? `${label} has turned off situations about them` : undefined} className={`flex w-16 shrink-0 flex-col items-center gap-1.5 ${off ? "cursor-not-allowed opacity-30" : ""}`}>
+      <span className={`rounded-full p-[2px] ring-2 transition ${on ? "ring-white" : "ring-transparent"}`}>
+        {avatar ?? <span className="flex h-11 w-11 items-center justify-center rounded-full bg-white/[.06] text-mute"><Check size={16} className={on ? "" : "opacity-0"} /></span>}
+      </span>
+      <span className={`w-full truncate text-center text-[12px] ${on ? "font-semibold" : "text-mute"}`}>{label}</span>
+    </button>
+  );
+}
+
+/** The second screen: what the AI made of it, the opening odds, and the chance to change the type or line before listing. */
+function PreviewPane({ preview, busy, err, who, whenLabel, chosen, onType, onLine, onEdit, onList }: { preview: Preview; busy: boolean; err: string; who?: Member; whenLabel: string; chosen: Answer; onType: (a: Answer) => void; onLine: (l: string) => void; onEdit: () => void; onList: () => void }) {
+  const a = preview.analysis;
+  const isNumber = a.answer === "number" && a.line != null;
+  const lbl = sides(a);
+  const [lineDraft, setLineDraft] = useState(isNumber ? String(a.line) : "");
+  const current: Answer = a.kind === "stock" ? "stock" : isNumber ? "number" : "yesno";
+  const stock = a.kind === "stock";
+  const show = (p: number) => (stock && !isNumber ? (p * 100).toFixed(1) : pct(p));
+  const draftMoved = lineDraft !== "" && Number(lineDraft.replace(",", ".")) !== a.line;
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge tone={stock ? "brand" : "mute"}>{typeLabel(a)}</Badge>
+          <Badge>{a.category}</Badge>
+          {a.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays over time</span></Badge>}
+        </div>
+        <div className="mt-2 text-[20px] font-semibold leading-snug">{a.title}</div>
+        <div className="mt-1 text-sm text-mute">{who ? `About ${who.display_name} · ` : ""}{stock ? "matures" : "settles"} {whenLabel}</div>
+      </div>
+
+      <div className={`grid grid-cols-2 gap-2 ${busy ? "opacity-50" : ""}`}>
+        <div className="rounded-2xl border border-up/40 bg-up/10 p-3">
+          <div className="text-sm font-semibold text-up">{lbl.yes}</div>
+          <div className="mt-0.5 text-3xl font-semibold tracking-tight tabular">{show(preview.openProb)}</div>
+          <div className="text-[11px] text-mute">{isNumber ? "chance it goes over" : stock ? "opening price" : "chance it happens"}</div>
+        </div>
+        <div className="rounded-2xl border border-down/40 bg-down/10 p-3">
+          <div className="text-sm font-semibold text-down">{lbl.no}</div>
+          <div className="mt-0.5 text-3xl font-semibold tracking-tight tabular">{show(1 - preview.openProb)}</div>
+          <div className="text-[11px] text-mute">{isNumber ? "chance it stays under" : stock ? "if it doesn't happen" : "chance it doesn't"}</div>
+        </div>
+      </div>
+
+      {isNumber && (
+        <div className="rounded-2xl border border-line bg-ink p-3">
+          <div className="flex items-center justify-between">
+            <div className="text-[13px] font-medium">The line: {fmtLine(a.line!, a.unit)}</div>
+            <span className="text-xs text-mute">{chosen === "number" && preview.analysis.line != null && !draftMoved ? "" : "AI's median guess"}</span>
+          </div>
+          <div className="mt-2 flex items-center gap-2">
+            <input inputMode="decimal" value={lineDraft} onChange={(e) => setLineDraft(e.target.value.replace(/[^0-9.,-]/g, ""))} aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none" />
+            {a.unit && <span className="text-sm text-mute">{a.unit}</span>}
+            <Button variant="ghost" className="ml-auto" disabled={busy || !draftMoved} onClick={() => onLine(lineDraft)}>Move the line</Button>
+          </div>
+          <p className="mt-2 text-xs text-mute">Moving the line changes the odds. Over the line pays {lbl.yesShort.toLowerCase()}, on or under pays {lbl.noShort.toLowerCase()}.</p>
+        </div>
+      )}
+
+      <div>
+        <div className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-mute">Settle it as</div>
+        <div className="no-scrollbar -mx-1 flex gap-2 overflow-x-auto px-1">
+          {ANSWERS.filter((x) => x.k !== "auto").map((x) => (
+            <button type="button" key={x.k} disabled={busy} onClick={() => current !== x.k && onType(x.k)} className={`shrink-0 rounded-full px-3.5 py-1.5 text-sm font-medium ${current === x.k ? "bg-white text-black" : "bg-white/[.06] hover:bg-white/10"}`}>{x.label}</button>
+          ))}
+        </div>
+        {chosen === "auto" && <p className="mt-1.5 text-xs text-mute">The AI picked {ANSWERS.find((x) => x.k === current)?.label.toLowerCase()}. Tap another to change it.</p>}
+        {chosen === "number" && !isNumber && (
+          <div className="mt-2 rounded-2xl border border-line bg-ink p-3">
+            <div className="text-[13px] font-medium">Set the line yourself</div>
+            <div className="mt-2 flex items-center gap-2">
+              <input inputMode="decimal" value={lineDraft} onChange={(e) => setLineDraft(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder="e.g. 15" aria-label="Line" className="w-28 rounded-xl bg-white/[.06] px-3 py-2 !text-[17px] font-semibold tabular outline-none placeholder:font-normal placeholder:text-white/25" />
+              <Button variant="ghost" className="ml-auto" disabled={busy || lineDraft === ""} onClick={() => onLine(lineDraft)}>Price it</Button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <Stat label="Opens at" value={show(preview.openProb)} />
+        <Stat label={a.source === "ollama" ? "Local AI" : a.source === "gemini" ? "Gemini" : "Stats model"} value={show(a.probability)} />
+        <Stat label={`History (n≈${preview.baseRateN.toFixed(0)})`} value={preview.baseRate == null ? "–" : show(preview.baseRate)} />
+      </div>
+      <p className="text-sm text-mute">{a.rationale}</p>
+      <div className="rounded-2xl border border-line p-3 text-sm">
+        <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-mute">How it&apos;s settled</div>
+        {a.resolutionRule}
+      </div>
+      {preview.chatShared.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mute"><Chat size={12} /> What the AI saw from the chat ({preview.chatShared.length})</div>
+          <div className="space-y-1.5">
+            {preview.chatShared.map((s, i) => {
+              const used = a.chatUsed.find((u) => u.text === s.text && u.who === s.who);
+              return (
+                <div key={i} className={`rounded-2xl p-2.5 text-sm ${used ? "bg-brand/10" : "bg-black/40 opacity-60"}`}>
+                  <div className="text-xs text-mute">{s.who} · {s.age} · {used ? <span className="text-brand">used: {used.why}</span> : "ignored as not relevant"}</div>
+                  <div>{s.text}</div>
+                </div>
               );
             })}
           </div>
-          {members.some((m) => m.subject_policy === "nobody" && m.id !== meId) && <p className="text-xs text-mute">Crossed-out friends have turned off situations about them.</p>}
-          <div>
-            <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto">
-              {presets.map(([l, d]) => (
-                <button type="button" key={l} onClick={() => setWhen(localInput(d))} className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${when === localInput(d) ? "bg-white text-black" : "bg-white/5 hover:bg-white/10"}`}>{l}</button>
-              ))}
-            </div>
-            <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required />
-          </div>
-          <Input placeholder="Details (optional): where, what counts…" value={details} onChange={(e) => setDetails(e.target.value)} />
-          {subject && (
-            <label className="flex items-start gap-2 text-sm text-mute">
-              <input type="checkbox" checked={useMood} onChange={(e) => setUseMood(e.target.checked)} className="mt-1" />
-              <span>Let the AI use a mood score for {subject} worked out on this phone from the chat. Only a single number is shared, never messages.</span>
-            </label>
-          )}
-          {!aiContext && <p className="text-xs text-mute">Tip: add term dates or fixtures in group settings so the AI can use them.</p>}
-          {aiReadsChat && <p className="flex items-start gap-1.5 text-xs text-mute"><Sparkle size={13} className="mt-px" /> This group lets the AI read relevant chat. You&apos;ll see exactly which messages were shared on the next screen.</p>}
-          {err && <p className="text-sm text-down">{err}</p>}
-          <Button className="w-full" disabled={busy}>{busy ? "Pricing…" : "Get AI odds"}</Button>
-        </form>
-      ) : (
-        <div className="space-y-4">
-          <div className="flex items-center gap-2">
-            <Badge tone={preview.analysis.kind === "stock" ? "brand" : "mute"}>{preview.analysis.kind === "stock" ? "Stock · long-term" : "Bet · short-term"}</Badge>
-            <Badge>{preview.analysis.category}</Badge>
-            {preview.analysis.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays over time</span></Badge>}
-          </div>
-          <div className="text-xl font-semibold">{preview.analysis.title}</div>
-          <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-xl bg-ink p-3">
-              <div className="text-xs text-mute">Opens at</div>
-              <div className="text-2xl font-bold tabular">{pct(preview.openProb)}</div>
-            </div>
-            <div className="rounded-xl bg-ink p-3">
-              <div className="text-xs text-mute">{preview.analysis.source === "ollama" ? "Local AI" : preview.analysis.source === "gemini" ? "Gemini" : "Model"}</div>
-              <div className="text-2xl font-bold tabular">{pct(preview.analysis.probability)}</div>
-            </div>
-            <div className="rounded-xl bg-ink p-3">
-              <div className="text-xs text-mute">History (n≈{preview.baseRateN.toFixed(0)})</div>
-              <div className="text-2xl font-bold tabular">{preview.baseRate == null ? "–" : pct(preview.baseRate)}</div>
-            </div>
-          </div>
-          <p className="text-sm text-mute">{preview.analysis.rationale}</p>
-          <div className="rounded-2xl border border-line p-3 text-sm">
-            <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-mute">Resolution rule</div>
-            {preview.analysis.resolutionRule}
-          </div>
-          {preview.chatShared.length > 0 && (
-            <div>
-              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mute"><Chat size={12} /> What the AI saw from the chat ({preview.chatShared.length})</div>
-              <div className="space-y-1.5">
-                {preview.chatShared.map((s, i) => {
-                  const used = preview.analysis.chatUsed.find((u) => u.text === s.text && u.who === s.who);
-                  return (
-                    <div key={i} className={`rounded-2xl p-2.5 text-sm ${used ? "bg-brand/10" : "bg-black/40 opacity-60"}`}>
-                      <div className="text-xs text-mute">{s.who} · {s.age} · {used ? <span className="text-brand">used: {used.why}</span> : "ignored as not relevant"}</div>
-                      <div>{s.text}</div>
-                    </div>
-                  );
-                })}
+          <p className="mt-1 text-xs text-mute">Names, emails, phone numbers and links were removed on your phone before sending.</p>
+        </div>
+      )}
+      {preview.similar.length > 0 && (
+        <div>
+          <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mute"><Book size={12} /> Past data from this group</div>
+          <div className="space-y-2">
+            {preview.similar.map((s) => (
+              <div key={s.id} className="rounded-xl bg-ink p-3 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className={s.outcome ? "text-up" : "text-down"}>{s.outcome ? "YES" : "NO"}</span>
+                  <span className="flex-1 truncate font-medium">{s.title}</span>
+                  <span className="text-xs text-mute">{Math.round(s.similarity * 100)}% match</span>
+                </div>
+                <div className="mt-1 text-mute">{s.summary}</div>
               </div>
-              <p className="mt-1 text-xs text-mute">Names, emails, phone numbers and links were removed on your phone before sending.</p>
-            </div>
-          )}
-          {preview.similar.length > 0 && (
-            <div>
-              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mute"><Book size={12} /> Past data from this group</div>
-              <div className="space-y-2">
-                {preview.similar.map((s) => (
-                  <div key={s.id} className="rounded-xl bg-ink p-3 text-sm">
-                    <div className="flex items-center gap-2">
-                      <span className={s.outcome ? "text-up" : "text-down"}>{s.outcome ? "YES" : "NO"}</span>
-                      <span className="flex-1 truncate font-medium">{s.title}</span>
-                      <span className="text-xs text-mute">{Math.round(s.similarity * 100)}% match</span>
-                    </div>
-                    <div className="mt-1 text-mute">{s.summary}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-          {err && <p className="text-sm text-down">{err}</p>}
-          <div className="flex gap-2">
-            <Button variant="ghost" className="flex-1" onClick={() => setPreview(null)}>Edit</Button>
-            <Button className="flex-[2]" onClick={list} disabled={busy}>{busy ? "Listing…" : `List ${preview.analysis.kind}`}</Button>
+            ))}
           </div>
         </div>
       )}
-    </Sheet>
+      {err && <p className="text-sm text-down">{err}</p>}
+      <div className="flex gap-2">
+        <Button variant="ghost" className="flex-1" onClick={onEdit} disabled={busy}>Edit</Button>
+        <Button className="flex-[2] !py-3.5 text-[17px]" onClick={onList} disabled={busy}>{busy ? "…" : stock && !isNumber ? "List the stock" : "Post the bet"}</Button>
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-ink p-3">
+      <div className="text-xs text-mute">{label}</div>
+      <div className="text-xl font-bold tabular">{value}</div>
+    </div>
   );
 }

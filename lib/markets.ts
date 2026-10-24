@@ -2,6 +2,7 @@ import crypto from "node:crypto";
 import { getDb, type Q } from "./db";
 import { now } from "./clock";
 import { ECONOMY, MARKET } from "./config";
+import { sides } from "./labels";
 import { analyzeSituation, repriceStocks, summarizeOutcome, embed, type Analysis } from "./ai";
 import { evidenceFor, type Similar } from "./memory";
 import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount, type Book, type Side } from "./lmsr";
@@ -16,6 +17,10 @@ export type MarketRow = {
   creator_id: number;
   subject_id: number | null;
   kind: "bet" | "stock";
+  answer: "yesno" | "number";
+  line: number | null;
+  unit: string;
+  actual: number | null;
   decay: "none" | "hazard";
   title: string;
   description: string;
@@ -58,6 +63,9 @@ export type SituationInput = {
   subjectUsername?: string | null;
   mood?: number | null;
   chatSnippets?: Snippet[];
+  kind?: "auto" | "bet" | "stock";
+  answer?: "auto" | "yesno" | "number";
+  line?: number;
 };
 
 async function subjectFor(q: Q, groupId: number, username?: string | null) {
@@ -104,7 +112,7 @@ export async function previewSituation(groupId: number, input: SituationInput, c
   // Consent is checked on every call, including cache hits: the subject may have opted out since.
   const db = await getDb();
   const subject = await consentedSubject(db, groupId, input.subjectUsername, creatorId);
-  const key = crypto.createHash("sha1").update(JSON.stringify([groupId, title, input.description, input.resolvesAt, input.subjectUsername, input.mood, input.chatSnippets])).digest("hex");
+  const key = crypto.createHash("sha1").update(JSON.stringify([groupId, title, input.description, input.resolvesAt, input.subjectUsername, input.mood, input.chatSnippets, input.kind, input.answer, input.line])).digest("hex");
   const hit = previewCache.get(key);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.value;
 
@@ -122,7 +130,10 @@ export async function previewSituation(groupId: number, input: SituationInput, c
     mood: input.mood ?? null,
     history,
     snippets: chatShared,
+    want: { kind: input.kind, answer: input.answer, line: input.line },
   });
+  // The poster asked for a number but nothing numeric came back: say so instead of quietly listing a yes/no.
+  if (input.answer === "number" && analysis.answer !== "number") throw new HttpError(400, "Couldn't work out a line for that. Type one under \"The line\" and try again.");
   // The AI already saw the base rate; we still blend a little so history keeps a direct vote.
   const w = history.baseRate == null ? 0 : MARKET.historyWeight * Math.min(1, history.n / 3);
   const openProb = Math.min(MARKET.maxProb, Math.max(MARKET.minProb, (1 - w) * analysis.probability + w * (history.baseRate ?? 0)));
@@ -161,11 +172,11 @@ export async function createMarket(user: User, groupId: number, input: Situation
   const id = await db.tx(async (q) => {
     const [m] = await q.query<{ id: number }>(
       `INSERT INTO markets (group_id, creator_id, subject_id, kind, decay, title, description, category, resolution_rule,
-        ai_prob, base_rate, base_rate_n, open_prob, ai_rationale, ai_source, b, q_yes, q_no, created_at, resolves_at, last_decay_at, chat_context)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$19,$21) RETURNING id`,
+        ai_prob, base_rate, base_rate_n, open_prob, ai_rationale, ai_source, b, q_yes, q_no, created_at, resolves_at, last_decay_at, chat_context, answer, line, unit)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$19,$21,$22,$23,$24) RETURNING id`,
       [groupId, user.id, p.subject?.id ?? null, a.kind, a.decay, a.title, input.description ?? "", a.category, a.resolutionRule,
         a.probability, p.baseRate, p.baseRateN, p.openProb, a.rationale, a.source, b, bk.qYes, bk.qNo, ts, new Date(input.resolvesAt),
-        p.chatShared.length ? JSON.stringify({ shared: p.chatShared.length, used: a.chatUsed }) : null]
+        p.chatShared.length ? JSON.stringify({ shared: p.chatShared.length, used: a.chatUsed }) : null, a.answer, a.line, a.unit]
     );
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'open')`, [m.id, ts, p.openProb]);
     await systemMessage(q, groupId, "market", `${a.kind === "stock" ? "listed a stock" : "opened a bet"}: ${a.title}`, m.id, user.id);
@@ -301,7 +312,7 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     }
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'resolve')`, [marketId, now(), outcome ? 1 : 0]);
     const extra = [note, opts.suffix].filter(Boolean).join(" · ");
-    await systemMessage(q, m.group_id, "resolution", `resolved ${outcome ? "YES" : "NO"}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
+    await systemMessage(q, m.group_id, "resolution", `resolved ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
       JSON.stringify({ app: "friend-stocks", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4) }),
@@ -317,19 +328,30 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
 }
 
 /** Step one of fair settling: put a result forward. It settles when another member confirms, or after 24 hours. */
-export async function proposeResult(user: User, marketId: number, outcome: boolean, note = "") {
+export async function proposeResult(user: User, marketId: number, result: boolean | { value: number }, note = "") {
   const db = await getDb();
   return db.tx(async (q) => {
     const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
     if (!m) throw new HttpError(404, "Market not found");
     assertOpen(m);
+    // A number question is settled by the number itself; "over the line" is the YES side.
+    let outcome: boolean;
+    if (typeof result === "boolean") {
+      if (m.answer === "number") throw new HttpError(400, "This one settles on a number. Enter what it actually was.");
+      outcome = result;
+    } else {
+      if (m.answer !== "number" || m.line == null) throw new HttpError(400, "This one settles yes or no");
+      outcome = result.value > m.line;
+      note = [`Actual: ${result.value}${m.unit ? ` ${m.unit}` : ""}`, note].filter(Boolean).join(" · ");
+      await q.query(`UPDATE markets SET actual = $2 WHERE id = $1`, [marketId, result.value]);
+    }
     if (m.proposed_outcome != null) throw new HttpError(400, "A result has already been proposed. Another member needs to confirm or dispute it.");
     assertCanPropose(m, user);
     await assertMember(q, m.group_id, user.id);
     // Under the row lock, so nobody can buy a side and then call it their way.
     assertMayCall(await callableBy(q, m, user.id), outcome);
     await q.query(`UPDATE markets SET proposed_outcome = $2, proposed_by = $3, proposed_at = $4, proposed_note = $5 WHERE id = $1`, [marketId, outcome, user.id, now(), note.slice(0, 200)]);
-    await systemMessage(q, m.group_id, "system", `proposed ${outcome ? "YES" : "NO"} for “${m.title}”. Another member can confirm or dispute it; with no reply it settles in 24 hours`, marketId, user.id);
+    await systemMessage(q, m.group_id, "system", `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. Another member can confirm or dispute it; with no reply it settles in 24 hours`, marketId, user.id);
     return { proposed: outcome };
   });
 }
@@ -434,7 +456,7 @@ export async function finaliseProposals(q: Q) {
 
 function assertMayCall(callable: { yes: boolean; no: boolean }, outcome: boolean) {
   if (!callable[outcome ? "yes" : "no"])
-    throw new HttpError(403, `You'd gain from calling this ${outcome ? "YES" : "NO"}, so a friend without that stake has to call it`);
+    throw new HttpError(403, `You'd gain from calling it ${outcome ? "that way" : "the other way"}, so a friend without that stake has to call it`);
 }
 
 /** Which way this user may call the market, given everyone's positions (see mayCall). */

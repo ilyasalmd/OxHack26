@@ -10,7 +10,7 @@ export const GET = route(async (_req, user) => {
   const t = now();
   const dayAgo = new Date(t.getTime() - 86_400_000);
   const markets = await db.query<any>(
-    `SELECT m.id, m.title, m.kind, m.category, m.b, m.q_yes, m.q_no, m.resolves_at, m.volume, m.group_id,
+    `SELECT m.id, m.title, m.kind, m.answer, m.line, m.unit, m.category, m.b, m.q_yes, m.q_no, m.resolves_at, m.volume, m.group_id,
        g.name AS group_name, u.username AS creator,
        (SELECT price FROM price_ticks p WHERE p.market_id = m.id AND p.ts <= $2 ORDER BY p.ts DESC LIMIT 1) AS price_day_ago,
        (SELECT count(DISTINCT user_id) FROM trades x WHERE x.market_id = m.id)::int AS traders
@@ -44,6 +44,9 @@ export const GET = route(async (_req, user) => {
         id: m.id,
         title: m.title,
         kind: m.kind,
+        answer: m.answer,
+        line: m.line,
+        unit: m.unit,
         category: m.category,
         group: m.group_name,
         group_id: m.group_id,

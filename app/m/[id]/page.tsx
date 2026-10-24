@@ -8,6 +8,7 @@ import { BetSlip, odds } from "@/components/bet-slip";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { TimeMachine } from "@/components/timemachine";
 import { proceedsForShares, type Side } from "@/lib/lmsr";
+import { fmtLine, priceMeaning, sides, typeLabel } from "@/lib/labels";
 import { Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
@@ -27,7 +28,7 @@ function useWide() {
 type Person = { id: number; display_name: string; username: string; color: string };
 type Detail = {
   market: {
-    id: number; group_id: number; kind: "bet" | "stock"; decay: string; title: string; description: string; category: string; resolution_rule: string;
+    id: number; group_id: number; kind: "bet" | "stock"; answer: "yesno" | "number"; line: number | null; unit: string; actual: number | null; decay: string; title: string; description: string; category: string; resolution_rule: string;
     ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string;
     chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
     b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean;
@@ -52,6 +53,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [slipOpen, setSlipOpen] = useState(false);
   const [resolveOpen, setResolveOpen] = useState(false);
   const [note, setNote] = useState("");
+  const [actual, setActual] = useState("");
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
   const [speaking, setSpeaking] = useState(false);
@@ -86,6 +88,8 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const voided = m.status === "void";
   const proposal = d.proposal;
   const book = { b: m.b, qYes: m.q_yes, qNo: m.q_no };
+  const lbl = sides(m);
+  const isNumber = m.answer === "number" && m.line != null;
   // Live app clock (real time + demo offset), so a brand-new market still draws a line.
   const now = Date.now() + me.clock.offsetMs;
   const points = d.ticks.map((t) => ({ t: Date.parse(t.ts), v: t.price }));
@@ -107,7 +111,10 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
     setBusy(true);
     setErr("");
     try {
-      await api(`/api/markets/${id}/resolve`, { body: { outcome, note } });
+      // A number question is settled by the number; the server works out which side that is.
+      const value = Number(actual.replace(",", "."));
+      if (isNumber && !Number.isFinite(value)) throw new Error(`Enter the actual number${m.unit ? ` in ${m.unit}` : ""}`);
+      await api(`/api/markets/${id}/resolve`, { body: isNumber ? { value, note } : { outcome, note } });
       setResolveOpen(false);
       await Promise.all([load(), refresh()]);
     } catch (e) {
@@ -167,13 +174,13 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       </div>
       {pos.yes_shares > 0.001 && (
         <div className="mt-2 flex items-center justify-between gap-2 text-sm">
-          <span className="text-up">{isStock ? "Holding" : "Yes"} {fmt(pos.yes_shares)} shares</span>
+          <span className="text-up">{isStock && !isNumber ? "Holding" : lbl.yes} {fmt(pos.yes_shares)} shares</span>
           {!resolved && !m.closed && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "yes", pos.yes_shares)}>Sell for {fmt(proceedsForShares(book, "yes", pos.yes_shares))}</button>}
         </div>
       )}
       {pos.no_shares > 0.001 && (
         <div className="mt-1 flex items-center justify-between gap-2 text-sm">
-          <span className="text-down">{isStock ? "Short" : "No"} {fmt(pos.no_shares)} shares</span>
+          <span className="text-down">{lbl.no} {fmt(pos.no_shares)} shares</span>
           {!resolved && !m.closed && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "no", pos.no_shares)}>Close for {fmt(proceedsForShares(book, "no", pos.no_shares))}</button>}
         </div>
       )}
@@ -185,7 +192,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <TopBar
         back={`/g/${m.group_id}`}
         backOnDesktop
-        title={<span className="text-sm text-mute">{isStock ? "Stock" : "Bet"} · {m.category}</span>}
+        title={<span className="text-sm text-mute">{typeLabel(m)} · {m.category}</span>}
         right={
           <>
             <button onClick={recap} disabled={speaking} className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50" title="Hear a recap">
@@ -230,12 +237,12 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
         <div className="mt-4">
           <div className="text-4xl font-semibold tracking-tight tabular lg:text-5xl">
-            {voided ? <span className="text-mute">Called off</span> : resolved ? <span className={m.outcome ? "text-up" : "text-down"}>{m.outcome ? "Resolved YES" : "Resolved NO"}</span> : <LiveNumber value={m.price}>{show(hover?.v ?? m.price)}</LiveNumber>}
+            {voided ? <span className="text-mute">Called off</span> : resolved ? <span className={m.outcome ? "text-up" : "text-down"}>{isNumber && m.actual != null ? `Settled: ${fmtLine(m.actual, m.unit)}` : m.outcome ? `Resolved ${lbl.yes.toUpperCase()}` : `Resolved ${lbl.no.toUpperCase()}`}</span> : <LiveNumber value={m.price}>{show(hover?.v ?? m.price)}</LiveNumber>}
           </div>
           {!resolved && !voided && (
             <div className="mt-1 flex items-center gap-2 text-sm text-mute">
               <Change from={m.open_prob} to={hover?.v ?? m.price} />
-              <span>since listing · {isStock ? `matures ${new Date(m.resolves_at).toLocaleDateString("en-GB")}` : timeLeft(m.resolves_at, me.clock.now)}</span>
+              <span>{isNumber ? `${priceMeaning(m)} · ` : ""}since listing · {isStock ? `matures ${new Date(m.resolves_at).toLocaleDateString("en-GB")}` : timeLeft(m.resolves_at, me.clock.now)}</span>
             </div>
           )}
         </div>
@@ -259,7 +266,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           <section className="mt-4 rounded-2xl border border-brand/30 bg-brand/5 p-4 text-sm">
             <div className="flex items-center gap-2">
               <Badge tone="brand">Result proposed</Badge>
-              <span className={`font-semibold ${proposal.outcome ? "text-up" : "text-down"}`}>{proposal.outcome ? "YES, it happened" : "NO, it didn't"}</span>
+              <span className={`font-semibold ${proposal.outcome ? "text-up" : "text-down"}`}>{isNumber ? (proposal.outcome ? `${lbl.yes}` : `${lbl.no}`) : proposal.outcome ? "YES, it happened" : "NO, it didn't"}</span>
             </div>
             <p className="mt-2 text-mute">
               {proposal.by?.display_name ?? "Someone"} says so{proposal.note ? `: “${proposal.note}”` : ""}. Trading is closed.
@@ -288,12 +295,12 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         {!resolved && !voided && d.me.canTrade && !m.closed && (
           <div className="mt-5 grid grid-cols-2 gap-2 lg:hidden">
             <button onClick={() => { setSide("yes"); setSlipOpen(true); }} className="rounded-2xl bg-up px-4 py-3 text-left text-black transition active:scale-[.98]">
-              <div className="text-sm font-semibold">{isStock ? "Buy" : "Yes"}</div>
+              <div className="text-sm font-semibold">{lbl.yes}</div>
               <div className="text-2xl font-semibold tracking-tight tabular">{show(m.price)}</div>
               {!isStock && <div className="text-[11px] text-black/60">odds {odds(m.price)}</div>}
             </button>
             <button onClick={() => { setSide("no"); setSlipOpen(true); }} disabled={!d.me.canShort} className="rounded-2xl bg-down px-4 py-3 text-left text-white transition active:scale-[.98] disabled:opacity-40">
-              <div className="text-sm font-semibold">{isStock ? "Short" : "No"}</div>
+              <div className="text-sm font-semibold">{lbl.no}</div>
               <div className="text-2xl font-semibold tracking-tight tabular">{show(1 - m.price)}</div>
               {!isStock && <div className="text-[11px] text-white/60">odds {odds(1 - m.price)}</div>}
             </button>
@@ -383,7 +390,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
        <aside className="sticky top-20 mt-6 hidden space-y-4 lg:block">
         {!resolved && !voided && d.me.canTrade && !m.closed && (
           <section className="rounded-2xl border border-line bg-panel p-4">
-            <BetSlip kind={m.kind} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+            <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
           </section>
         )}
         {positionCard}
@@ -393,20 +400,49 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <div className="lg:hidden"><TimeMachine onJump={load} /></div>
 
       <Sheet open={slipOpen && !wide} onClose={() => setSlipOpen(false)} title={isStock ? "Trade" : "Bet slip"}>
-        <BetSlip kind={m.kind} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+        <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
       </Sheet>
 
       <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Propose the result">
         <div className="space-y-3">
           <p className="text-sm text-mute">{m.resolution_rule}</p>
           <p className="text-xs text-mute">Trading closes now. Another member (not the person it&apos;s about) confirms or disputes your call. If nobody does, it settles as you proposed after {SETTLE_WINDOW_HOURS} hours. A dispute calls the situation off and refunds everyone.</p>
-          <Input placeholder="What happened? (optional, saved to group memory)" value={note} onChange={(e) => setNote(e.target.value)} />
-          <div className="grid grid-cols-2 gap-2">
-            <Button variant="up" disabled={busy || !d.me.canResolveYes} onClick={() => resolve(true)}>YES, it happened</Button>
-            <Button variant="down" disabled={busy || !d.me.canResolveNo} onClick={() => resolve(false)}>NO</Button>
-          </div>
-          {!(d.me.canResolveYes && d.me.canResolveNo) && (
-            <p className="text-xs text-mute">You have a stake in this, so a friend without one has to call it your way.</p>
+          {isNumber ? (
+            <>
+              <label className="block rounded-2xl border border-line bg-ink p-4">
+                <span className="text-xs text-mute">What was the actual number?</span>
+                <div className="mt-1 flex items-baseline gap-2">
+                  <input inputMode="decimal" value={actual} onChange={(e) => setActual(e.target.value.replace(/[^0-9.,-]/g, ""))} placeholder={String(m.line)} aria-label="Actual value" className="w-full min-w-0 bg-transparent !text-[32px] font-semibold leading-none tracking-tight tabular outline-none placeholder:text-white/20" />
+                  {m.unit && <span className="text-lg text-mute">{m.unit}</span>}
+                </div>
+                <p className="mt-2 text-xs text-mute">The line is {fmtLine(m.line!, m.unit)}. Over it pays {lbl.yes}, {fmtLine(m.line!, m.unit)} or under pays {lbl.no}.</p>
+              </label>
+              <Input placeholder="Anything to add? (optional, saved to group memory)" value={note} onChange={(e) => setNote(e.target.value)} />
+              {(() => {
+                const v = Number(actual.replace(",", "."));
+                const over = Number.isFinite(v) && actual !== "" ? v > m.line! : null;
+                const allowed = over == null ? false : over ? d.me.canResolveYes : d.me.canResolveNo;
+                return (
+                  <>
+                    <Button variant={over === false ? "down" : "up"} className="w-full" disabled={busy || over == null || !allowed} onClick={() => resolve(over!)}>
+                      {over == null ? "Enter the number" : `Settle as ${over ? lbl.yes : lbl.no}`}
+                    </Button>
+                    {over != null && !allowed && <p className="text-xs text-mute">You&apos;d gain from that result, so a friend without a stake in it has to enter it.</p>}
+                  </>
+                );
+              })()}
+            </>
+          ) : (
+            <>
+              <Input placeholder="What happened? (optional, saved to group memory)" value={note} onChange={(e) => setNote(e.target.value)} />
+              <div className="grid grid-cols-2 gap-2">
+                <Button variant="up" disabled={busy || !d.me.canResolveYes} onClick={() => resolve(true)}>YES, it happened</Button>
+                <Button variant="down" disabled={busy || !d.me.canResolveNo} onClick={() => resolve(false)}>NO</Button>
+              </div>
+              {!(d.me.canResolveYes && d.me.canResolveNo) && (
+                <p className="text-xs text-mute">You have a stake in this, so a friend without one has to call it your way.</p>
+              )}
+            </>
           )}
           {err && <p className="text-sm text-down">{err}</p>}
           <Link href={`/g/${m.group_id}`} className="block text-center text-sm text-mute">Back to chat</Link>

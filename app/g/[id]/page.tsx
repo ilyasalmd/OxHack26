@@ -17,12 +17,16 @@ import { decryptMessage, encryptMessage, forgetIdentities } from "@/lib/e2ee";
 import { moodScores } from "@/lib/mood";
 import { selectSnippets, type Snippet } from "@/lib/chat-context";
 import { SETTLE_WINDOW_HOURS } from "@/lib/safety";
+import { sides, typeLabel } from "@/lib/labels";
 
 export type Member = { id: number; username: string; display_name: string; color: string; public_key: string; balance: number; has_key: boolean; subject_policy: "anyone" | "nobody" };
 export type MarketLite = {
   id: number;
   title: string;
   kind: "bet" | "stock";
+  answer?: "yesno" | "number";
+  line?: number | null;
+  unit?: string;
   category: string;
   subject_id: number | null;
   creator_id: number;
@@ -430,13 +434,13 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onRepo
           </div>
           <Link href={`/m/${mk.id}`} className="block px-4 pt-3 hover:bg-white/[.02]">
             <div className="flex items-center gap-2 text-[11px] text-mute">
-              <Badge tone={mk.kind === "stock" ? "brand" : "mute"}>{mk.kind === "stock" ? "Stock" : "Bet"}</Badge>
+              <Badge tone={mk.kind === "stock" ? "brand" : "mute"}>{typeLabel(mk)}</Badge>
               <span className="ml-auto">{voided ? "called off" : resolved ? "settled" : pending ? "result proposed" : timeLeft(mk.resolves_at, now)}</span>
             </div>
             <div className={`mt-1.5 text-[17px] font-semibold leading-snug ${voided ? "text-mute line-through decoration-white/30" : ""}`}>{mk.title}</div>
             <div className="mt-3 flex items-end justify-between">
               <div className="text-3xl font-semibold tracking-tight tabular">
-                {voided ? <span className="text-mute">Called off</span> : resolved ? <span className={mk.outcome ? "text-up" : "text-down"}>{mk.outcome ? "Yes" : "No"}</span> : <LiveNumber value={mk.price}>{pct(mk.price)}</LiveNumber>}
+                {voided ? <span className="text-mute">Called off</span> : resolved ? <span className={mk.outcome ? "text-up" : "text-down"}>{mk.outcome ? sides(mk).yes : sides(mk).no}</span> : <LiveNumber value={mk.price}>{pct(mk.price)}</LiveNumber>}
               </div>
               <div className="text-right text-xs text-mute">
                 {!resolved && !voided && <Change from={mk.open_prob} to={mk.price} />}
@@ -448,8 +452,8 @@ function MessageRow({ m, prev, next, meId, members, markets, now, ticker, onRepo
           {pending && <ProposalActions mk={mk} meId={meId} members={members} now={now} onReview={onReview} />}
           {live ? (
             <div className="grid grid-cols-2 gap-2 p-3">
-              <Link href={`/m/${mk.id}?side=yes`} className="rounded-xl bg-up/10 py-2 text-center text-sm font-semibold text-up transition hover:bg-up/20">Long</Link>
-              <Link href={`/m/${mk.id}?side=no`} className="rounded-xl bg-down/10 py-2 text-center text-sm font-semibold text-down transition hover:bg-down/20">Short</Link>
+              <Link href={`/m/${mk.id}?side=yes`} className="rounded-xl bg-up/10 py-2 text-center text-sm font-semibold text-up transition hover:bg-up/20">{sides(mk).yes}</Link>
+              <Link href={`/m/${mk.id}?side=no`} className="rounded-xl bg-down/10 py-2 text-center text-sm font-semibold text-down transition hover:bg-down/20">{sides(mk).no}</Link>
             </div>
           ) : (
             <div className="h-3" />
@@ -499,7 +503,7 @@ function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite;
     <div className="mt-3 border-t border-line px-4 py-3 text-sm">
       <div>
         <span className="text-mute">{by?.display_name ?? "Someone"} proposed </span>
-        <b className={mk.proposed_outcome ? "text-up" : "text-down"}>{mk.proposed_outcome ? "YES" : "NO"}</b>
+        <b className={mk.proposed_outcome ? "text-up" : "text-down"}>{(mk.proposed_outcome ? sides(mk).yes : sides(mk).no).toUpperCase()}</b>
         <span className="text-mute">. {canReview ? "Is that right?" : mk.proposed_by === meId ? "Waiting for another member." : "It's about you, so you can only call it off."}</span>
       </div>
       <div className="mt-0.5 text-xs text-mute">{settlesAt > new Date(now).getTime() ? `Settles on its own in ${timeLeft(new Date(settlesAt), now).replace(" left", "")} if nobody replies.` : "Settling any moment now."}</div>
@@ -546,11 +550,11 @@ function MarketList({ markets, members, now }: { markets: MarketLite[]; members:
                   <div className="min-w-0 flex-1">
                     <div className="truncate font-medium">{m.title}</div>
                     <div className="text-xs text-mute">
-                      {m.category} · {m.status === "void" ? "called off" : m.status === "resolved" ? "settled" : m.proposed_outcome != null ? `proposed ${m.proposed_outcome ? "YES" : "NO"}` : timeLeft(m.resolves_at, now)} · {m.volume.toFixed(0)} vol
+                      {m.category} · {m.status === "void" ? "called off" : m.status === "resolved" ? "settled" : m.proposed_outcome != null ? `proposed ${(m.proposed_outcome ? sides(m).yesShort : sides(m).noShort).toUpperCase()}` : timeLeft(m.resolves_at, now)} · {m.volume.toFixed(0)} vol
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="font-semibold tabular">{m.status === "void" ? <span className="text-mute">VOID</span> : m.status === "resolved" ? (m.outcome ? "YES" : "NO") : <LiveNumber value={m.price}>{pct(m.price)}</LiveNumber>}</div>
+                    <div className="font-semibold tabular">{m.status === "void" ? <span className="text-mute">VOID</span> : m.status === "resolved" ? (m.outcome ? sides(m).yesShort.toUpperCase() : sides(m).noShort.toUpperCase()) : <LiveNumber value={m.price}>{pct(m.price)}</LiveNumber>}</div>
                     {m.status === "open" && <Change from={m.open_prob} to={m.price} />}
                   </div>
                 </Link>

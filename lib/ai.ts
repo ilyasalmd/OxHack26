@@ -129,6 +129,10 @@ export type HistoryEvidence = {
 export type Analysis = {
   title: string;
   kind: "bet" | "stock";
+  /** "number" questions settle on a value and trade as over/under `line`; probability is P(over). */
+  answer: "yesno" | "number";
+  line: number | null;
+  unit: string;
   decay: "none" | "hazard";
   category: string;
   probability: number;
@@ -153,12 +157,20 @@ export async function analyzeSituation(input: {
   mood: number | null;
   history: HistoryEvidence;
   snippets?: Snippet[];
+  /** What the poster asked for; "auto" leaves it to the AI. */
+  want?: { kind?: "auto" | "bet" | "stock"; answer?: "auto" | "yesno" | "number"; line?: number };
 }): Promise<Analysis> {
   const snippets = input.snippets ?? [];
+  const want = input.want ?? {};
   const days = (input.resolvesAt.getTime() - input.now.getTime()) / 86400000;
   const prompt = `You are the pricing desk of "Friend Stocks", a play-money prediction market inside a friends' group chat.
 Friends post situations about each other. Decide how to list this one and its fair probability.
-
+${want.answer === "number" ? `
+THE POSTER WANTS A NUMBER QUESTION. Turn the situation into "how much / how many" (minutes late, pints, hours, marks, messages, times it happens...), set "answer" to "number", "unit" to that quantity's unit and "line" to ${want.line != null ? `exactly ${want.line}` : "your median guess as a round number"}. "line" must be a number, never null.
+` : want.answer === "yesno" ? `
+THE POSTER WANTS A PLAIN YES/NO QUESTION: "answer" is "yesno" and "line" is null.
+` : ""}${want.kind && want.kind !== "auto" ? `THE POSTER WANTS "kind" = "${want.kind}".
+` : ""}
 Situation: "${input.title}"
 Details: ${input.description || "(none)"}
 About: ${input.subjectName ?? "nobody specific"}
@@ -172,11 +184,12 @@ ${snippets.length ? `Recent group-chat snippets the friends chose to share (name
 ${snippets.map((s, i) => `[${i}] ${s.age}, ${s.who}: ${s.text}`).join("\n")}` : ""}
 
 Rules:
+- answer "yesno" when the situation is something that happens or doesn't. answer "number" when it asks HOW MUCH or HOW MANY (minutes late, a grade, a time, a count): then pick a sensible "line" (your median guess, a round number) and a short "unit" (minutes, %, km, pints); the market becomes "over the line or not", and probability is the chance the real number ends up OVER the line (near 50% if the line is your median).${want.line != null ? ` The poster set the line to ${want.line}: keep it and give the honest chance of going over it.` : ""}
 - kind "bet" = short-term yes/no with a deadline (lateness, a match result, a night out). kind "stock" = long-term outcome that trades like a maturing bond until its date (relationships, grades, promotions, fitness goals). Anything > ${MARKET.stockThresholdDays} days away is usually a stock.
 - decay "hazard" if the question is "does X happen at any point before the date" (its price should drift down as time runs out with no news). decay "none" if the outcome is only known on the date (a final grade, a match result).
 - probability: your honest calibrated estimate from the evidence, between ${MARKET.minProb} and ${MARKET.maxProb}. Anchor on the base rate when there are several similar past cases; move away only for clear reasons.
 - resolutionRule: one precise sentence saying exactly what counts as YES, so nobody argues later.
-- title: tidy the situation into a short market question (max 70 chars).
+- title: tidy the situation into a short market question (max 70 chars). For a number question, phrase the over/under in it, e.g. "Jake is more than 15 minutes late to dinner".
 - rationale: one or two friendly sentences citing the evidence used.
 - usefulSnippets: only the chat snippets that genuinely change the odds (plans, excuses, admissions, schedules, track record), each with a short reason. Ignore banter, jokes and anything off-topic. Empty if none.`;
 
@@ -185,6 +198,9 @@ Rules:
     properties: {
       title: { type: "string" },
       kind: { type: "string", enum: ["bet", "stock"] },
+      answer: { type: "string", enum: want.answer === "number" ? ["number"] : want.answer === "yesno" ? ["yesno"] : ["yesno", "number"] },
+      line: want.answer === "number" ? { type: "number" } : { type: ["number", "null"] },
+      unit: { type: "string" },
       decay: { type: "string", enum: ["none", "hazard"] },
       category: { type: "string", enum: CATEGORIES },
       probability: { type: "number" },
@@ -195,15 +211,33 @@ Rules:
         items: { type: "object", properties: { i: { type: "integer" }, why: { type: "string" } }, required: ["i", "why"] },
       },
     },
-    required: ["title", "kind", "decay", "category", "probability", "rationale", "resolutionRule", "usefulSnippets"],
+    required: ["title", "kind", "answer", "line", "unit", "decay", "category", "probability", "rationale", "resolutionRule", "usefulSnippets"],
   });
   if (out && Number.isFinite(out.probability)) {
     const { usefulSnippets, ...rest } = out as typeof out & { usefulSnippets?: { i: number; why: string }[] };
     const chatUsed = (usefulSnippets ?? []).filter((u) => snippets[u.i]).slice(0, 8).map((u) => ({ ...snippets[u.i], why: u.why }));
-    return { ...rest, probability: clampP(out.probability), source: AI.provider as "gemini" | "ollama", chatUsed };
+    return applyWants({ ...rest, probability: clampP(out.probability), source: AI.provider as "gemini" | "ollama", chatUsed }, want);
   }
   const h = heuristicAnalysis(input.title, days, input.history);
-  return snippets.length ? applySnippetTilt(h, snippets) : h;
+  return applyWants(snippets.length ? applySnippetTilt(h, snippets) : h, want);
+}
+
+/** The poster's choices win over the AI's, whatever the model answered. */
+function applyWants(a: Analysis, want: NonNullable<Parameters<typeof analyzeSituation>[0]["want"]>): Analysis {
+  const out = { ...a };
+  if (want.kind && want.kind !== "auto") out.kind = want.kind;
+  if (want.answer && want.answer !== "auto") out.answer = want.answer;
+  if (want.line != null) out.line = want.line;
+  if (out.answer !== "number") {
+    out.line = null;
+    out.unit = "";
+  } else if (out.line == null || !Number.isFinite(out.line)) {
+    // Asked for a number but the model gave no line: fall back to a plain yes/no rather than a broken market.
+    out.answer = "yesno";
+    out.unit = "";
+  }
+  if (out.kind === "bet" && a.kind === "stock") out.decay = "none";
+  return out;
 }
 
 /** No AI configured (or it is down): still produce sensible odds from history alone. */
@@ -216,6 +250,9 @@ export function heuristicAnalysis(title: string, days: number, history: HistoryE
   return {
     title: title.slice(0, 70),
     kind,
+    answer: "yesno",
+    line: null,
+    unit: "",
     decay: kind === "stock" && !outcomeOnDate ? "hazard" : "none",
     category,
     probability: clampP(p),
