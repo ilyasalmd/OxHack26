@@ -53,6 +53,14 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [deskSide, setDeskSide] = useState<"yes" | "no">("yes");
   const wide = useWide();
 
+  // The overview's Long and Short buttons land here with ?side= so the ticket opens ready.
+  useEffect(() => {
+    const s = new URLSearchParams(location.search).get("side");
+    if (s !== "yes" && s !== "no") return;
+    setDeskSide(s);
+    if (!matchMedia("(min-width: 1024px)").matches) setSide(s);
+  }, []);
+
   const load = useCallback(() => api<Detail>(`/api/markets/${id}`).then(setD).catch((e) => setErr(e.message)), [id]);
   useEffect(() => {
     load();
