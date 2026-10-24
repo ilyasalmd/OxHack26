@@ -34,3 +34,14 @@ export async function shareKeyWithNewcomers(groupId: number, identity: CryptoKey
   const keys = await Promise.all(missing.map(async (m) => ({ userId: m.id, wrappedKey: await wrapGroupKey(raw, identity, m.public_key) })));
   await api(`/api/groups/${groupId}/keys`, { body: { keys } });
 }
+
+/** Opens the private chat with `username`, creating it (and its key, wrapped for you both) the first time. */
+export async function openDm(identity: CryptoKey, myUsername: string, username: string) {
+  const found = await api<{ id: number | null }>("/api/dms", { body: { username } });
+  if (found.id) return found.id;
+  const raw = newGroupKey();
+  const users = await Promise.all([myUsername, username].map((u) => api<{ username: string; public_key: string }>(`/api/users/${encodeURIComponent(u)}`)));
+  const keys = await Promise.all(users.map(async (u) => ({ username: u.username, wrappedKey: await wrapGroupKey(raw, identity, u.public_key) })));
+  const { id } = await api<{ id: number }>("/api/dms", { body: { username, keys } });
+  return id;
+}

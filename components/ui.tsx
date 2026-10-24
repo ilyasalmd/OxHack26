@@ -2,8 +2,14 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, Close } from "./icons";
+import { useUserPhoto } from "./media";
 
-export function Avatar({ name, color, size = 36 }: { name: string; color: string; size?: number }) {
+/** A person's initial on their colour, or their profile photo when `id` is given and they've shared it. */
+export function Avatar({ name, color, size = 36, id }: { name: string; color: string; size?: number; id?: number }) {
+  const photo = useUserPhoto(id);
+  if (photo)
+    // eslint-disable-next-line @next/next/no-img-element -- a decrypted blob URL, not something next/image can fetch
+    return <img src={photo} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
   return (
     <div
       className="flex shrink-0 items-center justify-center rounded-full font-semibold text-black"

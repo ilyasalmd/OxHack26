@@ -164,17 +164,53 @@ export async function unwrapGroupKey(wrapped: string, myPrivate: CryptoKey, wrap
 
 export const importGroupKey = (raw: Uint8Array) => subtle().importKey("raw", raw as BufferSource, "AES-GCM", false, ["encrypt", "decrypt"]);
 
-export async function encryptMessage(groupKey: CryptoKey, text: string) {
-  const s = await aesEncrypt(groupKey, enc.encode(JSON.stringify({ t: text })));
+/** A photo or voice note referenced from a message. Its bytes are encrypted with the same group key. */
+export type Attachment = {
+  id: number;
+  kind: "voice" | "image";
+  mime: string;
+  size: number;
+  /** Voice: length in seconds and a 0–1 loudness bar per slice, for the waveform. */
+  dur?: number;
+  wave?: number[];
+  /** Image: pixel size, so the bubble keeps its shape while the photo decrypts. */
+  w?: number;
+  h?: number;
+};
+/** What a chat message holds once decrypted: text (a caption for media), an attachment, and a nonce
+ *  the sender's app uses to match its own "sending…" bubble to the stored message. */
+export type Payload = { t: string; a?: Attachment; n?: string };
+
+export async function encryptMessage(groupKey: CryptoKey, text: string, extra: Omit<Payload, "t"> = {}) {
+  const s = await aesEncrypt(groupKey, enc.encode(JSON.stringify({ t: text, ...extra })));
   return { iv: s.iv, ciphertext: s.ct };
 }
 
-export async function decryptMessage(groupKey: CryptoKey, iv: string, ciphertext: string) {
+export async function decryptPayload(groupKey: CryptoKey, iv: string, ciphertext: string): Promise<Payload | null> {
   try {
-    return (JSON.parse(dec.decode(await aesDecrypt(groupKey, iv, ciphertext))) as { t: string }).t;
+    const p = JSON.parse(dec.decode(await aesDecrypt(groupKey, iv, ciphertext))) as Payload;
+    return typeof p.t === "string" ? p : null;
   } catch {
     return null;
   }
+}
+
+export async function decryptMessage(groupKey: CryptoKey, iv: string, ciphertext: string) {
+  return (await decryptPayload(groupKey, iv, ciphertext))?.t ?? null;
+}
+
+/** Files: a random 12-byte IV followed by the AES-GCM ciphertext, as one byte array. */
+export async function encryptBytes(key: CryptoKey, data: Uint8Array) {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(await subtle().encrypt({ name: "AES-GCM", iv }, key, data as BufferSource));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv);
+  out.set(ct, 12);
+  return out;
+}
+
+export async function decryptBytes(key: CryptoKey, blob: Uint8Array) {
+  return new Uint8Array(await subtle().decrypt({ name: "AES-GCM", iv: blob.slice(0, 12) as BufferSource }, key, blob.slice(12) as BufferSource));
 }
 
 // The unlocked private key lives in IndexedDB as a non-extractable CryptoKey.
