@@ -99,3 +99,40 @@ test("the demo clock only moves the admin's own requests", async () => {
   assert.ok(Math.abs(ahead - real - 7 * DAY) < 5000);
   assert.ok(Math.abs(clock.now().getTime() - real) < 5000, "outside the admin's request, time is real");
 });
+
+test("joining a chat gives no coins", async () => {
+  const [u] = await db.query<{ id: number }>(
+    `INSERT INTO users (username, display_name, auth_hash, color, balance, last_allowance_at, created_at, public_key, enc_private_key, key_salt)
+     VALUES ('dave','dave','x','#fff',500,now(),now(),'k','k','s') RETURNING id`
+  );
+  const [g] = await db.query<{ id: number }>(`INSERT INTO groups (name, invite_code, created_by, created_at) VALUES ('h', 'join-test', $1, now()) RETURNING id`, [people.alice.id]);
+  const ledger = async () => (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM ledger WHERE user_id = $1`, [u.id]))[0].n;
+  const before = await ledger();
+  await (await import("../lib/groups")).joinByInvite(db, u.id, "join-test");
+  await (await import("../lib/groups")).joinByInvite(db, u.id, "join-test");
+  const [m] = await db.query(`SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`, [g.id, u.id]);
+  assert.ok(m, "dave is in the chat");
+  assert.equal((await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [u.id]))[0].balance, 500);
+  assert.equal(await ledger(), before);
+});
+
+test("the +50 allowance comes once per full week, never twice", async () => {
+  const { applyAllowance } = await import("../lib/economy");
+  const [u] = await db.query<{ id: number }>(
+    `INSERT INTO users (username, display_name, auth_hash, color, balance, last_allowance_at, created_at, public_key, enc_private_key, key_salt)
+     VALUES ('erin','erin','x','#fff',500,now(),now(),'k','k','s') RETURNING id`
+  );
+  const bal = async () => (await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [u.id]))[0].balance;
+  const at = (days: number) => (fn: () => Promise<unknown>) => clock.withClock(days * DAY, u.id, fn);
+  await applyAllowance(db, u.id);
+  assert.equal(await bal(), 500, "nothing before a week has passed");
+  await at(6.9)(() => applyAllowance(db, u.id));
+  assert.equal(await bal(), 500);
+  await at(7.1)(() => applyAllowance(db, u.id));
+  await at(7.2)(() => applyAllowance(db, u.id));
+  assert.equal(await bal(), 550, "one +50 after a week, however often you show up");
+  await at(13)(() => applyAllowance(db, u.id));
+  assert.equal(await bal(), 550);
+  await at(14.1)(() => applyAllowance(db, u.id));
+  assert.equal(await bal(), 600);
+});
