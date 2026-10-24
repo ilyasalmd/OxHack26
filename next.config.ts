@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // scripts/serve.sh builds into a spare folder and swaps, so a running demo is only down for a moment.
+  distDir: process.env.NEXT_DIST_DIR || ".next",
   // Native/WASM server deps stay out of the bundle.
   serverExternalPackages: ["@electric-sql/pglite", "pg", "@solana/web3.js", "@solana/spl-token", "bcryptjs"],
   outputFileTracingIncludes: { "/api/**": ["./lib/schema.sql"] },

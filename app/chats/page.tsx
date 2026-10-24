@@ -6,7 +6,7 @@ import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
-import { GroupMark, Logo, lastLine, useChatActions } from "@/components/shell";
+import { GroupMark, LastLine, Logo, useChatActions } from "@/components/shell";
 import { Avatar, Button, Coins, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { ChevronRight, Link2, LogOut, Plus, Users } from "@/components/icons";
 import { forgetIdentities } from "@/lib/e2ee";
@@ -128,7 +128,7 @@ export default function Chats() {
                     <span className="truncate font-medium">{g.name}</span>
                     {g.open_markets > 0 && <span className="rounded bg-brand/10 px-1.5 text-[11px] font-semibold text-brand">{g.open_markets} live</span>}
                   </div>
-                  <div className="truncate text-sm text-mute">{lastLine(g)}</div>
+                  <div className="truncate text-sm text-mute"><LastLine g={g} /></div>
                 </div>
                 {g.last && <span className="text-xs text-mute">{ago(g.last.created_at, me.clock.now)}</span>}
               </Link>
@@ -196,7 +196,7 @@ export default function Chats() {
                     <ChevronRight size={16} className="text-mute transition group-hover:translate-x-0.5 group-hover:text-white" />
                   </div>
                   <div className="mt-4 flex items-center justify-between text-xs text-mute">
-                    <span className="truncate">{lastLine(g)}</span>
+                    <span className="truncate"><LastLine g={g} /></span>
                     {g.open_markets > 0 && <span className="ml-2 shrink-0 rounded bg-brand/10 px-1.5 py-0.5 font-semibold text-brand">{g.open_markets} live</span>}
                   </div>
                 </Link>

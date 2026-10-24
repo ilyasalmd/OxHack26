@@ -13,10 +13,20 @@ export { guessCategory };
 // names replaced by roles and contact details removed (lib/chat-context.ts).
 
 let client: GoogleGenAI | null = null;
+// After a quota or billing refusal, stop asking for a while and use the fallbacks, so
+// the log carries one line instead of one per request.
+let pausedUntil = 0;
 function gemini() {
-  if (!AI.enabled) return null;
+  if (!AI.enabled || Date.now() < pausedUntil) return null;
   client ??= new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY! });
   return client;
+}
+function failed(what: string, e: unknown) {
+  const msg = (e as Error).message;
+  if (/"code":\s*(402|403|429)|RESOURCE_EXHAUSTED|PERMISSION_DENIED/.test(msg)) {
+    pausedUntil = Date.now() + 10 * 60_000;
+    console.warn(`[ai] Gemini refused (${msg.match(/"code":\s*(\d+)/)?.[1] ?? "quota"}); using fallbacks for 10 minutes`);
+  } else console.warn(`[ai] ${what}:`, msg);
 }
 
 async function askJson<T>(prompt: string, schema: object, timeoutMs = 12000): Promise<T | null> {
@@ -38,7 +48,7 @@ async function askJson<T>(prompt: string, schema: object, timeoutMs = 12000): Pr
     ]);
     return JSON.parse(res.text ?? "null") as T;
   } catch (e) {
-    console.warn("[ai] Gemini call failed, using fallback:", (e as Error).message);
+    failed("Gemini call failed, using fallback", e);
     return null;
   }
 }
@@ -54,7 +64,7 @@ export async function embed(text: string): Promise<number[] | null> {
     });
     return res.embeddings?.[0]?.values ?? null;
   } catch (e) {
-    console.warn("[ai] embedding failed:", (e as Error).message);
+    failed("embedding failed", e);
     return null;
   }
 }

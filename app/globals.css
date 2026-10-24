@@ -25,5 +25,16 @@ input, textarea, select { font-size: 16px; }
 .pop { animation: pop .16s ease-out; }
 @keyframes flashUp { 0% { color: var(--color-up) } 100% { color: inherit } }
 @keyframes flashDown { 0% { color: var(--color-down) } 100% { color: inherit } }
+@keyframes fade-up { from { transform: translateY(4px); opacity: 0 } to { transform: none; opacity: 1 } }
 .flash-up { animation: flashUp 1s ease-out; }
 .flash-down { animation: flashDown 1s ease-out; }
+
+/* Chat: a quiet dotted wall behind the bubbles, and new messages ease in. */
+.chat-wall {
+  background-color: var(--color-ink);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+@keyframes msg-in { from { transform: translateY(6px); opacity: 0 } to { transform: none; opacity: 1 } }
+.msg-in { animation: msg-in .22s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .msg-in, .pop { animation: none; } }

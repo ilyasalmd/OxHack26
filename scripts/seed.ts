@@ -1,7 +1,9 @@
 /**
- * Demo data: five friends, two group chats, ~8 weeks of settled history (so the
- * AI has past data and the insights page has calibration), plus live bets and
- * long-term stocks with real price history. Chat messages are really encrypted.
+ * Demo data that looks like three months of real use: fifteen people across six group
+ * chats (flatmates, a uni course, five-a-side, spring week applications, family, a run
+ * club), daily chat, ~120 settled bets with trades, long-term stocks with price history,
+ * weekly allowances, and today's live situations. Chat messages are really encrypted.
+ * The words people say live in scripts/seed-content.ts; this file only runs the clock.
  *
  *   npm run seed            (stop the dev server first when using embedded PGlite)
  *
@@ -18,13 +20,19 @@ import { createMarket, resolveMarket, runDecay, trade, getMarket, price } from "
 import { newWallet } from "../lib/solana";
 import { createIdentity, deriveKeys, encryptMessage, importGroupKey, newGroupKey, randomSalt, wrapGroupKey } from "../lib/e2ee";
 import type { User } from "../lib/auth";
+import { GROUPS, PASSWORD, PEOPLE, type Group, type Line } from "./seed-content";
 
 const g = globalThis as unknown as { __fsClockOffset?: number; __fsDb?: unknown };
-const DAY = 864e5;
+const HOUR = 36e5;
+const DAY = 24 * HOUR;
+const DAYS = 91;
 const T0 = Date.now();
+const START = T0 - DAYS * DAY;
 const at = (t: number) => (g.__fsClockOffset = t - Date.now());
+// Aim for this many settled bets in total, however often the content says things come up.
+const TARGET_SETTLED = 120;
 
-let seed = 42;
+let seed = 2026;
 const rnd = () => {
   seed |= 0;
   seed = (seed + 0x6d2b79f5) | 0;
@@ -34,172 +42,199 @@ const rnd = () => {
 };
 const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
 const pick = <T,>(xs: T[]) => xs[Math.floor(rnd() * xs.length)];
-const clamp = (p: number) => Math.min(0.95, Math.max(0.05, p));
+const shuffle = <T,>(xs: T[]) => [...xs].sort(() => rnd() - 0.5);
+const clamp = (p: number, lo = 0.04, hi = 0.96) => Math.min(hi, Math.max(lo, p));
+/** A plausible time of day for people to be on their phones (8am to 1am, busiest in the evening). */
+const awake = (day: number) => day + (8 + Math.min(16.9, Math.abs(gauss()) * 6 + rnd() * 8)) * HOUR;
 
-const PEOPLE = [
-  ["ilyas", "Ilyas", "#c6ff3d"],
-  ["jake", "Jake", "#4f8cff"],
-  ["priya", "Priya", "#ff7ac6"],
-  ["sam", "Sam", "#ffb020"],
-  ["maya", "Maya", "#00c2d1"],
-] as const;
-const PASSWORD = "demo1234";
+type Seeded = User & { priv: CryptoKey; skill: number; boldness: number };
+type Chat = { id: number; key: CryptoKey; spec: Group };
+type Event = { t: number; run: () => Promise<void> };
 
 async function main() {
   let db = await getDb();
   await db.exec(`DROP SCHEMA public CASCADE; CREATE SCHEMA public;`);
   g.__fsDb = undefined;
   db = await getDb();
-  at(T0 - 56 * DAY);
+  at(START - 2 * DAY);
+  const t1 = Date.now();
 
-  // Users with real E2EE identities.
-  const users: Record<string, User & { priv: CryptoKey }> = {};
-  for (const [username, name, color] of PEOPLE) {
+  // People, with real E2EE identities and custodial wallets.
+  const users: Record<string, Seeded> = {};
+  for (const p of PEOPLE) {
     const salt = randomSalt();
-    const { authKey, encKey } = await deriveKeys(PASSWORD, username, salt);
+    const { authKey, encKey } = await deriveKeys(PASSWORD, p.username, salt);
     const id = await createIdentity(encKey);
     const w = newWallet();
     const [u] = await db.query<{ id: number }>(
       `INSERT INTO users (username, display_name, auth_hash, color, balance, last_allowance_at, created_at, public_key, enc_private_key, key_salt, wallet_pubkey, wallet_secret_enc)
        VALUES ($1,$2,$3,$4,0,$5,$5,$6,$7,$8,$9,$10) RETURNING id`,
-      [username, name, await bcrypt.hash(authKey, 10), color, now(), id.publicKey, id.encPrivateKey, salt, w.pubkey, w.secretEnc]
+      [p.username, p.name, await bcrypt.hash(authKey, 10), p.color, now(), id.publicKey, id.encPrivateKey, salt, w.pubkey, w.secretEnc]
     );
     await credit(db, u.id, 500, "Welcome bonus");
-    users[username] = { id: u.id, username, display_name: name, color, balance: 500, public_key: id.publicKey, wallet_pubkey: w.pubkey, priv: id.privateKey };
+    users[p.username] = { id: u.id, username: p.username, display_name: p.name, color: p.color, balance: 500, public_key: id.publicKey, wallet_pubkey: w.pubkey, priv: id.privateKey, skill: p.skill, boldness: p.boldness };
   }
+  const name = (u: string | null) => (u && users[u] ? users[u].display_name : "");
+  console.log(`People ready (${((Date.now() - t1) / 1000).toFixed(0)}s)`);
 
-  async function makeGroup(name: string, emoji: string, members: string[], aiContext: string) {
+  // Chats, created a few days apart as the app spread through the friend groups.
+  const chats: Chat[] = [];
+  for (let i = 0; i < GROUPS.length; i++) {
+    const spec = GROUPS[i];
+    at(START + i * 1.7 * DAY + 19 * HOUR);
     const raw = newGroupKey();
-    const creator = users[members[0]];
+    const creator = users[spec.members[0]];
     const [grp] = await db.query<{ id: number }>(
-      `INSERT INTO groups (name, emoji, invite_code, ai_context, created_by, created_at) VALUES ($1,$2,$3,$4,$5,$6) RETURNING id`,
-      [name, emoji, `${name.toLowerCase().replace(/[^a-z0-9]/g, "")}-demo`, aiContext, creator.id, now()]
+      `INSERT INTO groups (name, emoji, invite_code, ai_context, created_by, created_at) VALUES ($1,'',$2,$3,$4,$5) RETURNING id`,
+      [spec.name, `${spec.name.toLowerCase().replace(/[^a-z0-9]/g, "")}-demo`, spec.aiContext, creator.id, now()]
     );
-    for (const m of members) {
+    for (const m of spec.members) {
       await db.query(`INSERT INTO group_members (group_id, user_id, joined_at) VALUES ($1,$2,$3)`, [grp.id, users[m].id, now()]);
       await db.query(`INSERT INTO group_keys (group_id, user_id, wrapped_key, wrapped_by) VALUES ($1,$2,$3,$4)`, [grp.id, users[m].id, await wrapGroupKey(raw, creator.priv, users[m].public_key), creator.id]);
     }
-    await db.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1,$2,'system',$3,$4)`, [grp.id, creator.id, `created ${name}`, now()]);
-    return { id: grp.id, key: await importGroupKey(raw), members };
+    await db.query(`INSERT INTO messages (group_id, user_id, kind, body, created_at) VALUES ($1,$2,'system',$3,$4)`, [grp.id, creator.id, `created ${spec.name}`, now()]);
+    chats.push({ id: grp.id, key: await importGroupKey(raw), spec });
+  }
+  const born = (c: Chat) => START + chats.indexOf(c) * 1.7 * DAY + 20 * HOUR;
+
+  /** Post one snippet of conversation starting at time t, one bulk insert. */
+  async function speak(c: Chat, lines: Line[], t: number, subject: string | null = null) {
+    const others = shuffle(c.spec.members.filter((m) => m !== subject));
+    const roles: Record<string, string> = { $a: others[0], $b: others[1] ?? others[0], $c: others[2] ?? others[0], $s: subject ?? others[3] ?? others[0] };
+    const rows: unknown[] = [];
+    let ts = t;
+    for (const [who, text] of lines) {
+      const u = users[roles[who] ?? who];
+      if (!u || !c.spec.members.includes(u.username)) continue;
+      const e = await encryptMessage(c.key, text);
+      rows.push(c.id, u.id, e.ciphertext, e.iv, new Date(Math.min(ts, T0 - 60e3)));
+      ts += (10 + rnd() * 150) * 1000 + text.length * 900;
+    }
+    if (!rows.length) return;
+    const values = Array.from({ length: rows.length / 5 }, (_, i) => `($${i * 5 + 1},$${i * 5 + 2},'chat',$${i * 5 + 3},$${i * 5 + 4},$${i * 5 + 5})`).join(",");
+    await db.query(`INSERT INTO messages (group_id, user_id, kind, ciphertext, iv, created_at) VALUES ${values}`, rows);
   }
 
-  const flat = await makeGroup("Flat 4B", "🏠", ["ilyas", "jake", "priya", "sam", "maya"], "Imperial autumn term ends 12 Dec 2026. January exams 5–16 Jan 2027. Spring week applications mostly close end of Jan. Final results out 1 Jul 2027. Friday dinners at 7:30pm.");
-  const footy = await makeGroup("Sunday League", "⚽", ["jake", "ilyas", "sam"], "5-a-side every Sunday 11am at Hyde Park. Arsenal v Spurs on 1 Nov 2026.");
-
-  async function say(grp: { id: number; key: CryptoKey }, who: string, text: string) {
-    const e = await encryptMessage(grp.key, text);
-    await db.query(`INSERT INTO messages (group_id, user_id, kind, ciphertext, iv, created_at) VALUES ($1,$2,'chat',$3,$4,$5)`, [grp.id, users[who].id, e.ciphertext, e.iv, now()]);
+  /** One friend trades on a noisy belief about the truth; sharper people are less noisy. */
+  async function act(who: string, marketId: number, truth: number) {
+    const u = users[who];
+    const m = await getMarket(db, marketId);
+    const p = price(m);
+    const belief = clamp(truth + gauss() * (0.04 + (1 - u.skill) * 0.32));
+    if (Math.abs(belief - p) < 0.04) return;
+    const [{ balance }] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [u.id]);
+    const amount = Math.floor(Math.min(balance * 0.3, 6 + u.boldness * 40 * (0.4 + rnd())));
+    // People keep some cash back, so nobody arrives at the demo unable to trade.
+    if (amount < 3 || balance - amount < 220) return;
+    await trade(u, marketId, { side: belief > p ? "yes" : "no", action: "buy", amount }).catch(() => {});
   }
 
-  // Recurring situations with each person's "true" tendency, so history is learnable.
-  const templates: { grp: typeof flat; title: (s: string) => string; subject: string | null; p: number; hours: number }[] = [
-    { grp: flat, title: (s) => `${s} is late to Friday dinner`, subject: "jake", p: 0.75, hours: 30 },
-    { grp: flat, title: (s) => `${s} is late to Friday dinner`, subject: "priya", p: 0.2, hours: 30 },
-    { grp: flat, title: (s) => `${s} makes the 9am lecture`, subject: "sam", p: 0.35, hours: 20 },
-    { grp: flat, title: (s) => `${s} goes to the gym 3 times this week`, subject: "maya", p: 0.7, hours: 120 },
-    { grp: flat, title: (s) => `${s} goes to the gym 3 times this week`, subject: "sam", p: 0.3, hours: 120 },
-    { grp: flat, title: (s) => `${s} replies in the chat within an hour`, subject: "jake", p: 0.4, hours: 6 },
-    { grp: flat, title: (s) => `${s} submits coursework a day early`, subject: "priya", p: 0.8, hours: 72 },
-    { grp: flat, title: () => `Flat does the big Tesco shop this weekend`, subject: null, p: 0.5, hours: 60 },
-    { grp: footy, title: () => `Arsenal win this weekend`, subject: null, p: 0.6, hours: 70 },
-    { grp: footy, title: (s) => `${s} scores at 5-a-side on Sunday`, subject: "sam", p: 0.45, hours: 50 },
-    { grp: footy, title: (s) => `${s} turns up late to 5-a-side`, subject: "jake", p: 0.7, hours: 50 },
-  ];
-  const chatter: Record<string, string[]> = {
-    late: ["@jake where are you 😭", "omw 5 mins", "he said 5 mins 20 mins ago", "classic jake", "starting without you"],
-    gym: ["gym at 7 anyone?", "smashed legs today", "skipped again, tired", "proud of myself ngl"],
-    general: ["who's cooking tonight", "lets do pasta", "can someone buy milk", "exam stress is real", "congrats on the offer!!", "tesco run at 6?", "the bin is FULL", "who finished the hummus"],
-  };
+  const events: Event[] = [];
+  const add = (t: number, run: () => Promise<void>) => events.push({ t, run });
 
-  const allUsers = Object.keys(users);
-  for (let week = 0; week < 8; week++) {
-    for (let k = 0; k < 4; k++) {
-      const t = T0 - (56 - week * 7 - k * 1.6) * DAY;
-      at(t);
-      for (const u of allUsers) await applyAllowance(db, users[u].id);
+  // Daily housekeeping: allowances land weekly per person, stocks decay as time passes.
+  for (let d = 0; d <= DAYS; d++) {
+    const t = START + d * DAY + 7 * HOUR;
+    add(t, async () => {
+      if (d % 2 === 0) for (const u of Object.values(users)) await applyAllowance(db, u.id);
       await runDecay(db);
-      const tpl = pick(templates);
-      const subjectName = tpl.subject ? users[tpl.subject].display_name : "";
-      const creatorName = pick(tpl.grp.members.filter((m) => m !== tpl.subject));
-      const creator = users[creatorName];
-      await say(tpl.grp, pick(tpl.grp.members), pick(tpl.title("").includes("late") ? chatter.late : tpl.title("").includes("gym") ? chatter.gym : chatter.general));
-      const id = await createMarket(creator, tpl.grp.id, {
-        title: tpl.title(subjectName),
-        resolvesAt: new Date(t + tpl.hours * 3600e3).toISOString(),
-        subjectUsername: tpl.subject,
-      });
-      // Friends trade on noisy beliefs around the truth.
-      const traders = tpl.grp.members.filter((m) => m !== tpl.subject).sort(() => rnd() - 0.5).slice(0, 2 + Math.floor(rnd() * 3));
-      for (let i = 0; i < traders.length; i++) {
-        at(t + ((i + 1) / (traders.length + 1)) * tpl.hours * 3600e3 * 0.8);
-        const belief = clamp(tpl.p + gauss() * 0.15);
-        const m = await getMarket(db, id);
-        const p = price(m);
-        if (Math.abs(belief - p) < 0.04) continue;
-        const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [users[traders[i]].id]);
-        const amount = Math.min(Math.floor(u.balance * 0.25 - 1), 8 + Math.floor(rnd() * 30));
-        if (amount < 2) continue;
-        await trade(users[traders[i]], id, { side: belief > p ? "yes" : "no", action: "buy", amount }).catch(() => {});
+    });
+  }
+
+  // Everyday chat.
+  for (const c of chats) {
+    for (let d = Math.ceil((born(c) - START) / DAY); d < DAYS; d++) {
+      const n = Math.floor(c.spec.activity + rnd());
+      for (let k = 0; k < n; k++) {
+        const t = awake(START + d * DAY);
+        add(t, () => speak(c, pick(c.spec.snippets), t));
       }
-      at(t + tpl.hours * 3600e3 + 3600e3);
-      const outcome = rnd() < tpl.p;
-      await resolveMarket(creator, id, outcome, "", { waitForMemory: true });
     }
   }
 
-  // Live situations around "today".
-  at(T0 - 21 * DAY);
-  const stocks = [
-    { grp: flat, by: "priya", title: "Jake gets a girlfriend before summer", subject: "jake", end: T0 + 240 * DAY, p0: 0.4, drift: -0.1 },
-    { grp: flat, by: "maya", title: "Priya graduates with a First", subject: "priya", end: T0 + 250 * DAY, p0: 0.55, drift: 0.1 },
-    { grp: flat, by: "jake", title: "Ilyas lands a spring week offer by March", subject: "ilyas", end: T0 + 130 * DAY, p0: 0.45, drift: 0.15 },
-    { grp: footy, by: "jake", title: "Sam runs a sub-25 minute 5k before Christmas", subject: "sam", end: T0 + 60 * DAY, p0: 0.3, drift: 0 },
-  ];
-  const ids: number[] = [];
-  for (const s of stocks) {
-    const id = await createMarket(users[s.by], s.grp.id, { title: s.title, resolvesAt: new Date(s.end).toISOString(), subjectUsername: s.subject });
-    ids.push(id);
-  }
-  for (let day = 20; day >= 0; day--) {
-    at(T0 - day * DAY - 3 * 3600e3);
-    for (const u of allUsers) await applyAllowance(db, users[u].id);
-    await runDecay(db);
-    for (let i = 0; i < stocks.length; i++) {
-      if (rnd() > 0.45) continue;
-      const s = stocks[i];
-      const m = await getMarket(db, ids[i]);
-      const p = price(m);
-      const target = clamp(s.p0 + s.drift * (1 - day / 20) + gauss() * 0.08);
-      const traderPool = s.grp.members.filter((x) => x !== s.subject || target > p);
-      const who = pick(traderPool);
-      const side = target > p ? "yes" : "no";
-      if (who === s.subject && side === "no") continue;
-      await trade(users[who], ids[i], { side, action: "buy", amount: 10 + Math.floor(rnd() * 25) }).catch(() => {});
+  // Recurring situations, settled before today, so the AI has a track record per person.
+  const perWeek = GROUPS.flatMap((s) => s.templates.map((x) => x.perWeek)).reduce((a, b) => a + b, 0);
+  const scale = TARGET_SETTLED / (perWeek * (DAYS / 7) * 0.92);
+  for (const c of chats) {
+    for (const tpl of c.spec.templates) {
+      let t = born(c) + rnd() * 3 * DAY;
+      for (;;) {
+        t += (7 * DAY) / (tpl.perWeek * scale) * (0.5 + rnd());
+        const open = awake(START + Math.floor((t - START) / DAY) * DAY);
+        const close = open + tpl.hours * HOUR;
+        if (close + 2 * HOUR > T0 - 3 * HOUR) break;
+        const holder = { id: 0 };
+        const creator = pick(c.spec.members.filter((m) => m !== tpl.subject));
+        add(open - 6 * 60e3, () => speak(c, pick(tpl.before), open - 6 * 60e3, tpl.subject));
+        add(open, async () => {
+          holder.id = await createMarket(users[creator], c.id, {
+            title: tpl.title.replace("{s}", name(tpl.subject)),
+            resolvesAt: new Date(close).toISOString(),
+            subjectUsername: tpl.subject,
+          });
+        });
+        const traders = shuffle(c.spec.members.filter((m) => m !== tpl.subject)).slice(0, 2 + Math.floor(rnd() * 3));
+        traders.forEach((who, i) => add(open + ((i + 1) / (traders.length + 1)) * tpl.hours * HOUR * 0.85, () => (holder.id ? act(who, holder.id, tpl.p) : Promise.resolve())));
+        const outcome = rnd() < tpl.p;
+        add(close + HOUR, async () => {
+          if (holder.id) await resolveMarket(users[creator], holder.id, outcome, "", { waitForMemory: true }).catch(() => {});
+        });
+        add(close + HOUR + 4 * 60e3, () => speak(c, pick(outcome ? tpl.yes : tpl.no), close + HOUR + 4 * 60e3, tpl.subject));
+      }
     }
-    if (day % 3 === 0) await say(flat, pick(flat.members), pick(chatter.general));
   }
 
-  at(T0 - 2 * 3600e3);
-  const bets = [
-    { grp: flat, by: "maya", title: "Jake is late to Friday dinner", subject: "jake", hours: 30 },
-    { grp: flat, by: "ilyas", title: "Sam makes the 9am lecture on Monday", subject: "sam", hours: 64 },
-    { grp: footy, by: "ilyas", title: "Arsenal beat Spurs on Sunday", subject: null, hours: 8 * 24 },
-  ];
-  for (const b of bets) {
-    const id = await createMarket(users[b.by], b.grp.id, { title: b.title, resolvesAt: new Date(T0 + b.hours * 3600e3).toISOString(), subjectUsername: b.subject });
-    for (const who of b.grp.members.filter((x) => x !== b.subject && x !== b.by).slice(0, 2)) {
-      at(now().getTime() + 15 * 60e3);
-      await trade(users[who], id, { side: rnd() < 0.6 ? "yes" : "no", action: "buy", amount: 10 + Math.floor(rnd() * 20) }).catch(() => {});
+  // Long-term stocks: a few settled during the three months, the rest still trading.
+  for (const c of chats) {
+    for (const s of c.spec.stocks) {
+      const open = Math.max(born(c) + 6 * HOUR, T0 - s.openDaysAgo * DAY + 14 * HOUR);
+      const end = T0 + s.resolveDaysFromNow * DAY;
+      const settled = s.outcome !== undefined && end < T0;
+      const holder = { id: 0 };
+      add(open, async () => {
+        holder.id = await createMarket(users[s.by], c.id, { title: s.title, resolvesAt: new Date(Math.max(end, now().getTime() + DAY)).toISOString(), subjectUsername: s.subject });
+      });
+      const last = settled ? end - DAY : T0 - 2 * HOUR;
+      for (let t = open + DAY; t < last; t += (1 + rnd() * 2.5) * DAY) {
+        const progress = (t - open) / Math.max(DAY, last - open);
+        const truth = clamp(s.p0 + s.drift * progress + gauss() * 0.06);
+        const who = pick(c.spec.members);
+        const when = awake(START + Math.floor((t - START) / DAY) * DAY);
+        if (when >= last) break;
+        add(when, () => (holder.id ? act(who, holder.id, truth) : Promise.resolve()));
+      }
+      if (settled) add(end, async () => {
+        if (holder.id) await resolveMarket(users[s.by], holder.id, s.outcome!, "", { waitForMemory: true }).catch(() => {});
+      });
     }
   }
-  at(T0 - 30 * 60e3);
-  await say(flat, "ilyas", "new bet on jake for friday 👀");
-  await say(flat, "jake", "I will be on time this week I promise");
-  await say(flat, "priya", "he said that last week");
-  await say(footy, "sam", "sunday 11am, bring a ball");
+
+  // Today's live bets, and the last few messages before "now".
+  for (const c of chats) {
+    for (const b of c.spec.liveBets) {
+      const open = T0 - (3 + rnd() * 16) * HOUR;
+      const holder = { id: 0 };
+      add(open, async () => {
+        holder.id = await createMarket(users[b.by], c.id, { title: b.title, resolvesAt: new Date(T0 + b.hoursLeft * HOUR).toISOString(), subjectUsername: b.subject });
+      });
+      const traders = shuffle(c.spec.members.filter((m) => m !== b.subject && m !== b.by)).slice(0, 3);
+      traders.forEach((who, i) => add(open + (i + 1) * 40 * 60e3, () => (holder.id ? act(who, holder.id, clamp(0.5 + gauss() * 0.2)) : Promise.resolve())));
+    }
+    const t = T0 - (25 + rnd() * 30) * 60e3;
+    add(t, () => speak(c, c.spec.recent, t));
+  }
+
+  events.sort((a, b) => a.t - b.t);
+  console.log(`Replaying ${events.length} events…`);
+  let done = 0;
+  for (const e of events) {
+    at(Math.min(e.t, T0 - 60e3));
+    await e.run();
+    if (++done % 200 === 0) console.log(`  ${done}/${events.length} (${((Date.now() - t1) / 60000).toFixed(1)} min)`);
+  }
 
   g.__fsClockOffset = 0;
-  // Don't hand the demo a backlog of thousands of devnet transactions.
+  // Don't hand the demo a backlog of thousands of chain transactions.
   await db.query(`UPDATE chain_ops SET status = 'skipped' WHERE status = 'pending'`);
   // One mint per wallet for today's balance instead, so the first stake has tokens to burn.
   await db.query(
@@ -207,8 +242,10 @@ async function main() {
      SELECT 'mint', id, balance, 'Opening balance', $1 FROM users WHERE wallet_pubkey IS NOT NULL AND balance > 0`,
     [now()]
   );
-  const [{ n }] = await db.query<{ n: string }>(`SELECT count(*) AS n FROM markets`);
-  console.log(`Seeded ${n} markets. Log in as any of ${allUsers.map((u) => "@" + u).join(", ")} with password "${PASSWORD}".`);
+  const [{ n, r }] = await db.query<{ n: string; r: string }>(`SELECT count(*) AS n, count(*) FILTER (WHERE status = 'resolved') AS r FROM markets`);
+  const [{ msgs }] = await db.query<{ msgs: string }>(`SELECT count(*) AS msgs FROM messages`);
+  console.log(`Seeded ${n} markets (${r} settled) and ${msgs} messages in ${((Date.now() - t1) / 60000).toFixed(1)} min.`);
+  console.log(`Log in as any of ${PEOPLE.map((p) => "@" + p.username).join(", ")} with password "${PASSWORD}".`);
   process.exit(0);
 }
 

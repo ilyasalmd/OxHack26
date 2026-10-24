@@ -7,12 +7,12 @@ import { api } from "@/components/api";
 import { addMember, groupKey, shareKeyWithNewcomers } from "@/components/groupkeys";
 import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
-import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, pct, timeLeft } from "@/components/ui";
+import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, pct, timeLeft } from "@/components/ui";
 import { GroupMark } from "@/components/shell";
 import { Chart, Check, Hourglass, Key, Lock, Plus, Send, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { NewSituation } from "@/components/new-situation";
 import { Board, Insights } from "@/components/group-stats";
-import { decryptMessage, encryptMessage } from "@/lib/e2ee";
+import { decryptMessage, encryptMessage, forgetIdentities } from "@/lib/e2ee";
 import { moodScores } from "@/lib/mood";
 import { selectSnippets, type Snippet } from "@/lib/chat-context";
 
@@ -47,7 +47,7 @@ type Panel = (typeof PANELS)[number];
 
 export default function GroupPage({ params }: { params: Promise<{ id: string }> }) {
   const id = Number(use(params).id);
-  const { me, loading, identity, refresh } = useSession();
+  const { me, loading, identity, refresh, setIdentity } = useSession();
   const router = useRouter();
   // Phone shows one view at a time; a laptop shows the chat with the panel beside it.
   const [view, setView] = useState<"Chat" | Panel>("Chat");
@@ -86,7 +86,15 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         // A key that won't unwrap (e.g. this browser holds keys from before a re-seed) must not
         // stop the market cards and system messages from showing.
         keyRef.current = await groupKey(id, identity, f.myKey).catch(() => null);
-        setKeyFailed(!keyRef.current);
+        if (!keyRef.current) {
+          // This browser's saved identity is out of date (the account was re-created). Drop it so
+          // the usual "unlock with your password" prompt appears instead of a dead end.
+          setKeyFailed(true);
+          await forgetIdentities();
+          setIdentity(null);
+          return;
+        }
+        setKeyFailed(false);
         // Now that we can read, decrypt anything that arrived before the key did.
         const fixed = new Map((await decryptAll(msgsRef.current)).map((m) => [m.id, m]));
         setMessages((cur) => cur.map((m) => (m.text == null && fixed.get(m.id)?.text != null ? fixed.get(m.id)! : m)));
@@ -104,7 +112,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     } finally {
       polling.current = false;
     }
-  }, [id, identity, decryptAll]);
+  }, [id, identity, decryptAll, setIdentity]);
 
   useEffect(() => {
     if (!me) return;
@@ -215,21 +223,36 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         <section className={`${view === "Chat" ? "flex" : "hidden"} min-w-0 flex-1 flex-col lg:flex`}>
           <div className="hidden lg:block">{header}</div>
           {!identity && <UnlockPrompt />}
-          {identity && keyFailed && (
-            <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> This device holds an old key for your account. Log out and back in to read the chat.</p>
+          {!identity && keyFailed && (
+            <p className="mx-3 mt-3 flex items-center gap-2 text-sm text-mute"><Key size={15} /> Your account was reset since this device last unlocked it. Enter your password once to read the chat.</p>
           )}
           {identity && !feed.myKey && (
             <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> Waiting for a friend&apos;s app to share the chat key with you. Markets work in the meantime.</p>
           )}
-          <div className="thin-scroll flex-1 overflow-y-auto">
-            <div className="mx-auto max-w-3xl space-y-1.5 px-3 py-3 lg:px-6 lg:py-5">
-              {runs(messages).map((r) =>
-                Array.isArray(r) ? (
-                  <TradeRun key={r[0].id} trades={r} members={members} />
-                ) : (
-                  <MessageRow key={r.id} m={r} prev={messages[messages.indexOf(r) - 1]} meId={me.user.id} members={members} markets={markets} now={feed.now} ticker={c.ticker} />
-                )
-              )}
+          <div className="chat-wall thin-scroll flex-1 overflow-y-auto">
+            <div className="mx-auto max-w-3xl px-3 py-3 lg:px-6 lg:py-5">
+              {runs(messages).map((r, i, all) => {
+                const first = Array.isArray(r) ? r[0] : r;
+                const before = all[i - 1];
+                const prev = before && (Array.isArray(before) ? before[before.length - 1] : before);
+                const nextItem = all[i + 1];
+                const next = nextItem && (Array.isArray(nextItem) ? nextItem[0] : nextItem);
+                const day = dayLabel(first.created_at, feed.now);
+                return (
+                  <div key={first.id}>
+                    {(!prev || dayLabel(prev.created_at, feed.now) !== day) && (
+                      <div className="sticky top-2 z-10 my-3 flex justify-center">
+                        <span className="rounded-full border border-line bg-ink/90 px-3 py-1 text-[11px] font-medium text-mute backdrop-blur">{day}</span>
+                      </div>
+                    )}
+                    {Array.isArray(r) ? (
+                      <TradeRun trades={r} members={members} />
+                    ) : (
+                      <MessageRow m={r} prev={prev} next={next} meId={me.user.id} members={members} markets={markets} now={feed.now} ticker={c.ticker} />
+                    )}
+                  </div>
+                );
+              })}
               <div ref={bottom} />
             </div>
           </div>
@@ -243,9 +266,9 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                 onChange={(e) => setDraft(e.target.value)}
                 placeholder={keyRef.current ? "Message" : "Unlock to chat"}
                 disabled={!keyRef.current}
-                className="h-10 flex-1 rounded-xl border border-line bg-panel px-4 outline-none placeholder:text-mute focus:border-white/25"
+                className="h-10 flex-1 rounded-full border border-line bg-panel px-4 outline-none transition placeholder:text-mute focus:border-white/25"
               />
-              <button className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black disabled:bg-white/10 disabled:text-mute" disabled={!draft.trim()} aria-label="Send">
+              <button className={`flex h-10 w-10 items-center justify-center rounded-full transition ${draft.trim() ? "scale-100 bg-[#2b6cff] text-white" : "scale-90 bg-white/10 text-mute"}`} disabled={!draft.trim()} aria-label="Send">
                 <Send size={17} />
               </button>
             </div>
@@ -311,7 +334,7 @@ function TradeRun({ trades, members }: { trades: Msg[]; members: Map<number, Mem
   const names = [...new Set(trades.map((t) => (t.user_id ? members.get(t.user_id)?.display_name : null)).filter(Boolean))];
   if (open)
     return (
-      <div className="space-y-0.5 py-1 text-center text-xs text-mute" onClick={() => setOpen(false)}>
+      <div className="my-2 space-y-0.5 text-center text-xs text-mute" onClick={() => setOpen(false)}>
         {trades.map((t) => (
           <Link key={t.id} href={`/m/${t.market_id}`} className="block hover:text-white">
             <b className="text-white/80">{t.user_id ? members.get(t.user_id)?.display_name : ""}</b> {t.body}
@@ -320,24 +343,39 @@ function TradeRun({ trades, members }: { trades: Msg[]; members: Map<number, Mem
       </div>
     );
   return (
-    <button onClick={() => setOpen(true)} className="mx-auto flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1 text-xs text-mute hover:text-white">
+    <button onClick={() => setOpen(true)} className="mx-auto my-2 flex items-center gap-1.5 rounded-full bg-white/5 px-3 py-1 text-xs text-mute hover:text-white">
       <Chart size={12} /> {names.slice(0, 2).join(", ")}{names.length > 2 ? ` +${names.length - 2}` : ""} made {trades.length} trades
     </button>
   );
 }
 
-function MessageRow({ m, prev, meId, members, markets, now, ticker }: { m: Msg; prev?: Msg; meId: number; members: Map<number, Member>; markets: Map<number, MarketLite>; now: string; ticker: string }) {
+/** Same sender, a few minutes apart: one visual block, like any chat app. */
+const sameBlock = (a?: Msg, b?: Msg) => !!a && !!b && a.kind === "chat" && b.kind === "chat" && a.user_id === b.user_id && Math.abs(Date.parse(b.created_at) - Date.parse(a.created_at)) < 5 * 60e3;
+const clock = (t: string) => new Date(t).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+function dayLabel(t: string, now: string) {
+  const d = new Date(t);
+  const n = new Date(now);
+  const days = Math.round((new Date(n.toDateString()).getTime() - new Date(d.toDateString()).getTime()) / 864e5);
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 7) return d.toLocaleDateString("en-GB", { weekday: "long" });
+  return d.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short" });
+}
+
+function MessageRow({ m, prev, next, meId, members, markets, now, ticker }: { m: Msg; prev?: Msg; next?: Msg; meId: number; members: Map<number, Member>; markets: Map<number, MarketLite>; now: string; ticker: string }) {
   const who = m.user_id ? members.get(m.user_id) : null;
   if (m.kind === "chat") {
     const mine = m.user_id === meId;
-    const showName = !mine && prev?.user_id !== m.user_id;
+    const first = !sameBlock(prev, m);
+    const last = !sameBlock(m, next);
+    const corner = mine ? (last ? "rounded-br-md" : "rounded-r-md") : last ? "rounded-bl-md" : "rounded-l-md";
     return (
-      <div className={`flex ${mine ? "justify-end" : "justify-start"} gap-2`}>
-        {!mine && <div className="w-7">{showName && who && <Avatar name={who.display_name} color={who.color} size={28} />}</div>}
-        <div className={`max-w-[78%] rounded-2xl px-3.5 py-2 lg:max-w-[560px] ${mine ? "rounded-br-md bg-[#2b6cff] text-white" : "rounded-bl-md bg-panel"}`}>
-          {showName && who && <div className="text-xs font-semibold" style={{ color: who.color }}>{who.display_name}</div>}
-          <div className="whitespace-pre-wrap break-words">{m.text ?? <span className="inline-flex items-center gap-1 italic text-mute"><Lock size={12} /> can&apos;t decrypt yet</span>}</div>
-          <div className={`text-right text-[10px] ${mine ? "text-white/60" : "text-mute"}`}>{ago(m.created_at, now)}</div>
+      <div className={`msg-in flex items-end ${mine ? "justify-end" : "justify-start"} gap-2 ${first ? "mt-2.5" : "mt-0.5"}`}>
+        {!mine && <div className="w-7 shrink-0">{last && who && <Avatar name={who.display_name} color={who.color} size={28} />}</div>}
+        <div className={`max-w-[78%] rounded-2xl px-3.5 py-1.5 lg:max-w-[540px] ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-[#2b6cff] text-white" : "border border-white/[.06] bg-raised"}`}>
+          {first && !mine && who && <div className="text-[13px] font-semibold" style={{ color: who.color }}>{who.display_name}</div>}
+          <span className="whitespace-pre-wrap break-words">{m.text ?? <span className="inline-flex items-center gap-1 italic text-mute"><Lock size={12} /> can&apos;t decrypt yet</span>}</span>
+          <span className={`float-right ml-3 mt-1.5 text-[10px] tabular ${mine ? "text-white/60" : "text-mute"}`}>{clock(m.created_at)}</span>
         </div>
       </div>
     );
@@ -345,34 +383,47 @@ function MessageRow({ m, prev, meId, members, markets, now, ticker }: { m: Msg; 
   const mk = m.market_id ? markets.get(m.market_id) : null;
   if ((m.kind === "market" || m.kind === "resolution") && mk) {
     const resolved = mk.status === "resolved";
+    const settledNow = m.kind === "resolution";
+    const live = !resolved && !mk.closed;
     return (
-      <Link href={`/m/${mk.id}`} className="pop mx-auto my-3 block max-w-[90%] rounded-2xl border border-line bg-panel p-4 transition hover:border-white/15 lg:max-w-md">
-        <div className="mb-2 flex items-center gap-2 text-xs text-mute">
-          <Badge tone={mk.kind === "stock" ? "brand" : "mute"}>{mk.kind === "stock" ? "Stock" : "Bet"}</Badge>
-          <span>{who?.display_name ?? "Someone"} {m.kind === "resolution" ? "resolved" : "listed"}</span>
-          <span className="ml-auto">{resolved ? "settled" : timeLeft(mk.resolves_at, now)}</span>
-        </div>
-        <div className="text-lg font-semibold leading-snug">{mk.title}</div>
-        <div className="mt-3 flex items-end justify-between">
-          <div>
-            <div className="text-3xl font-bold tabular">
-              {resolved ? <span className={mk.outcome ? "text-up" : "text-down"}>{mk.outcome ? "YES" : "NO"}</span> : <LiveNumber value={mk.price}>{pct(mk.price)}</LiveNumber>}
-            </div>
-            {!resolved && <Change from={mk.open_prob} to={mk.price} />}
+      <div className="msg-in my-4 flex justify-center">
+        <div className={`w-full max-w-[92%] overflow-hidden rounded-2xl border bg-panel shadow-[0_8px_30px_-12px_rgba(0,0,0,.6)] lg:max-w-md ${settledNow ? (mk.outcome ? "border-up/30" : "border-down/30") : "border-line"}`}>
+          <div className="flex items-center gap-2 border-b border-line px-4 py-2 text-xs text-mute">
+            {who ? <Avatar name={who.display_name} color={who.color} size={18} /> : <Sparkle size={14} />}
+            <span><b className="font-medium text-white/85">{who?.display_name ?? "Someone"}</b> {settledNow ? "settled a " : "posted a "}{mk.kind === "stock" ? "stock" : "bet"}</span>
+            <span className="ml-auto tabular">{clock(m.created_at)}</span>
           </div>
-          {!resolved && !mk.closed && (
-            <div className="flex gap-2">
-              <span className="rounded-lg bg-up/15 px-3 py-1.5 text-sm font-semibold text-up">Long</span>
-              <span className="rounded-lg bg-down/15 px-3 py-1.5 text-sm font-semibold text-down">Short</span>
+          <Link href={`/m/${mk.id}`} className="block px-4 pt-3 hover:bg-white/[.02]">
+            <div className="flex items-center gap-2 text-[11px] text-mute">
+              <Badge tone={mk.kind === "stock" ? "brand" : "mute"}>{mk.kind === "stock" ? "Stock" : "Bet"}</Badge>
+              <span className="ml-auto">{resolved ? "settled" : timeLeft(mk.resolves_at, now)}</span>
             </div>
+            <div className="mt-1.5 text-[17px] font-semibold leading-snug">{mk.title}</div>
+            <div className="mt-3 flex items-end justify-between">
+              <div className="text-3xl font-semibold tracking-tight tabular">
+                {resolved ? <span className={mk.outcome ? "text-up" : "text-down"}>{mk.outcome ? "Yes" : "No"}</span> : <LiveNumber value={mk.price}>{pct(mk.price)}</LiveNumber>}
+              </div>
+              <div className="text-right text-xs text-mute">
+                {!resolved && <Change from={mk.open_prob} to={mk.price} />}
+                <div className="tabular">{mk.volume.toFixed(0)} {ticker} traded</div>
+              </div>
+            </div>
+            {!resolved && <div className="mt-3 h-1 overflow-hidden rounded-full bg-down/30"><div className="h-full rounded-full bg-up transition-[width] duration-700" style={{ width: `${mk.price * 100}%` }} /></div>}
+          </Link>
+          {live ? (
+            <div className="grid grid-cols-2 gap-2 p-3">
+              <Link href={`/m/${mk.id}?side=yes`} className="rounded-xl bg-up/10 py-2 text-center text-sm font-semibold text-up transition hover:bg-up/20">Long</Link>
+              <Link href={`/m/${mk.id}?side=no`} className="rounded-xl bg-down/10 py-2 text-center text-sm font-semibold text-down transition hover:bg-down/20">Short</Link>
+            </div>
+          ) : (
+            <div className="h-3" />
           )}
         </div>
-        <div className="mt-2 text-xs text-mute">{mk.volume.toFixed(0)} {ticker} traded</div>
-      </Link>
+      </div>
     );
   }
   return (
-    <div className="py-1 text-center text-xs text-mute">
+    <div className="my-2 text-center text-xs text-mute">
       {m.market_id ? (
         <Link href={`/m/${m.market_id}`} className="hover:text-white">
           <b className="text-white/80">{who?.display_name ?? "AI"}</b> {m.body}

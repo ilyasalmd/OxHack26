@@ -13,7 +13,7 @@ type P = {
   series: { ts: string; balance: number; net_worth: number }[];
   positions: { market_id: number; title: string; kind: string; status: string; group: string; yes: number; no: number; spent: number; price: number; value: number }[];
   ledger: { ts: string; delta: number; balance_after: number; reason: string }[];
-  wallet: { address: string; url: string; mint: string | null; onChain: number | null; enabled: boolean } | null;
+  wallet: { address: string; url: string; mint: string | null; onChain: number | null; enabled: boolean; network: string | null } | null;
   chain: { id: number; kind: string; amount: number; status: string; url: string | null; error: string | null }[];
 };
 
@@ -40,7 +40,7 @@ export default function Portfolio() {
   );
   const walletCard = p.wallet && (
     <section className="mt-6 rounded-xl border border-line bg-panel p-4 text-sm lg:mt-0">
-      <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-mute"><Wallet size={13} /> Solana wallet · devnet</h3>
+      <h3 className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-mute"><Wallet size={13} /> Solana wallet{p.wallet.network ? ` · ${p.wallet.network}` : ""}</h3>
       <a href={p.wallet.url} target="_blank" rel="noreferrer" className="block truncate font-mono text-xs text-mute hover:text-white">{p.wallet.address}</a>
       {p.wallet.enabled ? (
         <div className="mt-2 flex justify-between">
@@ -60,6 +60,7 @@ export default function Portfolio() {
           </div>
         ))}
       </div>
+      {p.wallet.enabled && <Link href="/chain" className="mt-3 flex items-center justify-between rounded-lg bg-white/[.04] px-3 py-2 text-xs hover:bg-white/[.07]"><span>See every transaction on the chain</span><ArrowUpRight size={12} /></Link>}
     </section>
   );
 

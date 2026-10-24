@@ -1,4 +1,4 @@
-# Friend Stocks 📈
+# Friend Stocks
 
 **Your group chat, now with a stock market.** Friends post situations about each other ("Jake is late to Friday dinner", "Priya graduates with a First"), the AI prices them from the group's own history, and everyone goes long or short with play money. Built for OxHack 2026 (theme: **TIME**).
 
@@ -13,25 +13,29 @@
 
 ```bash
 npm install
-npm run seed      # demo data: 5 friends, 2 group chats, 8 weeks of history
+npm run seed      # demo data: 15 people, 6 group chats, 3 months of history
 npm run dev       # http://localhost:3000
 ```
 
-Log in as `ilyas`, `jake`, `priya`, `sam` or `maya` with password `demo1234`. Use two browsers to chat between friends. The **+1h / +1d / +1w** buttons (bottom of the sidebar on a laptop, bottom of the screen on a phone) move the app clock so you can show allowances, deadlines and stock decay live.
+Log in as `ilyas`, `jake`, `priya`, `sam`, `maya`, `omar`, `chloe`, `aisha`, `leo`, `dan`, `tom`, `zara`, `mum`, `dad` or `yasmin` with password `demo1234`. Use two browsers to chat between friends. The **+1h / +1d / +1w** buttons (bottom of the sidebar on a laptop, bottom of the screen on a phone) move the app clock so you can show allowances, deadlines and stock decay live.
 
 On a laptop (1024px and wider) the app is a workspace: chats and your balance in a sidebar, the chat in the middle, and markets, leaderboard and insights beside it. On a phone it's one screen at a time.
 
-No keys are needed to run it: without `DATABASE_URL` it uses embedded Postgres (PGlite in `.data/`), and without `GEMINI_API_KEY` it prices from history with a statistical model. Copy `.env.example` to `.env.local` to switch things on. Stop `npm run dev` before re-seeding when using PGlite. After any re-seed, log out and back in: the demo users get fresh encryption keys, and a browser still holding the old ones can see markets but not chat text.
+No keys are needed to run it: without `DATABASE_URL` it uses embedded Postgres (PGlite in `.data/`), and without `GEMINI_API_KEY` it prices from history with a statistical model. Copy `.env.example` to `.env.local` to switch things on. Stop `npm run dev` before re-seeding when using PGlite. After a re-seed the demo users get fresh encryption keys, so each browser asks for the password once to unlock the chats again.
 
 ### Turning on the free services
 
 Everything here is free; none of it needs a card.
 
 - **Tiger Cloud (Timescale):** in the Tiger Cloud console create a service and pick the **Shared / Free** compute (US regions only). Copy the connection string it shows once into `.env.local` as `DATABASE_URL`, then `npm run seed`. The app creates the hypertables, the hourly candle aggregate and the compression policies itself. Seeding over the Atlantic takes a few minutes.
-- **Solana devnet:** `npm run solana:setup` makes a payer key and saves it in `.env.local`. If the devnet faucet is rate limited it prints the payer address: request devnet SOL for it at faucet.solana.com, then run `npm run solana:setup` again to create the coin. Restart the app, and every stake (burn), payout or allowance (mint) shows up in each person's Solana wallet on the Portfolio page.
+- **Solana:** `npm run solana:setup` makes a payer key, saves it in `.env.local` and creates the coin (an SPL token). Two ways to get the free SOL that pays the fees:
+  - **Local validator (no faucet, no limits):** `brew install solana`, then `solana-test-validator --ledger .data/solana-ledger --quiet` in its own terminal, `solana -u localhost airdrop 50 <payer address>`, and add `SOLANA_RPC_URL=http://127.0.0.1:8899` and `SOLANA_CLUSTER=localnet` to `.env.local` before `npm run solana:setup`.
+  - **Devnet:** request devnet SOL for the payer address at faucet.solana.com (the RPC airdrop is often rate limited), then rerun `npm run solana:setup`.
+
+  Restart the app, and every stake (burn), payout or allowance (mint) shows up in each person's wallet on the Portfolio page, and on the **Chain** page, which reads the transactions straight from the Solana RPC.
 - **Gemini:** make a key in Google AI Studio under a project with **no billing attached** (the free tier covers the Flash models) and set `GEMINI_API_KEY`. A key from a project with prepaid billing and no credit fails with HTTP 402, and the app falls back to the statistical model.
 
-`npm test` runs the market-maths tests. `npm run build && npm start` for production (set `APP_SECRET`).
+`npm test` runs the market-maths tests. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
 
 ## How it works
 
@@ -70,7 +74,7 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 | Sponsor | Used for |
 | --- | --- |
 | **Google Gemini** | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past situations", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Set `GEMINI_API_KEY`. |
-| **Solana** | In-game coin as an SPL token on devnet with mint/burn for every stake and payout, memos for market lifecycle. `npm run solana:setup` creates the mint. |
+| **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every stake and payout, memos for market lifecycle, and an in-app Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
 | **Tiger Data (Timescale)** | Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
 | **ElevenLabs** | "🔊 Recap" on any market reads a trading-floor style update or the final result. Set `ELEVENLABS_API_KEY`. |
 | **Vultr** | `Dockerfile` for a one-command deploy on a Vultr VM. |

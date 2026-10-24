@@ -9,7 +9,9 @@ export type Me = {
   netWorth: { balance: number; positions: number; total: number };
   maxStake: number;
   nextAllowanceAt: string;
-  groups: { id: number; name: string; emoji: string; invite_code: string; members: number; open_markets: number; last: { kind: string; body: string | null; created_at: string; user_id: number | null } | null }[];
+  groups: { id: number; name: string; emoji: string; invite_code: string; members: number; open_markets: number; last: { kind: string; body: string | null; created_at: string; user_id: number | null; ciphertext: string | null; iv: string | null; author: string | null } | null;
+    my_key: { wrapped_key: string; wrapper_public_key: string } | null;
+  }[];
   clock: { now: string; offsetMs: number };
   pendingKeys: { group_id: number; wrapped_key: string; wrapper_public_key: string; members: { id: number; public_key: string; has_key: boolean }[] }[];
   config: {

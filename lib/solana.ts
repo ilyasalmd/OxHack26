@@ -34,8 +34,12 @@ export function solanaConfig() {
   };
 }
 
-export const explorer = (sigOrAddr: string, type: "tx" | "address" = "tx") =>
-  `https://explorer.solana.com/${type}/${sigOrAddr}?cluster=${process.env.SOLANA_CLUSTER ?? "devnet"}`;
+// A local validator (SOLANA_CLUSTER=localnet) shows in the same explorer as a custom cluster.
+export const explorer = (sigOrAddr: string, type: "tx" | "address" = "tx") => {
+  const cluster = process.env.SOLANA_CLUSTER ?? "devnet";
+  const q = cluster === "localnet" ? `cluster=custom&customUrl=${encodeURIComponent(process.env.SOLANA_RPC_URL ?? "http://localhost:8899")}` : `cluster=${cluster}`;
+  return `https://explorer.solana.com/${type}/${sigOrAddr}?${q}`;
+};
 
 /** Custodial devnet wallet per user. In production you'd connect Phantom instead. */
 export function newWallet() {

@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
+    "seed:fast": "rm -rf .data/seed-pglite && DATABASE_URL= PGLITE_DIR=.data/seed-pglite tsx --env-file-if-exists=.env.local scripts/seed.ts && tsx --env-file-if-exists=.env.local scripts/push-seed.ts",
     "solana:setup": "tsx --env-file-if-exists=.env.local scripts/solana-setup.ts",
     "test": "tsx --test tests/*.test.ts",
     "typecheck": "tsc --noEmit"

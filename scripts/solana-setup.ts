@@ -11,6 +11,7 @@ import fs from "node:fs";
 import { Connection, Keypair, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { createMint } from "@solana/spl-token";
 import bs58 from "bs58";
+import { explorer } from "../lib/solana";
 
 const rpc = process.env.SOLANA_RPC_URL ?? "https://api.devnet.solana.com";
 const conn = new Connection(rpc, "confirmed");
@@ -37,7 +38,7 @@ async function main() {
     process.exit(1);
   }
   const mint = await createMint(conn, payer, payer.publicKey, null, 2);
-  console.log(`\nMint: https://explorer.solana.com/address/${mint.toBase58()}?cluster=devnet`);
+  console.log(`\nMint: ${explorer(mint.toBase58(), "address")}`);
   fs.appendFileSync(".env.local", `\n# Solana devnet mint (generated ${new Date().toISOString()})\nSOLANA_MINT=${mint.toBase58()}\n`);
   console.log("Appended SOLANA_PAYER_SECRET and SOLANA_MINT to .env.local (git-ignored). Restart the dev server.");
 }

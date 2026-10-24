@@ -46,6 +46,7 @@ export const GET = route(async (_req, user) => {
           mint: cfg?.mint.toBase58() ?? null,
           onChain: cfg ? await onChainBalance(user.wallet_pubkey) : null,
           enabled: !!cfg,
+          network: cfg ? (cfg.cluster === "localnet" ? "local validator" : cfg.cluster) : null,
         }
       : null,
     chain: chain.map((c) => ({ ...c, url: c.signature ? explorer(c.signature) : null })),

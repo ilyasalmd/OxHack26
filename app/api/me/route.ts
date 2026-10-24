@@ -13,7 +13,10 @@ export const GET = route(async (_req, user) => {
     `SELECT g.id, g.name, g.emoji, g.invite_code,
        (SELECT count(*) FROM group_members x WHERE x.group_id = g.id)::int AS members,
        (SELECT count(*) FROM markets m WHERE m.group_id = g.id AND m.status = 'open')::int AS open_markets,
-       (SELECT row_to_json(t) FROM (SELECT kind, body, created_at, user_id FROM messages WHERE group_id = g.id ORDER BY id DESC LIMIT 1) t) AS last
+       (SELECT row_to_json(t) FROM (SELECT x.kind, x.body, x.created_at, x.user_id, x.ciphertext, x.iv, u.display_name AS author
+         FROM messages x LEFT JOIN users u ON u.id = x.user_id WHERE x.group_id = g.id ORDER BY x.id DESC LIMIT 1) t) AS last,
+       (SELECT row_to_json(k) FROM (SELECT gk.wrapped_key, w.public_key AS wrapper_public_key
+         FROM group_keys gk JOIN users w ON w.id = gk.wrapped_by WHERE gk.group_id = g.id AND gk.user_id = $1) k) AS my_key
      FROM groups g JOIN group_members gm ON gm.group_id = g.id WHERE gm.user_id = $1
      ORDER BY (SELECT max(id) FROM messages WHERE group_id = g.id) DESC NULLS LAST`,
     [user.id]

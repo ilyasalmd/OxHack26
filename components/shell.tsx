@@ -1,14 +1,14 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, type Me } from "./session";
 import { api } from "./api";
-import { createGroup } from "./groupkeys";
+import { createGroup, groupKey } from "./groupkeys";
 import { TimeMachine } from "./timemachine";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
-import { Chart, Home, LogOut, Plus, TrendUp, Users } from "./icons";
-import { forgetIdentities } from "@/lib/e2ee";
+import { Blocks, Chart, Home, LogOut, Plus, TrendUp, Users } from "./icons";
+import { decryptMessage, forgetIdentities } from "@/lib/e2ee";
 
 /**
  * Laptop: a three-part workspace (sidebar with account + chats, then the page).
@@ -53,9 +53,31 @@ export function GroupMark({ name, size = 40 }: { name: string; size?: number }) 
   );
 }
 
-export function lastLine(g: Me["groups"][number]) {
-  if (!g.last) return `${g.members} members`;
-  return g.last.kind === "chat" ? "Encrypted message" : g.last.body ?? "";
+/** The chat list's preview line. Chat text is decrypted here, on the device, like the chat itself. */
+export function LastLine({ g }: { g: Me["groups"][number] }) {
+  const { me, identity } = useSession();
+  const [text, setText] = useState<string | null>(null);
+  const last = g.last;
+  useEffect(() => {
+    if (!last || last.kind !== "chat" || !last.ciphertext || !last.iv || !identity || !g.my_key) return setText(null);
+    let alive = true;
+    groupKey(g.id, identity, g.my_key)
+      .then((k) => (k ? decryptMessage(k.key, last.iv!, last.ciphertext!) : null))
+      .catch(() => null)
+      .then((t) => alive && setText(t));
+    return () => {
+      alive = false;
+    };
+  }, [g.id, g.my_key, identity, last]);
+  if (!last) return <>{g.members} members</>;
+  if (last.kind !== "chat") return <>{last.author ? `${last.author} ` : ""}{last.body ?? ""}</>;
+  const who = last.user_id === me?.user.id ? "You" : last.author;
+  return (
+    <>
+      {who && <span className="text-white/70">{who}: </span>}
+      {text ?? "Encrypted message"}
+    </>
+  );
 }
 
 function Sidebar({ me, path }: { me: Me; path: string }) {
@@ -69,6 +91,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   const nav = [
     { href: "/chats", label: "Overview", icon: Home },
     { href: "/portfolio", label: "Portfolio", icon: Chart },
+    { href: "/chain", label: "Chain", icon: Blocks },
   ];
   return (
     <aside className="hidden w-[300px] shrink-0 flex-col border-r border-line bg-panel lg:flex">
@@ -123,7 +146,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
                     {g.open_markets > 0 && <span className="rounded bg-brand/10 px-1.5 text-[10px] font-semibold text-brand tabular">{g.open_markets}</span>}
                     {g.last && <span className="ml-auto text-[11px] text-mute">{ago(g.last.created_at, me.clock.now)}</span>}
                   </div>
-                  <div className="truncate text-xs text-mute">{lastLine(g)}</div>
+                  <div className="truncate text-xs text-mute"><LastLine g={g} /></div>
                 </div>
               </Link>
             </li>
