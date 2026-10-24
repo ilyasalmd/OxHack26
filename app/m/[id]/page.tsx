@@ -4,6 +4,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { PriceChart } from "@/components/chart";
+import { CandleChart } from "@/components/candles";
 import { BetSlip, odds } from "@/components/bet-slip";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { TimeMachine } from "@/components/timemachine";
@@ -38,6 +39,7 @@ type Detail = {
   subject: Person | null;
   proposal: { outcome: boolean; note: string; by: Person | null; at: string; settlesAt: string } | null;
   ticks: { ts: string; price: number; source: string }[];
+  candles: { bucket: string; open: number; high: number; low: number; close: number; volume: number; n: number }[];
   trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string }[];
   position: { yes_shares: number; no_shares: number; spent: number } | null;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
@@ -49,6 +51,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const { me, refresh } = useSession();
   const [d, setD] = useState<Detail | null>(null);
   const [hover, setHover] = useState<{ t: number; v: number } | null>(null);
+  const [chartMode, setChartMode] = useState<"candles" | "line">("candles");
   // The slip's side; on a phone it opens as a sheet, on a laptop it sits beside the chart.
   const [side, setSide] = useState<Side>("yes");
   const [oddsFmt] = useOddsFormat();
@@ -95,6 +98,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   // Live app clock (real time + demo offset), so a brand-new market still draws a line.
   const now = Date.now() + me.clock.offsetMs;
   const points = d.ticks.map((t) => ({ t: Date.parse(t.ts), v: t.price }));
+  const candles = d.candles.map((k) => ({ t: Date.parse(k.bucket), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume }));
+  const chartNow = resolved || voided ? Math.max(...points.map((p) => p.t)) : now;
+  const useCandles = isStock && candles.length >= 2 && chartMode === "candles";
 
   async function doTrade(action: "buy" | "sell", s: "yes" | "no", amt: number) {
     setBusy(true);
@@ -251,7 +257,25 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         </div>
 
         <div className="mt-4">
-          <PriceChart points={points} now={resolved || voided ? Math.max(...points.map((p) => p.t)) : now} format={show} onHover={setHover} height={wide ? 300 : 180} />
+          {isStock && candles.length >= 2 && (
+            <div className="mb-2 flex gap-1">
+              {(["candles", "line"] as const).map((k) => (
+                <button
+                  key={k}
+                  onClick={() => { setChartMode(k); setHover(null); }}
+                  aria-pressed={chartMode === k}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${chartMode === k ? "bg-white/10 text-white" : "text-mute"}`}
+                >
+                  {k === "candles" ? "Candles" : "Line"}
+                </button>
+              ))}
+            </div>
+          )}
+          {useCandles ? (
+            <CandleChart candles={candles} now={chartNow} format={show} onHover={(k) => setHover(k ? { t: k.t, v: k.c } : null)} height={wide ? 300 : 180} />
+          ) : (
+            <PriceChart points={points} now={chartNow} format={show} onHover={setHover} height={wide ? 300 : 180} />
+          )}
         </div>
 
         {voided && (

@@ -128,7 +128,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   const nav = [
     { href: "/markets", label: "Markets", icon: TrendUp },
     { href: "/portfolio", label: "Wallet", icon: Wallet },
-    { href: "/chain", label: "Chain", icon: Blocks },
+    ...(me.account?.isAdmin ? [{ href: "/chain", label: "Chain", icon: Blocks }] : []),
     { href: "/settings", label: "Settings", icon: Settings, dot: !me.account?.hasRecovery },
   ];
   const sorted = [...me.groups].sort((a, b) => (b.last ? Date.parse(b.last.created_at) : 0) - (a.last ? Date.parse(a.last.created_at) : 0));
@@ -193,9 +193,12 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   );
 }
 
+/** Names of chats made a moment ago, so the new chat's header shows before the list refreshes. */
+export const pendingChatNames = new Map<number, string>();
+
 /** "New chat" and "Join" flows, shared by the phone chat list and the laptop sidebar. */
 export function useChatActions() {
-  const { me, identity } = useSession();
+  const { me, identity, refresh } = useSession();
   const router = useRouter();
   const [open, setOpen] = useState<"create" | "join" | null>(null);
   const [name, setName] = useState("");
@@ -204,13 +207,16 @@ export function useChatActions() {
   const [err, setErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function run(fn: () => Promise<number>) {
+  async function run(fn: () => Promise<number>, label?: string) {
     setBusy(true);
     setErr("");
     try {
       const id = await fn();
+      if (label) pendingChatNames.set(id, label);
       setOpen(null);
       router.push(`/g/${id}`);
+      // The chat list catches up in the background; the chat itself is already on screen.
+      void refresh();
     } catch (e) {
       setErr((e as Error).message);
     } finally {
@@ -223,7 +229,7 @@ export function useChatActions() {
     run(() => {
       const names = [me.user.username, ...members.split(/[\s,]+/).map((s) => s.replace(/^@/, "").toLowerCase()).filter(Boolean)];
       return createGroup(identity, name.trim() || "New group", "", [...new Set(names)]);
-    });
+    }, name.trim() || "New group");
   };
   const join = (e: React.FormEvent) => {
     e.preventDefault();

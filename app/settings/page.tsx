@@ -10,6 +10,7 @@ import { Avatar, Badge, Button, Input, Sheet, TopBar, ago } from "@/components/u
 import { Check, ChevronRight, Key } from "@/components/icons";
 import { forgetIdentities } from "@/lib/e2ee";
 import { ODDS_FORMATS, useOddsFormat } from "@/lib/odds";
+import { ACCENTS, useAccent } from "@/lib/theme";
 
 type Account = { username: string; displayName: string; color: string; createdAt: string; hasRecovery: boolean; usernameChangedAt: string | null; nextUsernameChangeAt: string | null };
 type Session = { id: string; device: string; place: string; createdAt: string; lastSeenAt: string; current: boolean };
@@ -113,6 +114,7 @@ const SECTIONS = [
   { id: "security", label: "Security" },
   { id: "privacy", label: "Privacy" },
   { id: "odds", label: "Odds" },
+  { id: "colour", label: "Colour" },
   { id: "devices", label: "Devices" },
   { id: "danger", label: "Danger zone" },
 ];
@@ -192,6 +194,9 @@ function Laptop({ account, sessions, changed, loadSessions, open }: PageProps) {
           <SessionsList layout="card" sessions={sessions} reload={loadSessions} />
         </Section>
 
+        <Section id="colour" title="Colour" description="The accent the app wears. Just this device.">
+          <AccentChoice />
+        </Section>
         <Section id="odds" title="Odds" description="How a bet's price is written. Just this device.">
           <OddsChoice />
         </Section>
@@ -586,6 +591,10 @@ function Phone({ account, sessions, open }: PageProps) {
         <SafetySettings />
       </section>
       <section>
+        <h2 className="px-1 pb-2 text-xs font-medium uppercase tracking-wider text-mute">Colour</h2>
+        <div className="rounded-2xl bg-panel p-4"><AccentChoice /></div>
+      </section>
+      <section>
         <h2 className="px-1 pb-2 text-xs font-medium uppercase tracking-wider text-mute">Odds</h2>
         <OddsChoice />
       </section>
@@ -597,6 +606,22 @@ function Phone({ account, sessions, open }: PageProps) {
 }
 
 /** Decimal, fractional or American, remembered on this device. */
+function AccentChoice() {
+  const [a, setA] = useAccent();
+  return (
+    <div className="flex flex-wrap gap-3">
+      {ACCENTS.map((o) => (
+        <button key={o.k} type="button" onClick={() => setA(o.k)} aria-pressed={a === o.k} title={o.label} className="flex flex-col items-center gap-1.5 text-xs text-mute">
+          <span className={`flex h-11 w-11 items-center justify-center rounded-full transition ${a === o.k ? "ring-2 ring-white ring-offset-2 ring-offset-ink" : ""}`} style={{ background: o.brand }}>
+            {a === o.k && <Check size={16} className="text-black" />}
+          </span>
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function OddsChoice() {
   const [f, setF] = useOddsFormat();
   return (

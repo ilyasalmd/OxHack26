@@ -22,8 +22,8 @@ export const ECONOMY = {
 
 export const MARKET = {
   // LMSR liquidity: higher b = prices move less per coin traded.
-  betLiquidity: 80,
-  stockLiquidity: 150,
+  betLiquidity: 120,
+  stockLiquidity: 250,
   minProb: 0.03,
   maxProb: 0.97,
   // Situations resolving further out than this default to long-term "stocks".
@@ -65,3 +65,12 @@ export const AI = {
 };
 
 export const DEMO_MODE = process.env.DEMO_MODE !== "false";
+
+// The app's admin accounts: usernames listed in ADMIN_USERNAMES (comma or space separated). Only
+// they see the Solana chain pages. Read at call time so a .env change is picked up on restart.
+export const isAdminUsername = (username: string) =>
+  (process.env.ADMIN_USERNAMES ?? "").toLowerCase().split(/[,\s]+/).filter(Boolean).includes(username.toLowerCase());
+
+// Demo: drop new sign-ups into the seeded sample chats. Off unless DEMO_AUTOJOIN=true, so a real
+// account only sees the chats it's actually in; the sample history stays in the database for the AI.
+export const DEMO_AUTOJOIN = process.env.DEMO_AUTOJOIN === "true";

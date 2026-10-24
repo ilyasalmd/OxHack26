@@ -6,12 +6,19 @@
   --color-raised: #18181b;
   --color-line: #222226;
   --color-mute: #8b8b94;
-  --color-up: #2fd27a;
-  --color-down: #ff5a5f;
+  --color-up: #7ccf9b;
+  --color-down: #f0646a;
   --color-brand: #cfe36a;
   --font-sans: var(--font-geist), ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 }
+
+/* Accent themes (Settings → Colour). Lime is the default above. */
+html[data-accent="butter"] { --color-brand: #f0e08e; }
+html[data-accent="peach"] { --color-brand: #f5bd8a; }
+html[data-accent="mint"] { --color-brand: #a9e4c5; }
+html[data-accent="sky"] { --color-brand: #9fcbf2; }
+html[data-accent="lilac"] { --color-brand: #c9b8f0; }
 
 html, body { background: var(--color-ink); color: #f4f4f5; }
 body { -webkit-font-smoothing: antialiased; font-feature-settings: "ss01", "cv11"; }

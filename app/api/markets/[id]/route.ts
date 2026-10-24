@@ -1,7 +1,7 @@
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
-import { callableBy, getMarket, isClosed, price } from "@/lib/markets";
+import { PROPOSE_GRACE_MS, callableBy, getMarket, isClosed, price } from "@/lib/markets";
 import { maxStake } from "@/lib/economy";
 import { tradeFee } from "@/lib/markets";
 import { findSimilar } from "@/lib/memory";
@@ -18,7 +18,7 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     [id]
   );
   // Hourly candles: a Timescale continuous aggregate on Tiger Cloud, date_bin elsewhere.
-  const candles = db.timescale
+  const priceCandles = db.timescale
     ? await db.query(`SELECT bucket, open, high, low, close FROM price_candles_1h WHERE market_id = $1 ORDER BY bucket`, [id])
     : await db.query(
         `SELECT date_bin(INTERVAL '1 hour', ts, TIMESTAMPTZ '2000-01-01') AS bucket,
@@ -27,6 +27,23 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
          FROM price_ticks WHERE market_id = $1 GROUP BY bucket ORDER BY bucket`,
         [id]
       );
+  // Traded volume per hour, merged onto the price candles by bucket time.
+  const volumes = await db.query<{ bucket: Date; volume: number | string; n: number }>(
+    `SELECT date_bin(INTERVAL '1 hour', created_at, TIMESTAMPTZ '2000-01-01') AS bucket, sum(coins) AS volume, count(*)::int AS n
+     FROM trades WHERE market_id = $1 GROUP BY bucket`,
+    [id]
+  );
+  const volByBucket = new Map(volumes.map((v) => [new Date(v.bucket).getTime(), v]));
+  // Each candle opens where the last one closed, as on an exchange, so a single trade in an hour
+  // still draws a body from the previous price to the new one instead of a flat dash.
+  let prevClose: number | null = null;
+  const candles = (priceCandles as { bucket: Date; open: number; high: number; low: number; close: number }[]).map((c) => {
+    const v = volByBucket.get(new Date(c.bucket).getTime());
+    const open = prevClose ?? Number(c.open);
+    const close = Number(c.close);
+    prevClose = close;
+    return { ...c, open, close, high: Math.max(Number(c.high), open), low: Math.min(Number(c.low), open), volume: v ? Number(v.volume) : 0, n: v ? Number(v.n) : 0 };
+  });
   const trades = await db.query(
     `SELECT t.id, t.side, t.action, t.shares, t.coins, t.price_after, t.created_at, u.display_name, u.color
      FROM trades t JOIN users u ON u.id = t.user_id WHERE t.market_id = $1 ORDER BY t.created_at DESC LIMIT 30`,
@@ -72,14 +89,16 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       // Bets are locked once placed; stocks pay a small fee after the first free trade.
       canSell: m.kind === "stock",
       fee: await tradeFee(db, m, user.id),
-      canResolve: open && !proposed && !isSubject && (m.creator_id === user.id || new Date(m.resolves_at) <= now()),
+      // The poster calls it, early if it already happened; anyone can a day after the deadline.
+      canResolve: open && !proposed && !isSubject && (m.creator_id === user.id || now().getTime() >= new Date(m.resolves_at).getTime() + PROPOSE_GRACE_MS),
       canConfirm: proposed && !isSubject && m.proposed_by !== user.id,
       canVeto: open && isSubject,
       canReport: m.creator_id !== user.id || isSubject,
       reported: !!mine,
       // You can't call it the way that pays you.
       canResolveYes: callable.yes,
-      canResolveNo: callable.no,
+      // NO/Under can't be known before the deadline.
+      canResolveNo: callable.no && new Date(m.resolves_at) <= now(),
       isSubject,
     },
   };

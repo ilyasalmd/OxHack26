@@ -35,6 +35,7 @@ export default function ChainPage() {
     return () => clearInterval(t);
   }, []);
   if (!me) return null;
+  if (!me.account.isAdmin) return <main className="p-10 text-center text-sm text-mute">The chain view is for the app&apos;s admin.</main>;
   const ticker = me.config.currency.ticker;
 
   return (

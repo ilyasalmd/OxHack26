@@ -8,7 +8,7 @@ import { addMember, groupKey, shareKeyWithNewcomers } from "@/components/groupke
 import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, fmt, pct, timeLeft } from "@/components/ui";
-import { GroupMark } from "@/components/shell";
+import { GroupMark, pendingChatNames } from "@/components/shell";
 import { Chart, Check, Close, Flag, Hourglass, Key, Lock, Plus, Send, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
@@ -196,7 +196,17 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     return out;
   }, [feed, chatSnippets]);
 
-  if (!me || !feed) return <main className="p-10 text-center text-mute">{err || "Loading…"}</main>;
+  if (!me) return null;
+  if (!feed) {
+    // The chat exists in the sidebar already (a brand-new one included); draw its frame while the first feed loads.
+    const known = me.groups.find((g) => g.id === id) ?? (pendingChatNames.has(id) ? { name: pendingChatNames.get(id)!, members: 1 } : undefined);
+    return (
+      <main className="flex min-h-dvh flex-col lg:min-h-full">
+        <TopBar back="/chats" title={<div className="flex items-center gap-3"><GroupMark name={known?.name ?? ""} size={36} /><div><div className="font-semibold leading-tight">{known?.name ?? ""}</div><div className="text-xs text-mute">{err || (known ? `${known.members} members` : "")}</div></div></div>} />
+        <div className="chat-wall flex-1" />
+      </main>
+    );
+  }
   const c = me.config.currency;
   const live = feed.markets.filter((m) => m.status === "open" && !m.closed).length;
 

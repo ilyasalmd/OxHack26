@@ -2,7 +2,7 @@ import { getDb } from "@/lib/db";
 import { route } from "@/lib/auth";
 import { maxStake, netWorth } from "@/lib/economy";
 import { clockOffset, now } from "@/lib/clock";
-import { CURRENCY, DEMO_MODE, ECONOMY, AI } from "@/lib/config";
+import { CURRENCY, DEMO_MODE, ECONOMY, AI, isAdminUsername } from "@/lib/config";
 import { solanaConfig } from "@/lib/solana";
 import { ensureWorker } from "@/lib/worker";
 
@@ -44,7 +44,7 @@ export const GET = route(async (_req, user) => {
     nextAllowanceAt: new Date(new Date(u.last_allowance_at).getTime() + ECONOMY.allowancePeriodMs),
     groups,
     pendingKeys,
-    account: { hasRecovery: u.has_recovery },
+    account: { hasRecovery: u.has_recovery, isAdmin: isAdminUsername(user.username) },
     clock: { now: now(), offsetMs: clockOffset() },
     config: {
       currency: CURRENCY,

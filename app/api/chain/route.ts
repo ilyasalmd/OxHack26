@@ -1,11 +1,13 @@
 import { getDb } from "@/lib/db";
-import { route } from "@/lib/auth";
+import { HttpError, route } from "@/lib/auth";
 import { explorer, solanaConfig } from "@/lib/solana";
 import { describeTx } from "@/lib/chain";
+import { isAdminUsername } from "@/lib/config";
 
 // A small block explorer for the app's token, read straight from the Solana RPC (not our
 // database), so what it shows is what the chain itself recorded.
 export const GET = route(async (_req, user) => {
+  if (!isAdminUsername(user.username)) throw new HttpError(403, "The chain view is for the app\'s admin");
   const cfg = solanaConfig();
   if (!cfg) return { enabled: false as const };
   const conn = cfg.connection;

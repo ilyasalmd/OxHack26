@@ -2,11 +2,13 @@ import { getDb } from "@/lib/db";
 import { HttpError, route } from "@/lib/auth";
 import { solanaConfig } from "@/lib/solana";
 import { describeTx } from "@/lib/chain";
+import { isAdminUsername } from "@/lib/config";
 
 // One transaction, read from the RPC, plus the app event our queue recorded for it (which bet,
 // which fee) when there is one. Only people in the viewer's chats are named.
 type SigCtx = { params: Promise<{ sig: string }> };
 export const GET = route<SigCtx>(async (_req, user, ctx) => {
+  if (!isAdminUsername(user.username)) throw new HttpError(403, "The chain view is for the app\'s admin");
   const { sig } = await ctx.params;
   if (!/^[1-9A-HJ-NP-Za-km-z]{64,120}$/.test(sig)) throw new HttpError(400, "That isn't a Solana signature.");
   const cfg = solanaConfig();

@@ -274,9 +274,20 @@ export async function tradeFee(q: Q, m: MarketRow, userId: number) {
 }
 
 /** Who may put a result forward: not the subject, the creator any time, anyone else once the date has passed. */
-function assertCanPropose(m: MarketRow, user: User) {
-  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't resolve it");
-  if (m.creator_id !== user.id && new Date(m.resolves_at) > now()) throw new HttpError(403, "Only the creator can resolve before the resolve date");
+/** How long after the deadline the poster alone may call it before anyone in the chat can. */
+export const PROPOSE_GRACE_MS = 24 * 3600_000;
+
+/**
+ * Whoever posted the situation proposes the result, early if it already happened. Before the
+ * deadline only the "it happened" side can be known, so NO/Under has to wait. If the poster goes
+ * quiet, any member can propose a day after the deadline so nothing sits unsettled for ever.
+ */
+export function assertCanPropose(m: MarketRow, user: User, outcome?: boolean) {
+  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't call it");
+  const past = new Date(m.resolves_at) <= now();
+  if (m.creator_id !== user.id && now().getTime() < new Date(m.resolves_at).getTime() + PROPOSE_GRACE_MS)
+    throw new HttpError(403, "Only whoever posted it can propose the result until a day after the deadline");
+  if (!past && outcome === false) throw new HttpError(400, `Before the deadline it can only be called ${sides(m).yes}. ${sides(m).no} isn't known until it closes.`);
 }
 
 async function assertMember(q: Q, groupId: number, userId: number) {
@@ -298,7 +309,7 @@ export async function resolveMarket(user: User, marketId: number, outcome: boole
   const db = await getDb();
   const m = await getMarket(db, marketId);
   assertOpen(m);
-  assertCanPropose(m, user);
+  assertCanPropose(m, user, outcome);
   await assertMember(db, m.group_id, user.id);
   return settle(m, outcome, note, user.id, { ...opts, caller: user.id });
 }
@@ -320,10 +331,14 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     );
     // Checked under the market row lock, so nobody can buy in between and then resolve their own way.
     if (opts.caller != null) assertMayCall(await callableBy(q, m, opts.caller), outcome);
+    // One person alone was only ever betting against the house on a result their friends decide,
+    // so it pays nothing: they get their stake back. (Murat's rule from fair-settling-group-wallets.)
+    const [{ n: traders }] = await q.query<{ n: number }>(`SELECT count(DISTINCT user_id)::int AS n FROM trades WHERE market_id = $1`, [marketId]);
+    const lonely = traders > 0 && traders < 2;
     const out: { user_id: number; payout: number; pnl: number }[] = [];
     for (const p of positions) {
-      const payout = outcome ? p.yes_shares : p.no_shares;
-      if (payout > 0.005) await credit(q, p.user_id, payout, `Payout · ${m.title}`, marketId);
+      const payout = lonely ? Math.max(0, p.spent) : outcome ? p.yes_shares : p.no_shares;
+      if (payout > 0.005) await credit(q, p.user_id, payout, `${lonely ? "Refund (only one trader)" : "Payout"} · ${m.title}`, marketId);
       else await recordNetWorth(q, p.user_id);
       out.push({ user_id: p.user_id, payout, pnl: payout - p.spent });
     }
@@ -331,7 +346,7 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     const [held] = await q.query<{ fees_held: number }>(`UPDATE markets SET fees_held = 0 WHERE id = $1 AND fees_held > 0 RETURNING fees_held`, [marketId]);
     if (held && m.fees_held >= 0.01) await credit(q, m.creator_id, m.fees_held, `Listing fees · ${m.title}`, marketId);
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'resolve')`, [marketId, now(), outcome ? 1 : 0]);
-    const extra = [note, opts.suffix].filter(Boolean).join(" · ");
+    const extra = [note, opts.suffix, lonely ? "only one person traded it, so stakes were returned" : ""].filter(Boolean).join(" · ");
     await systemMessage(q, m.group_id, "resolution", `resolved ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()}: ${m.title}${extra ? ` (${extra})` : ""}`, marketId, actorId);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
@@ -366,7 +381,7 @@ export async function proposeResult(user: User, marketId: number, result: boolea
       await q.query(`UPDATE markets SET actual = $2 WHERE id = $1`, [marketId, result.value]);
     }
     if (m.proposed_outcome != null) throw new HttpError(400, "A result has already been proposed. Another member needs to confirm or dispute it.");
-    assertCanPropose(m, user);
+    assertCanPropose(m, user, outcome);
     await assertMember(q, m.group_id, user.id);
     // Under the row lock, so nobody can buy a side and then call it their way.
     assertMayCall(await callableBy(q, m, user.id), outcome);
