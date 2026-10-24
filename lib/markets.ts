@@ -5,7 +5,7 @@ import { ECONOMY, MARKET } from "./config";
 import { analyzeSituation, repriceStocks, summarizeOutcome, embed, type Analysis } from "./ai";
 import { evidenceFor, type Similar } from "./memory";
 import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount, type Book, type Side } from "./lmsr";
-import { credit, maxStake, recordNetWorth } from "./economy";
+import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import type { Snippet } from "./chat-context";
 
@@ -247,6 +247,9 @@ export async function resolveMarket(user: User, marketId: number, outcome: boole
       `SELECT user_id, yes_shares, no_shares, spent FROM positions WHERE market_id = $1`,
       [marketId]
     );
+    // Checked under the market row lock, so nobody can buy in between and then resolve their own way.
+    if (!(await callableBy(q, m, user.id))[outcome ? "yes" : "no"])
+      throw new HttpError(403, `You'd gain from calling this ${outcome ? "YES" : "NO"}, so a friend without that stake has to call it`);
     const out: { user_id: number; payout: number; pnl: number }[] = [];
     for (const p of positions) {
       const payout = outcome ? p.yes_shares : p.no_shares;
@@ -268,6 +271,20 @@ export async function resolveMarket(user: User, marketId: number, outcome: boole
   const memory = rememberOutcome(m, outcome, crowd, payouts, note).catch((e) => console.warn("[memory]", e));
   if (opts.waitForMemory) await memory;
   return { payouts };
+}
+
+/** Which way this user may call the market, given everyone's positions (see mayCall). */
+export async function callableBy(q: Q, m: MarketRow, userId: number) {
+  const rows = await q.query<{ user_id: number; yes_shares: number | null; no_shares: number | null }>(
+    `SELECT gm.user_id, p.yes_shares, p.no_shares FROM group_members gm
+     LEFT JOIN positions p ON p.market_id = $2 AND p.user_id = gm.user_id WHERE gm.group_id = $1`,
+    [m.group_id, m.id]
+  );
+  const holding = (r?: (typeof rows)[number]) => (r && r.yes_shares != null ? { yes_shares: r.yes_shares, no_shares: r.no_shares ?? 0 } : null);
+  const mine = holding(rows.find((r) => r.user_id === userId));
+  const others = rows.filter((r) => r.user_id !== userId && r.user_id !== m.subject_id).map(holding);
+  const past = new Date(m.resolves_at) <= now();
+  return { yes: mayCall(true, mine, others, past), no: mayCall(false, mine, others, past) };
 }
 
 async function rememberOutcome(m: MarketRow, outcome: boolean, crowd: number, payouts: { user_id: number; pnl: number }[], note: string) {
@@ -315,6 +332,17 @@ export async function runDecay(q: Q) {
 /** AI re-marks every open stock in a group (term dates, mood, time left). */
 export async function repriceGroup(user: User, groupId: number, moods: Record<string, number> | null, chat: Record<string, Snippet[]> | null = null) {
   const db = await getDb();
+  // Claim the slot atomically: one re-mark per group per cooldown, however many people press the button.
+  const t = now();
+  const claimed = await db.query(
+    `UPDATE groups SET last_reprice_at = $2 WHERE id = $1 AND (last_reprice_at IS NULL OR last_reprice_at <= $3) RETURNING id`,
+    [groupId, t, new Date(t.getTime() - MARKET.repriceCooldownMs)]
+  );
+  if (!claimed.length) {
+    const [g] = await db.query<{ last_reprice_at: Date }>(`SELECT last_reprice_at FROM groups WHERE id = $1`, [groupId]);
+    const mins = Math.ceil((new Date(g.last_reprice_at).getTime() + MARKET.repriceCooldownMs - t.getTime()) / 60_000);
+    throw new HttpError(429, `Stocks were re-marked recently. Try again in ${mins >= 60 ? `${Math.ceil(mins / 60)}h` : `${mins} min`}.`);
+  }
   await runDecay(db);
   const [grp] = await db.query<{ ai_context: string; ai_reads_chat: boolean }>(`SELECT ai_context, ai_reads_chat FROM groups WHERE id = $1`, [groupId]);
   if (!grp?.ai_reads_chat) chat = null;

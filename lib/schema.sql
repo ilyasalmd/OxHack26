@@ -176,3 +176,5 @@ CREATE INDEX IF NOT EXISTS chain_ops_status_idx ON chain_ops (status, id);
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS ai_reads_chat boolean NOT NULL DEFAULT false;
 -- The snippets the AI judged relevant when pricing a market, kept so everyone can see what was used.
 ALTER TABLE markets ADD COLUMN IF NOT EXISTS chat_context jsonb;
+-- When the group last asked the AI to re-mark its stocks (rate limit).
+ALTER TABLE groups ADD COLUMN IF NOT EXISTS last_reprice_at timestamptz;

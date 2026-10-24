@@ -26,6 +26,9 @@ export const MARKET = {
   stockThresholdDays: 21,
   // How much weight the history base rate gets against the AI when we have data.
   historyWeight: 0.3,
+  // A group can ask the AI to re-mark its stocks at most this often (app clock), so
+  // nobody can pump prices by calling it over and over with made-up mood scores.
+  repriceCooldownMs: 6 * 3600 * 1000,
 };
 
 // Getters so env changes (tests, the seed script) are picked up after import.

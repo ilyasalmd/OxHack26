@@ -1,7 +1,7 @@
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
-import { getMarket, isClosed, price } from "@/lib/markets";
+import { callableBy, getMarket, isClosed, price } from "@/lib/markets";
 import { maxStake } from "@/lib/economy";
 import { findSimilar } from "@/lib/memory";
 import { now } from "@/lib/clock";
@@ -38,6 +38,7 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const { similar } = await findSimilar(db, m.group_id, m.title, m.subject_id);
   const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [user.id]);
   const closed = isClosed(m);
+  const callable = await callableBy(db, m, user.id);
   const isSubject = m.subject_id === user.id;
   return {
     market: { ...m, price: price(m), closed },
@@ -54,6 +55,9 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       canTrade: !closed && !(isSubject && m.kind === "bet"),
       canShort: !isSubject,
       canResolve: m.status === "open" && !isSubject && (m.creator_id === user.id || new Date(m.resolves_at) <= now()),
+      // You can't call it the way that pays you.
+      canResolveYes: callable.yes,
+      canResolveNo: callable.no,
       isSubject,
     },
   };
