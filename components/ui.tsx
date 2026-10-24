@@ -8,7 +8,6 @@ import { useUserPhoto } from "./media";
 export function Avatar({ name, color, size = 36, id }: { name: string; color: string; size?: number; id?: number }) {
   const photo = useUserPhoto(id);
   if (photo)
-    // eslint-disable-next-line @next/next/no-img-element -- a decrypted blob URL, not something next/image can fetch
     return <img src={photo} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
   return (
     <div

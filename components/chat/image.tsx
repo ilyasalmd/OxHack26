@@ -18,7 +18,6 @@ export function ImageBubble({ a, url, onOpen, children }: { a: Attachment; url: 
     <div className="relative">
     <button type="button" onClick={onOpen} disabled={!url || url === "error"} className="relative block max-w-full overflow-hidden rounded-xl bg-black/30" style={{ width: size.width, aspectRatio: `${size.width} / ${size.height}` }} aria-label="Open photo">
       {url && url !== "error" ? (
-        // eslint-disable-next-line @next/next/no-img-element -- decrypted blob URL
         <img src={url} alt="" className="h-full w-full object-cover" />
       ) : (
         <span className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 text-xs text-white/50">
@@ -45,7 +44,6 @@ export function Lightbox({ url, caption, meta, onClose }: { url: string; caption
         <button onClick={onClose} className="rounded-full bg-white/10 p-2 hover:bg-white/20" aria-label="Close photo"><Close size={18} /></button>
       </div>
       <div className="flex min-h-0 flex-1 items-center justify-center p-3">
-        {/* eslint-disable-next-line @next/next/no-img-element -- decrypted blob URL */}
         <img src={url} alt="" className="max-h-full max-w-full rounded-lg object-contain" onClick={(e) => e.stopPropagation()} />
       </div>
       {caption && <p className="mx-auto max-w-2xl px-5 pb-[calc(env(safe-area-inset-bottom)+20px)] pt-2 text-center text-[15px] text-white/90" onClick={(e) => e.stopPropagation()}>{caption}</p>}

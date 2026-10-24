@@ -19,6 +19,6 @@ export const POST = route<IdCtx>(async (req, user, ctx) => {
   );
   setTyping(id, user.id, null);
   // Your own message is delivered to and read by you.
-  await db.query(`UPDATE group_members SET delivered_upto = GREATEST(delivered_upto, $3), read_upto = GREATEST(read_upto, $3) WHERE group_id = $1 AND user_id = $2`, [id, user.id, m.id]);
+  await db.query(`UPDATE group_members SET delivered_upto = GREATEST(delivered_upto, $3::bigint), read_upto = GREATEST(read_upto, $3::bigint) WHERE group_id = $1 AND user_id = $2`, [id, user.id, m.id]);
   return m;
 });

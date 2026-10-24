@@ -75,7 +75,11 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 
 - Your password never leaves the device. The browser derives two keys with PBKDF2: an auth key (sent and bcrypt-hashed on the server) and an encryption key (never sent) that locks your ECDH P-256 identity key.
 - Each group has a random AES-256-GCM key, wrapped separately for every member with ECDH + HKDF. People who join by invite link get the key from the next member whose app is open.
-- The server stores ciphertext, sender and timestamp only. Market events (listings, trades, results) are plaintext because the server has to run the market.
+- The server stores ciphertext, sender and timestamp only.
+- **Voice notes and photos** are encrypted on the phone with the group key before upload and stored as ciphertext in the database (`attachments`), with size caps (photos are re-drawn at 1600px, which also strips location and camera metadata; voice notes stop at 3 minutes). Group descriptions are encrypted the same way.
+- **Profile photos** are encrypted with a per-person profile key that your app wraps for each person you share a chat with (as Signal does), so only friends can see them.
+- **Private chats** are two-person groups with their own key; nobody can be added to one or join it by link.
+- What the server does learn: who is typing or recording (kept in memory for 5 seconds), and how far each member has fetched and read (for the ticks). Market events (listings, trades, results) are plaintext because the server has to run the market.
 - Gemma runs on the app's own machine, so nothing goes to an outside AI company. It always receives the situation text, settled-history stats and the group's "AI context" (term dates, fixtures), plus the subject's answers to the optional sign-up questions if they gave any. Those answers are never shown to other members, and the stored pricing records blank them out. If a user ticks the box, it also gets one mood number per person, worked out on the device from the decrypted chat.
 - **AI reads relevant chat (opt-in per group, off by default).** Any member can switch it on or off in group settings, and the chat announces the change to everyone. While it's on, the phone of whoever lists a situation or re-marks stocks does the following with the chat it has already decrypted (`lib/chat-context.ts`):
   1. Keeps only messages about the subject or topic (mentions, same keywords or category, weighted towards recent ones). Max 20 per situation, 8 per stock.

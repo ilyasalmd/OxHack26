@@ -212,8 +212,12 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   }, [me, poll]);
 
   const typingCount = feed?.typing?.length ?? 0;
+  // Open at the newest message straight away, then glide down as new ones arrive.
+  const landed = useRef(false);
   useEffect(() => {
-    bottom.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    if (!messages.length) return;
+    bottom.current?.scrollIntoView({ behavior: landed.current ? "smooth" : "auto", block: "end" });
+    landed.current = true;
   }, [messages.length, typingCount]);
 
   const members = useMemo(
@@ -630,7 +634,7 @@ function MessageRow({
     const media = a?.kind === "image" || a?.kind === "voice";
     const d = mine ? delivery(m) : null;
     const meta = (
-      <span className={`inline-flex items-center gap-1 text-[10px] tabular ${a?.kind === "image" && !m.text ? "text-white/85" : `float-right ml-3 mt-1.5 ${mine ? "text-white/60" : "text-mute"}`}`}>
+      <span className={`inline-flex items-center gap-1 text-[10px] tabular ${a && !m.text ? (a.kind === "image" ? "text-white/85" : mine ? "text-white/60" : "text-mute") : `float-right ml-3 mt-1.5 ${mine ? "text-white/60" : "text-mute"}`}`}>
         {clock(m.created_at)}
         {d && <DeliveryMark state={d.state} title={d.title} />}
       </span>
@@ -657,14 +661,14 @@ function MessageRow({
           {a?.kind === "image" ? (
             <ChatImage m={m} a={a} groupKey={groupKey} onOpen={() => onOpen(m)}>{!m.text && meta}</ChatImage>
           ) : a?.kind === "voice" ? (
-            <ChatVoice m={m} a={a} groupKey={groupKey} mine={mine} />
+            <ChatVoice m={m} a={a} groupKey={groupKey} mine={mine}>{!m.text && meta}</ChatVoice>
           ) : null}
           {(m.text || !a) && (
             <span className={`whitespace-pre-wrap break-words ${a?.kind === "image" ? "block px-2.5 pt-1.5" : ""}`}>
               {m.text ?? (m.payload === undefined || !groupKey ? <span className="inline-flex items-center gap-1 italic text-mute"><Lock size={12} /> can&apos;t decrypt yet</span> : null)}
             </span>
           )}
-          {!(a?.kind === "image" && !m.text) && <span className={a?.kind === "image" ? "block px-2.5 pb-0.5" : ""}>{meta}</span>}
+          {!(a && !m.text) && <span className={a?.kind === "image" ? "block px-2.5 pb-0.5" : ""}>{meta}</span>}
         </div>
         {!mine && (
           <button onClick={() => onReport(m)} className="mb-1 hidden shrink-0 rounded-md p-1 text-mute opacity-0 transition hover:bg-white/5 hover:text-white focus:opacity-100 group-hover:opacity-100 lg:block" title="Report message" aria-label="Report message">
@@ -699,9 +703,9 @@ function ChatImage({ m, a, groupKey, onOpen, children }: { m: Msg; a: Attachment
   return <ImageBubble a={a} url={m.local ?? url} onOpen={onOpen}>{children}</ImageBubble>;
 }
 
-function ChatVoice({ m, a, groupKey, mine }: { m: Msg; a: Attachment; groupKey: CryptoKey | null; mine: boolean }) {
+function ChatVoice({ m, a, groupKey, mine, children }: { m: Msg; a: Attachment; groupKey: CryptoKey | null; mine: boolean; children?: React.ReactNode }) {
   const url = useAttachment(m.local ? null : a.id, groupKey, a.mime);
-  return <VoiceNote a={a} url={m.local ?? (url === "error" ? null : url)} mine={mine} />;
+  return <VoiceNote a={a} url={m.local ?? (url === "error" ? null : url)} mine={mine}>{children}</VoiceNote>;
 }
 
 function ViewPhoto({ m, groupKey, meta, onClose }: { m: Msg; groupKey: CryptoKey | null; meta: React.ReactNode; onClose: () => void }) {
@@ -923,7 +927,6 @@ function GroupProfile({ feed, groupId, groupKey, onChange, say }: { feed: Omit<F
     <div className="flex flex-col items-center text-center">
       <button type="button" onClick={() => pickPhoto.current?.click()} disabled={!groupKey || busy} className="group relative rounded-2xl" aria-label="Change group photo" title="Change group photo">
         {photo && photo !== "error" ? (
-          // eslint-disable-next-line @next/next/no-img-element -- decrypted blob URL
           <img src={photo} alt="" className="h-24 w-24 rounded-2xl object-cover" />
         ) : (
           <GroupMark name={g.name} size={96} />

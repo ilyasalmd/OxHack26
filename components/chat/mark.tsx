@@ -35,7 +35,6 @@ export function ChatMark({ g, size = 40 }: { g: ChatLike; size?: number }) {
   const photo = useAttachment(g.is_dm ? null : g.photo_id, key, "image/jpeg");
   if (g.is_dm && g.peer) return <Avatar id={g.peer.id} name={g.peer.display_name} color={g.peer.color} size={size} />;
   if (photo && photo !== "error")
-    // eslint-disable-next-line @next/next/no-img-element -- decrypted blob URL
     return <img src={photo} alt="" className="shrink-0 rounded-xl object-cover" style={{ width: size, height: size }} />;
   return <GroupMark name={g.name} size={size} />;
 }

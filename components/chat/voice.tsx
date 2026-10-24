@@ -99,7 +99,7 @@ export const mmss = (s: number) => `${Math.floor(s / 60)}:${String(Math.floor(s 
 let playing: HTMLAudioElement | null = null;
 
 /** A voice note bubble: play/pause, a waveform that fills as it plays (tap to seek), time and speed. */
-export function VoiceNote({ a, url, mine }: { a: Attachment; url: string | null; mine: boolean }) {
+export function VoiceNote({ a, url, mine, children }: { a: Attachment; url: string | null; mine: boolean; children?: React.ReactNode }) {
   const audio = useRef<HTMLAudioElement>(null);
   const [on, setOn] = useState(false);
   const [t, setT] = useState(0);
@@ -143,7 +143,7 @@ export function VoiceNote({ a, url, mine }: { a: Attachment; url: string | null;
   const lit = mine ? "bg-white" : "bg-brand";
   const dim = mine ? "bg-white/35" : "bg-white/25";
   return (
-    <div className="flex w-[232px] items-center gap-2.5 py-1 sm:w-[260px]">
+    <div className="flex w-[236px] items-center gap-2.5 py-1 sm:w-[268px]">
       {url && <audio ref={audio} src={url} preload="metadata" onPlay={() => setOn(true)} onPause={() => setOn(false)} onEnded={() => { setOn(false); setT(0); }} />}
       <button
         type="button"
@@ -162,7 +162,10 @@ export function VoiceNote({ a, url, mine }: { a: Attachment; url: string | null;
         </div>
         <div className={`mt-0.5 flex items-center justify-between text-[11px] tabular ${mine ? "text-white/70" : "text-mute"}`}>
           <span>{mmss(on || t ? t : dur)}</span>
-          <button type="button" onClick={cycleRate} className={`rounded-full px-1.5 font-semibold ${mine ? "bg-white/15" : "bg-white/10"}`} aria-label="Playback speed">{rate}×</button>
+          <span className="flex items-center gap-2">
+            <button type="button" onClick={cycleRate} className={`rounded-full px-1.5 font-semibold ${mine ? "bg-white/15" : "bg-white/10"}`} aria-label="Playback speed">{rate}×</button>
+            {children}
+          </span>
         </div>
       </div>
     </div>

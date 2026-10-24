@@ -48,7 +48,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
   const newest = messages.length ? (messages[messages.length - 1] as { id: number }).id : 0;
   if (newest || read)
     await db.query(
-      `UPDATE group_members gm SET delivered_upto = GREATEST(gm.delivered_upto, LEAST(GREATEST($3, $4), x.top)), read_upto = GREATEST(gm.read_upto, LEAST($4, x.top))
+      `UPDATE group_members gm SET delivered_upto = GREATEST(gm.delivered_upto, LEAST(GREATEST($3::bigint, $4::bigint), x.top)), read_upto = GREATEST(gm.read_upto, LEAST($4::bigint, x.top))
        FROM (SELECT coalesce(max(id), 0) AS top FROM messages WHERE group_id = $1) x
        WHERE gm.group_id = $1 AND gm.user_id = $2`,
       [id, user.id, newest, read]

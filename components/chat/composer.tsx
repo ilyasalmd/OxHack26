@@ -178,7 +178,6 @@ export function Composer({
       <Sheet open={!!img} onClose={() => setImg(null)} title="Send photo">
         {img && (
           <div className="space-y-3">
-            {/* eslint-disable-next-line @next/next/no-img-element -- local preview */}
             <img src={img.url} alt="" className="mx-auto max-h-[55dvh] rounded-xl object-contain" />
             <form onSubmit={(e) => { e.preventDefault(); sendImage(); }} className="flex gap-2">
               <input value={caption} onChange={(e) => setCaption(e.target.value)} placeholder="Add a caption" className="h-[42px] min-w-0 flex-1 rounded-full bg-white/[.07] px-4 outline-none placeholder:text-mute focus:bg-white/[.1]" autoFocus />
