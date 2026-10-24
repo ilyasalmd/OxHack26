@@ -29,7 +29,7 @@ export const GET = route(async (_req, user) => {
         title: p.title,
         kind: p.kind,
         status: p.status,
-        group: `${p.emoji} ${p.group_name}`,
+        group: p.group_name,
         group_id: p.group_id,
         yes: p.yes_shares,
         no: p.no_shares,

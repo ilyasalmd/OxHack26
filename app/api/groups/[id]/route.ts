@@ -70,8 +70,8 @@ export const PATCH = route<IdCtx>(async (req, user, ctx) => {
     if (changed.length)
       await say(
         b.aiReadsChat
-          ? "🤖 turned ON “AI reads relevant chat”: when pricing, apps may share up to 20 matching messages with the AI, names and contact details removed"
-          : "🔒 turned OFF “AI reads relevant chat”: no chat text is shared with the AI"
+          ? "turned ON “AI reads relevant chat”: when pricing, apps may share up to 20 matching messages with the AI, names and contact details removed"
+          : "turned OFF “AI reads relevant chat”: no chat text is shared with the AI"
       );
   }
   return { ok: true };

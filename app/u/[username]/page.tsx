@@ -22,7 +22,7 @@ export default function Profile({ params }: { params: Promise<{ username: string
 
   async function start() {
     if (!identity || !me || !u) return;
-    const id = await createGroup(identity, `${me.user.display_name} & ${u.display_name}`, "🤝", [me.user.username, u.username]);
+    const id = await createGroup(identity, `${me.user.display_name} & ${u.display_name}`, "", [me.user.username, u.username]);
     router.push(`/g/${id}`);
   }
 

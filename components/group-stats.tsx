@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Avatar, Button, fmt, pct } from "./ui";
+import { Book } from "./icons";
 
 type Data = {
   leaderboard: { id: number; username: string; display_name: string; color: string; balance: number; netWorth: number; groupPnl: number; resolvedTrades: number; hitRate: number | null; brier: number | null; skill: number | null }[];
@@ -29,12 +30,11 @@ function useInsights(groupId: number) {
 export function Board({ groupId, ticker, meId }: { groupId: number; ticker: string; meId: number }) {
   const { d } = useInsights(groupId);
   if (!d) return <p className="p-10 text-center text-mute">Loading…</p>;
-  const medals = ["🥇", "🥈", "🥉"];
   return (
     <div className="p-3">
       {d.leaderboard.map((u, i) => (
-        <div key={u.id} className={`mb-2 flex items-center gap-3 rounded-2xl p-3 ${u.id === meId ? "bg-white/10" : "bg-panel"}`}>
-          <div className="w-6 text-center text-lg">{medals[i] ?? i + 1}</div>
+        <div key={u.id} className={`mb-2 flex items-center gap-3 rounded-xl border p-3 ${u.id === meId ? "border-white/15 bg-white/[.06]" : "border-line bg-panel"}`}>
+          <div className={`w-6 text-center text-sm font-semibold tabular ${i === 0 ? "text-brand" : "text-mute"}`}>{i + 1}</div>
           <Avatar name={u.display_name} color={u.color} />
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold">{u.display_name}</div>
@@ -86,7 +86,7 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
   const W = 280;
   return (
     <div className="space-y-4 p-4">
-      <section className="rounded-3xl bg-panel p-4">
+      <section className="rounded-2xl border border-line bg-panel p-4">
         <h3 className="font-semibold">Who forecasts best?</h3>
         <p className="mb-3 text-xs text-mute">Brier score over {s.n} settled situations. Lower is better.</p>
         {s.n === 0 && <p className="text-sm text-mute">Settle a few situations to see this.</p>}
@@ -105,7 +105,7 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
       </section>
 
       {s.n > 0 && (
-        <section className="rounded-3xl bg-panel p-4">
+        <section className="rounded-2xl border border-line bg-panel p-4">
           <h3 className="font-semibold">Calibration</h3>
           <p className="mb-3 text-xs text-mute">When the market says 70%, does it happen 70% of the time? Dots on the diagonal = well calibrated.</p>
           <svg viewBox={`-14 -14 ${W + 28} ${W + 28}`} className="mx-auto w-full max-w-[280px]">
@@ -127,7 +127,7 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
         </section>
       )}
 
-      <section className="rounded-3xl bg-panel p-4">
+      <section className="rounded-2xl border border-line bg-panel p-4">
         <h3 className="font-semibold">AI re-mark long-term stocks</h3>
         <p className="mb-3 text-xs text-mute">
           Gemini re-prices open stocks from time left, your group&apos;s AI context (term dates, fixtures) and, if you allow it, mood scores computed on this phone.
@@ -141,8 +141,8 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
         {note && <p className="mt-2 text-sm text-mute">{note}</p>}
       </section>
 
-      <section className="rounded-3xl bg-panel p-4">
-        <h3 className="mb-2 font-semibold">📚 Group memory</h3>
+      <section className="rounded-2xl border border-line bg-panel p-4">
+        <h3 className="mb-2 flex items-center gap-2 font-semibold"><Book size={15} /> Group memory</h3>
         <p className="mb-3 text-xs text-mute">Settled situations summarised by the AI. Similar new questions pull these up automatically.</p>
         {d.memories.map((m) => (
           <div key={m.id} className="border-t border-line py-2 text-sm">

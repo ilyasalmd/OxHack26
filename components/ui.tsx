@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { ChevronLeft, Close } from "./icons";
 
 export function Avatar({ name, color, size = 36 }: { name: string; color: string; size?: number }) {
   return (
@@ -49,13 +50,25 @@ export function LiveNumber({ value, children }: { value: number; children: React
   return <span className={cls}>{children}</span>;
 }
 
+/** Bottom sheet on a phone, centred dialog on a laptop. */
 export function Sheet({ open, onClose, title, children }: { open: boolean; onClose: () => void; title?: string; children: React.ReactNode }) {
+  useEffect(() => {
+    if (!open) return;
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", esc);
+    return () => window.removeEventListener("keydown", esc);
+  }, [open, onClose]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60" onClick={onClose}>
-      <div className="pop max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-line bg-panel p-5 pb-8" onClick={(e) => e.stopPropagation()}>
-        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line" />
-        {title && <h2 className="mb-4 text-lg font-semibold">{title}</h2>}
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 backdrop-blur-[2px] lg:items-center lg:p-6" onClick={onClose}>
+      <div className="pop thin-scroll max-h-[90dvh] w-full max-w-md overflow-y-auto rounded-t-3xl border-t border-line bg-panel p-5 pb-8 lg:max-w-lg lg:rounded-2xl lg:border lg:p-6" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-line lg:hidden" />
+        {title && (
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-lg font-semibold tracking-tight">{title}</h2>
+            <button onClick={onClose} className="hidden rounded-md p-1 text-mute hover:bg-white/5 hover:text-white lg:block" aria-label="Close"><Close size={16} /></button>
+          </div>
+        )}
         {children}
       </div>
     </div>
@@ -69,19 +82,19 @@ export function Button({ variant = "primary", className = "", ...p }: React.Butt
     up: "bg-up text-black hover:brightness-110",
     down: "bg-down text-white hover:brightness-110",
   }[variant];
-  return <button {...p} className={`rounded-2xl px-4 py-3 font-semibold transition active:scale-[.98] disabled:opacity-40 ${styles} ${className}`} />;
+  return <button {...p} className={`rounded-xl px-4 py-2.5 font-medium transition active:scale-[.98] disabled:opacity-40 ${styles} ${className}`} />;
 }
 
 export function Input(p: React.InputHTMLAttributes<HTMLInputElement>) {
-  return <input {...p} className={`w-full rounded-2xl border border-line bg-black/40 px-4 py-3 outline-none placeholder:text-mute focus:border-white/40 ${p.className ?? ""}`} />;
+  return <input {...p} className={`w-full rounded-xl border border-line bg-ink px-3.5 py-2.5 outline-none placeholder:text-mute focus:border-white/40 ${p.className ?? ""}`} />;
 }
 
-export function TopBar({ title, back, right }: { title: React.ReactNode; back?: string; right?: React.ReactNode }) {
+export function TopBar({ title, back, right, backOnDesktop = false }: { title: React.ReactNode; back?: string; right?: React.ReactNode; backOnDesktop?: boolean }) {
   return (
-    <div className="sticky top-0 z-30 flex items-center gap-3 border-b border-line bg-ink/90 px-4 py-3 backdrop-blur">
+    <div className="sticky top-0 z-30 flex min-h-[57px] items-center gap-3 border-b border-line bg-ink/90 px-4 py-2.5 backdrop-blur lg:px-6">
       {back && (
-        <Link href={back} className="-ml-1 rounded-full px-2 py-1 text-xl text-mute hover:text-white">
-          ‹
+        <Link href={back} className={`-ml-1.5 rounded-md p-1 text-mute hover:bg-white/5 hover:text-white ${backOnDesktop ? "" : "lg:hidden"}`} aria-label="Back">
+          <ChevronLeft size={20} />
         </Link>
       )}
       <div className="min-w-0 flex-1 truncate font-semibold">{title}</div>
@@ -92,7 +105,7 @@ export function TopBar({ title, back, right }: { title: React.ReactNode; back?: 
 
 export function Badge({ children, tone = "mute" }: { children: React.ReactNode; tone?: "mute" | "up" | "down" | "brand" }) {
   const t = { mute: "bg-white/5 text-mute", up: "bg-up/15 text-up", down: "bg-down/15 text-down", brand: "bg-brand/15 text-brand" }[tone];
-  return <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${t}`}>{children}</span>;
+  return <span className={`rounded-md px-1.5 py-0.5 text-[11px] font-medium ${t}`}>{children}</span>;
 }
 
 export function timeLeft(to: string | Date, now: string | Date) {

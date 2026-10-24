@@ -255,7 +255,7 @@ export async function resolveMarket(user: User, marketId: number, outcome: boole
       out.push({ user_id: p.user_id, payout, pnl: payout - p.spent });
     }
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'resolve')`, [marketId, now(), outcome ? 1 : 0]);
-    await systemMessage(q, m.group_id, "resolution", `resolved ${outcome ? "YES ✅" : "NO ❌"}: ${m.title}${note ? ` (${note})` : ""}`, marketId, user.id);
+    await systemMessage(q, m.group_id, "resolution", `resolved ${outcome ? "YES" : "NO"}: ${m.title}${note ? ` (${note})` : ""}`, marketId, user.id);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
       marketId,
       JSON.stringify({ app: "friend-stocks", v: 1, ev: "resolve", market: marketId, outcome, crowd: +crowd.toFixed(4) }),
@@ -355,7 +355,7 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
       db,
       groupId,
       "system",
-      `🤖 AI re-marked ${applied.length} stock(s): ${applied.map((a) => `${a.title} ${(a.from * 100).toFixed(0)}→${(a.to * 100).toFixed(0)}% (${a.reason})`).join("; ")}`,
+      `AI re-marked ${applied.length} stock(s): ${applied.map((a) => `${a.title} ${(a.from * 100).toFixed(0)}→${(a.to * 100).toFixed(0)}% (${a.reason})`).join("; ")}`,
       null,
       null
     );

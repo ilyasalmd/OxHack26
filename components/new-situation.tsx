@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { api } from "./api";
 import { Badge, Button, Input, Sheet, pct } from "./ui";
+import { Book, Chat, Hourglass, Sparkle } from "./icons";
 import type { Member } from "@/app/g/[id]/page";
 import type { Snippet } from "@/lib/chat-context";
 
@@ -87,7 +88,7 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
           <div>
             <div className="no-scrollbar mb-2 flex gap-2 overflow-x-auto">
               {presets.map(([l, d]) => (
-                <button type="button" key={l} onClick={() => setWhen(localInput(d))} className="shrink-0 rounded-full bg-white/5 px-3 py-1.5 text-sm">{l}</button>
+                <button type="button" key={l} onClick={() => setWhen(localInput(d))} className={`shrink-0 rounded-full px-3 py-1.5 text-sm ${when === localInput(d) ? "bg-white text-black" : "bg-white/5 hover:bg-white/10"}`}>{l}</button>
               ))}
             </div>
             <Input type="datetime-local" value={when} onChange={(e) => setWhen(e.target.value)} required />
@@ -100,28 +101,28 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
             </label>
           )}
           {!aiContext && <p className="text-xs text-mute">Tip: add term dates or fixtures in group settings so the AI can use them.</p>}
-          {aiReadsChat && <p className="text-xs text-mute">🤖 This group lets the AI read relevant chat. You&apos;ll see exactly which messages were shared on the next screen.</p>}
+          {aiReadsChat && <p className="flex items-start gap-1.5 text-xs text-mute"><Sparkle size={13} className="mt-px" /> This group lets the AI read relevant chat. You&apos;ll see exactly which messages were shared on the next screen.</p>}
           {err && <p className="text-sm text-down">{err}</p>}
           <Button className="w-full" disabled={busy}>{busy ? "Pricing…" : "Get AI odds"}</Button>
         </form>
       ) : (
         <div className="space-y-4">
           <div className="flex items-center gap-2">
-            <Badge tone={preview.analysis.kind === "stock" ? "brand" : "mute"}>{preview.analysis.kind === "stock" ? "📈 STOCK · long-term" : "🎲 BET · short-term"}</Badge>
+            <Badge tone={preview.analysis.kind === "stock" ? "brand" : "mute"}>{preview.analysis.kind === "stock" ? "Stock · long-term" : "Bet · short-term"}</Badge>
             <Badge>{preview.analysis.category}</Badge>
-            {preview.analysis.decay === "hazard" && <Badge tone="down">⏳ decays over time</Badge>}
+            {preview.analysis.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays over time</span></Badge>}
           </div>
           <div className="text-xl font-semibold">{preview.analysis.title}</div>
           <div className="grid grid-cols-3 gap-2 text-center">
-            <div className="rounded-2xl bg-black/40 p-3">
+            <div className="rounded-xl bg-ink p-3">
               <div className="text-xs text-mute">Opens at</div>
               <div className="text-2xl font-bold tabular">{pct(preview.openProb)}</div>
             </div>
-            <div className="rounded-2xl bg-black/40 p-3">
+            <div className="rounded-xl bg-ink p-3">
               <div className="text-xs text-mute">{preview.analysis.source === "gemini" ? "Gemini" : "Model"}</div>
               <div className="text-2xl font-bold tabular">{pct(preview.analysis.probability)}</div>
             </div>
-            <div className="rounded-2xl bg-black/40 p-3">
+            <div className="rounded-xl bg-ink p-3">
               <div className="text-xs text-mute">History (n≈{preview.baseRateN.toFixed(0)})</div>
               <div className="text-2xl font-bold tabular">{preview.baseRate == null ? "–" : pct(preview.baseRate)}</div>
             </div>
@@ -133,7 +134,7 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
           </div>
           {preview.chatShared.length > 0 && (
             <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-mute">💬 What the AI saw from the chat ({preview.chatShared.length})</div>
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mute"><Chat size={12} /> What the AI saw from the chat ({preview.chatShared.length})</div>
               <div className="space-y-1.5">
                 {preview.chatShared.map((s, i) => {
                   const used = preview.analysis.chatUsed.find((u) => u.text === s.text && u.who === s.who);
@@ -150,10 +151,10 @@ export function NewSituation({ open, onClose, groupId, members, now, aiContext, 
           )}
           {preview.similar.length > 0 && (
             <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wider text-mute">📚 Past data from this group</div>
+              <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mute"><Book size={12} /> Past data from this group</div>
               <div className="space-y-2">
                 {preview.similar.map((s) => (
-                  <div key={s.id} className="rounded-2xl bg-black/40 p-3 text-sm">
+                  <div key={s.id} className="rounded-xl bg-ink p-3 text-sm">
                     <div className="flex items-center gap-2">
                       <span className={s.outcome ? "text-up" : "text-down"}>{s.outcome ? "YES" : "NO"}</span>
                       <span className="flex-1 truncate font-medium">{s.title}</span>

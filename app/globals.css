@@ -1,24 +1,28 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ink: #0b0b0c;
-  --color-panel: #141416;
-  --color-line: #232327;
-  --color-mute: #8a8a93;
-  --color-up: #00d26a;
-  --color-down: #ff4d4f;
+  --color-ink: #09090b;
+  --color-panel: #111113;
+  --color-raised: #18181b;
+  --color-line: #222226;
+  --color-mute: #8b8b94;
+  --color-up: #2fd27a;
+  --color-down: #ff5a5f;
   --color-brand: #c6ff3d;
-  --font-sans: ui-sans-serif, -apple-system, "SF Pro Text", "Inter", system-ui, "Segoe UI", Roboto, sans-serif;
+  --font-sans: var(--font-geist), ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 }
 
 html, body { background: var(--color-ink); color: #f4f4f5; }
-body { -webkit-font-smoothing: antialiased; }
+body { -webkit-font-smoothing: antialiased; font-feature-settings: "ss01", "cv11"; }
 .tabular { font-variant-numeric: tabular-nums; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
+.thin-scroll { scrollbar-width: thin; scrollbar-color: #2a2a2f transparent; }
 input, textarea, select { font-size: 16px; }
-@keyframes pop { from { transform: scale(.96); opacity: 0 } to { transform: none; opacity: 1 } }
-.pop { animation: pop .18s ease-out; }
+@media (min-width: 1024px) { input, textarea, select { font-size: 14px; } }
+@keyframes pop { from { transform: scale(.97); opacity: 0 } to { transform: none; opacity: 1 } }
+.pop { animation: pop .16s ease-out; }
 @keyframes flashUp { 0% { color: var(--color-up) } 100% { color: inherit } }
 @keyframes flashDown { 0% { color: var(--color-down) } 100% { color: inherit } }
 .flash-up { animation: flashUp 1s ease-out; }

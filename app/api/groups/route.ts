@@ -18,7 +18,7 @@ export const POST = route(async (req, user) => {
   const id = await db.tx(async (q) => {
     const [g] = await q.query<{ id: number }>(
       `INSERT INTO groups (name, emoji, invite_code, created_by, created_at) VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-      [b.name, b.emoji || "💬", crypto.randomBytes(5).toString("base64url"), user.id, now()]
+      [b.name, b.emoji ?? "", crypto.randomBytes(5).toString("base64url"), user.id, now()]
     );
     for (const k of b.keys) {
       const [u] = await q.query<{ id: number }>(`SELECT id FROM users WHERE username = $1`, [k.username.replace(/^@/, "").toLowerCase()]);
