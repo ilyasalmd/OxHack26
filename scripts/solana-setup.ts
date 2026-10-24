@@ -19,6 +19,8 @@ async function main() {
   const secret = process.env.SOLANA_PAYER_SECRET;
   const payer = secret ? Keypair.fromSecretKey(secret.trim().startsWith("[") ? Uint8Array.from(JSON.parse(secret)) : bs58.decode(secret.trim())) : Keypair.generate();
   console.log("Payer:", payer.publicKey.toBase58());
+  // Save a new payer straight away, so a rerun after funding it from the web faucet reuses it.
+  if (!secret) fs.appendFileSync(".env.local", `\n# Solana devnet payer (generated ${new Date().toISOString()})\nSOLANA_PAYER_SECRET=${bs58.encode(payer.secretKey)}\n`);
   let bal = await conn.getBalance(payer.publicKey);
   if (bal < 0.5 * LAMPORTS_PER_SOL) {
     try {
@@ -30,15 +32,13 @@ async function main() {
     }
   }
   console.log("Balance:", bal / LAMPORTS_PER_SOL, "SOL");
-  const lines = [`SOLANA_PAYER_SECRET=${bs58.encode(payer.secretKey)}`];
   if (bal < 0.05 * LAMPORTS_PER_SOL) {
-    console.log(`\nFund ${payer.publicKey.toBase58()} at https://faucet.solana.com (devnet), then rerun with:\n  ${lines[0]}`);
+    console.log(`\nFund ${payer.publicKey.toBase58()} at https://faucet.solana.com (devnet), then rerun. The payer is saved in .env.local.`);
     process.exit(1);
   }
   const mint = await createMint(conn, payer, payer.publicKey, null, 2);
-  lines.push(`SOLANA_MINT=${mint.toBase58()}`);
   console.log(`\nMint: https://explorer.solana.com/address/${mint.toBase58()}?cluster=devnet`);
-  fs.appendFileSync(".env.local", `\n# Solana devnet (generated ${new Date().toISOString()})\n${lines.join("\n")}\n`);
+  fs.appendFileSync(".env.local", `\n# Solana devnet mint (generated ${new Date().toISOString()})\nSOLANA_MINT=${mint.toBase58()}\n`);
   console.log("Appended SOLANA_PAYER_SECRET and SOLANA_MINT to .env.local (git-ignored). Restart the dev server.");
 }
 

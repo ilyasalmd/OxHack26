@@ -201,6 +201,12 @@ async function main() {
   g.__fsClockOffset = 0;
   // Don't hand the demo a backlog of thousands of devnet transactions.
   await db.query(`UPDATE chain_ops SET status = 'skipped' WHERE status = 'pending'`);
+  // One mint per wallet for today's balance instead, so the first stake has tokens to burn.
+  await db.query(
+    `INSERT INTO chain_ops (kind, user_id, amount, memo, created_at)
+     SELECT 'mint', id, balance, 'Opening balance', $1 FROM users WHERE wallet_pubkey IS NOT NULL AND balance > 0`,
+    [now()]
+  );
   const [{ n }] = await db.query<{ n: string }>(`SELECT count(*) AS n FROM markets`);
   console.log(`Seeded ${n} markets. Log in as any of ${allUsers.map((u) => "@" + u).join(", ")} with password "${PASSWORD}".`);
   process.exit(0);
