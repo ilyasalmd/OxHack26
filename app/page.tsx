@@ -18,7 +18,7 @@ export default function Landing() {
   const [recovery, setRecovery] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!loading && me && !recovery) router.replace(new URLSearchParams(location.search).get("next") ?? "/chats");
+    if (!loading && me && !recovery) router.replace(me.account?.profilePending ? "/welcome" : (new URLSearchParams(location.search).get("next") ?? "/chats"));
   }, [loading, me, recovery, router]);
 
   async function submit(e: React.FormEvent, mode: "signup" | "login") {

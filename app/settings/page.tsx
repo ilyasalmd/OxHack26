@@ -11,6 +11,7 @@ import { Check, ChevronRight, Key } from "@/components/icons";
 import { forgetIdentities } from "@/lib/e2ee";
 import { ODDS_FORMATS, useOddsFormat } from "@/lib/odds";
 import { ACCENTS, useAccent } from "@/lib/theme";
+import { PROFILE_MAX, PROFILE_QUESTIONS } from "@/lib/profile-questions";
 
 type Account = { username: string; displayName: string; color: string; createdAt: string; hasRecovery: boolean; usernameChangedAt: string | null; nextUsernameChangeAt: string | null };
 type Session = { id: string; device: string; place: string; createdAt: string; lastSeenAt: string; current: boolean };
@@ -113,6 +114,7 @@ const SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "security", label: "Security" },
   { id: "privacy", label: "Privacy" },
+  { id: "about", label: "About you" },
   { id: "odds", label: "Odds" },
   { id: "colour", label: "Colour" },
   { id: "devices", label: "Devices" },
@@ -188,6 +190,10 @@ function Laptop({ account, sessions, changed, loadSessions, open }: PageProps) {
 
         <Section id="privacy" title="Privacy" description="Who can post situations about you.">
           <SafetySettings />
+        </Section>
+
+        <Section id="about" title="About you" description="Only the AI reads these, as context when it sets odds about you. Friends never see them.">
+          <AboutYou />
         </Section>
 
         <Section id="devices" title="Devices" description="Everywhere you're signed in right now.">
@@ -591,6 +597,11 @@ function Phone({ account, sessions, open }: PageProps) {
         <SafetySettings />
       </section>
       <section>
+        <h2 className="px-1 pb-2 text-xs font-medium uppercase tracking-wider text-mute">About you</h2>
+        <p className="px-1 pb-3 text-sm text-mute">Only the AI reads these, as context when it sets odds about you. Friends never see them.</p>
+        <AboutYou />
+      </section>
+      <section>
         <h2 className="px-1 pb-2 text-xs font-medium uppercase tracking-wider text-mute">Colour</h2>
         <div className="rounded-2xl bg-panel p-4"><AccentChoice /></div>
       </section>
@@ -605,7 +616,92 @@ function Phone({ account, sessions, open }: PageProps) {
   );
 }
 
-/** Decimal, fractional or American, remembered on this device. */
+/** The sign-up questions, editable. Saved to the account; read only by the AI pricing situations about you. */
+function AboutYou() {
+  const [saved, setSaved] = useState<Record<string, string> | null>(null);
+  const [draft, setDraft] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  useEffect(() => {
+    api<{ answers: Record<string, string> }>("/api/profile").then((r) => { setSaved(r.answers); setDraft(r.answers); }).catch(() => setSaved({}));
+  }, []);
+  if (!saved) return <p className="text-sm text-mute">Loading…</p>;
+  const ids = PROFILE_QUESTIONS.map((q) => q.id);
+  const dirty = ids.some((k) => (draft[k] ?? "").trim() !== (saved[k] ?? ""));
+  const any = ids.some((k) => saved[k]);
+  async function save() {
+    setBusy(true);
+    setNote("");
+    try {
+      const body = Object.fromEntries(ids.map((k) => [k, draft[k] ?? ""]));
+      const r = await api<{ answers: Record<string, string> }>("/api/profile", { method: "PUT", body: { answers: body, done: true } });
+      setSaved(r.answers);
+      setDraft(r.answers);
+      setNote("Saved");
+    } catch (e) {
+      setNote((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  async function wipe() {
+    if (!confirm("Delete all your answers? The AI will stop using them straight away.")) return;
+    setBusy(true);
+    try {
+      await api("/api/profile", { method: "DELETE" });
+      setSaved({});
+      setDraft({});
+      setNote("Deleted");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="rounded-2xl bg-panel p-4 lg:p-6">
+      <div className="space-y-5">
+        {PROFILE_QUESTIONS.map((q) => {
+          const v = draft[q.id] ?? "";
+          return (
+            <div key={q.id}>
+              <span className="block text-[15px] font-medium">{q.question}</span>
+              <span className="mt-0.5 block text-xs text-mute">{q.usedFor}</span>
+              {q.choices ? (
+                <span className="mt-2 flex flex-wrap gap-2">
+                  {q.choices.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      aria-pressed={v === c}
+                      onClick={() => setDraft((d) => ({ ...d, [q.id]: v === c ? "" : c }))}
+                      className={`rounded-full px-3.5 py-1.5 text-sm transition ${v === c ? "bg-brand text-black" : "bg-white/[.06] text-white/80 hover:bg-white/10"}`}
+                    >
+                      {c}
+                    </button>
+                  ))}
+                </span>
+              ) : (
+                <input
+                  value={v}
+                  maxLength={PROFILE_MAX}
+                  placeholder={q.placeholder}
+                  aria-label={q.question}
+                  onChange={(e) => setDraft((d) => ({ ...d, [q.id]: e.target.value }))}
+                  className="mt-2 h-11 w-full rounded-xl bg-white/[.06] px-3.5 !text-[15px] outline-none placeholder:text-white/30 focus:bg-white/[.09]"
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <Button type="button" className={small} disabled={busy || !dirty} onClick={save}>{busy ? "Saving…" : "Save"}</Button>
+        {any && <Button type="button" variant="ghost" className={`${small} !text-down`} disabled={busy} onClick={wipe}>Delete my answers</Button>}
+        {note && <span className="text-sm text-mute">{note}</span>}
+      </div>
+    </div>
+  );
+}
+
 function AccentChoice() {
   const [a, setA] = useAccent();
   return (

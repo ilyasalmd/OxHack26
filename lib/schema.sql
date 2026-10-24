@@ -225,3 +225,12 @@ ALTER TABLE markets ADD COLUMN IF NOT EXISTS actual double precision;  -- the nu
 
 -- When the group last asked the AI to re-mark its stocks (rate limit).
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS last_reprice_at timestamptz;
+
+-- "About you": a new account's optional answers, read by the AI as context for odds about that
+-- person and never shown to other members. done = false means the onboarding hasn't been seen.
+CREATE TABLE IF NOT EXISTS profiles (
+  user_id int PRIMARY KEY REFERENCES users(id),
+  answers jsonb NOT NULL DEFAULT '{}'::jsonb,
+  done boolean NOT NULL DEFAULT false,
+  updated_at timestamptz NOT NULL
+);

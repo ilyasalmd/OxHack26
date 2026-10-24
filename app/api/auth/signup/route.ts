@@ -50,6 +50,8 @@ export const POST = route(
           recoveryHash, recovery ? b.recoverySalt : null, recovery ? b.encPrivateKeyRecovery : null]
       );
       await credit(q, u.id, ECONOMY.startingBalance, "Welcome bonus");
+      // Unanswered "about you" questions, offered once after sign-up.
+      await q.query(`INSERT INTO profiles (user_id, answers, done, updated_at) VALUES ($1, '{}'::jsonb, false, $2) ON CONFLICT DO NOTHING`, [u.id, now()]);
       return u.id;
     }).catch((e) => {
       // Two sign-ups racing for one name: the unique index catches the loser.

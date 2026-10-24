@@ -27,7 +27,7 @@ export function Frame({ children }: { children: React.ReactNode }) {
   const { me } = useSession();
   const path = usePathname();
   // Sign-in screens own the whole window (and must not re-mount when a session appears mid-flow).
-  if (path === "/" || path === "/recover") return <>{children}</>;
+  if (path === "/" || path === "/recover" || path === "/welcome") return <>{children}</>;
   if (!me) return <div className="mx-auto min-h-dvh max-w-xl">{children}</div>;
   const tabs = hasTabs(path);
   return (

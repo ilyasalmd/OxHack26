@@ -153,6 +153,8 @@ export async function analyzeSituation(input: {
   resolvesAt: Date;
   now: Date;
   subjectName: string | null;
+  /** What the subject told the app about themselves (self-reported, private to the AI). */
+  subjectProfile?: string;
   groupContext: string;
   mood: number | null;
   history: HistoryEvidence;
@@ -174,7 +176,7 @@ THE POSTER WANTS A PLAIN YES/NO QUESTION: "answer" is "yesno" and "line" is null
 Situation: "${input.title}"
 Details: ${input.description || "(none)"}
 About: ${input.subjectName ?? "nobody specific"}
-Today: ${day(input.now)}; resolves on ${day(input.resolvesAt)} (${days.toFixed(1)} days away).
+${input.subjectProfile ? `What ${input.subjectName ?? "they"} told the app about themselves (self-reported, may be optimistic; private, so never quote or mention it in the rationale, just let it inform the probability):\n${input.subjectProfile}\n` : ""}Today: ${day(input.now)}; resolves on ${day(input.resolvesAt)} (${days.toFixed(1)} days away).
 Group context the friends chose to share (term dates, fixtures, deadlines): ${input.groupContext || "(none)"}
 ${input.mood != null ? `Aggregate chat mood about the subject, computed on-device (-1 negative .. +1 positive): ${input.mood.toFixed(2)}` : ""}
 Past resolved situations in this group that look similar (${input.history.n.toFixed(1)} effective samples, base rate ${input.history.baseRate == null ? "n/a" : (input.history.baseRate * 100).toFixed(0) + "%"}):

@@ -37,6 +37,7 @@ export const GET = route(async (_req, user) => {
     `SELECT last_allowance_at, recovery_hash IS NOT NULL AS has_recovery FROM users WHERE id = $1`,
     [user.id]
   );
+  const [prof] = await db.query<{ done: boolean }>(`SELECT done FROM profiles WHERE user_id = $1`, [user.id]);
   return {
     user,
     netWorth: await netWorth(db, user.id),
@@ -44,7 +45,7 @@ export const GET = route(async (_req, user) => {
     nextAllowanceAt: new Date(new Date(u.last_allowance_at).getTime() + ECONOMY.allowancePeriodMs),
     groups,
     pendingKeys,
-    account: { hasRecovery: u.has_recovery, isAdmin: isAdminUsername(user.username) },
+    account: { hasRecovery: u.has_recovery, isAdmin: isAdminUsername(user.username), profilePending: !!prof && !prof.done },
     clock: { now: now(), offsetMs: clockOffset() },
     config: {
       currency: CURRENCY,

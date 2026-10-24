@@ -5,6 +5,7 @@ import { ECONOMY, MARKET } from "./config";
 import { sides } from "./labels";
 import { analyzeSituation, repriceStocks, summarizeOutcome, embed, type Analysis } from "./ai";
 import { evidenceFor, type Similar } from "./memory";
+import { profileForPrompt, type ProfileAnswers } from "./profile-questions";
 import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount, type Book, type Side } from "./lmsr";
 import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
@@ -121,12 +122,14 @@ export async function previewSituation(groupId: number, input: SituationInput, c
   // Chat snippets are only ever forwarded when the whole group has opted in.
   const chatShared = grp?.ai_reads_chat ? (input.chatSnippets ?? []).slice(0, 20) : [];
   const { history, similar, vector } = await evidenceFor(db, groupId, title, subject?.id ?? null);
+  const [prof] = subject ? await db.query<{ answers: ProfileAnswers }>(`SELECT answers FROM profiles WHERE user_id = $1`, [subject.id]) : [];
   const analysis = await analyzeSituation({
     title,
     description: input.description ?? "",
     resolvesAt,
     now: now(),
     subjectName: subject?.display_name ?? null,
+    subjectProfile: profileForPrompt(prof?.answers),
     groupContext: grp?.ai_context ?? "",
     mood: input.mood ?? null,
     history,
