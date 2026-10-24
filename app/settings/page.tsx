@@ -123,6 +123,7 @@ const SECTIONS = [
 ];
 
 function Laptop({ account, sessions, changed, loadSessions, open }: PageProps) {
+  const { me } = useSession();
   const [active, setActive] = useState("profile");
   useEffect(() => {
     const els = SECTIONS.map((s) => document.getElementById(s.id)).filter(Boolean) as HTMLElement[];
@@ -141,7 +142,7 @@ function Laptop({ account, sessions, changed, loadSessions, open }: PageProps) {
     <div className="mx-auto grid w-full max-w-5xl grid-cols-[176px_minmax(0,1fr)] gap-12 px-8 pb-24 pt-8">
       <nav className="sticky top-[89px] self-start" aria-label="Settings sections">
         <div className="mb-3 flex items-center gap-2.5 px-3">
-          <Avatar name={account.displayName} color={account.color} size={28} />
+          <Avatar id={me?.user.id} name={account.displayName} color={account.color} size={28} />
           <div className="min-w-0 leading-tight">
             <div className="truncate text-sm font-medium">{account.displayName}</div>
             <div className="truncate text-xs text-mute">@{account.username}</div>
