@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "./db";
 import { verify } from "./secret";
 import { applyAllowance } from "./economy";
+import { demoOffset, withClock } from "./clock";
+import { isAdminUsername } from "./config";
 
 export const COOKIE = "fs_session";
 export const MAX_AGE = 60 * 60 * 24 * 30;
@@ -65,7 +67,10 @@ export function route<C = unknown>(
     try {
       const user = await currentUser(req);
       if (opts.auth !== false && !user) throw new HttpError(401, "Not signed in");
-      const out = await fn(req, user as User, ctx);
+      // Only the admin's own requests run on the demo clock; everyone else is on real time.
+      const out = user && isAdminUsername(user.username) && demoOffset() !== 0
+        ? await withClock(demoOffset(), user.id, () => fn(req, user, ctx))
+        : await fn(req, user as User, ctx);
       return out instanceof NextResponse ? out : NextResponse.json(out ?? { ok: true });
     } catch (e) {
       const status = e instanceof HttpError ? e.status : 500;

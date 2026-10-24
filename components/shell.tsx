@@ -33,12 +33,12 @@ export function Frame({ children }: { children: React.ReactNode }) {
   return (
     <div className="lg:flex lg:h-dvh lg:overflow-hidden">
       <Sidebar me={me} path={path} />
-      <div className={`mx-auto min-h-dvh w-full max-w-xl sm:border-x sm:border-line lg:mx-0 lg:h-dvh lg:min-h-0 lg:max-w-none lg:flex-1 lg:overflow-y-auto lg:border-0 thin-scroll ${tabs ? (me.config.demo ? "pb-[calc(100px+env(safe-area-inset-bottom))]" : "pb-[calc(64px+env(safe-area-inset-bottom))]") + " lg:pb-0" : ""}`}>
+      <div className={`mx-auto min-h-dvh w-full max-w-xl sm:border-x sm:border-line lg:mx-0 lg:h-dvh lg:min-h-0 lg:max-w-none lg:flex-1 lg:overflow-y-auto lg:border-0 thin-scroll ${tabs ? (me.config.demo && me.account?.isAdmin ? "pb-[calc(100px+env(safe-area-inset-bottom))]" : "pb-[calc(64px+env(safe-area-inset-bottom))]") + " lg:pb-0" : ""}`}>
         {children}
       </div>
       {tabs && (
         <>
-          {me.config.demo && <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 mx-auto max-w-xl bg-ink lg:hidden"><TimeMachine /></div>}
+          {me.config.demo && me.account?.isAdmin && <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 mx-auto max-w-xl bg-ink lg:hidden"><TimeMachine /></div>}
           <TabBar path={path} me={me} />
         </>
       )}

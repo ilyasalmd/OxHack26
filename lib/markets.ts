@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import { getDb, type Q } from "./db";
-import { now } from "./clock";
+import { aheadOfRealTime, now } from "./clock";
 import { ECONOMY, MARKET } from "./config";
 import { sides } from "./labels";
 import { analyzeSituation, repriceStocks, summarizeOutcome, embed, type Analysis } from "./ai";
@@ -504,9 +504,12 @@ export async function callOffSituationsAbout(userId: number, displayName: string
 
 /** A proposal nobody reviewed for 24 hours (app clock) settles as proposed. Called by the worker. */
 export async function finaliseProposals(q: Q) {
+  // On the admin's demo clock, only the admin's own groups move forward.
+  const ahead = aheadOfRealTime();
   const due = await q.query<MarketRow>(
-    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NOT NULL AND proposed_at <= $1 ORDER BY proposed_at`,
-    [new Date(now().getTime() - SETTLE_WINDOW_MS)]
+    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NOT NULL AND proposed_at <= $1
+       AND ($2::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $2)) ORDER BY proposed_at`,
+    [new Date(now().getTime() - SETTLE_WINDOW_MS), ahead?.userId ?? null]
   );
   for (const m of due) {
     try {
@@ -565,7 +568,12 @@ async function rememberOutcome(m: MarketRow, outcome: boolean, crowd: number, pa
 /** Long-dated "by date X" stocks lose value as time passes with no news. */
 export async function runDecay(q: Q) {
   await finaliseProposals(q);
-  const rows = await q.query<MarketRow>(`SELECT * FROM markets WHERE status = 'open' AND decay = 'hazard'`);
+  const ahead = aheadOfRealTime();
+  const rows = await q.query<MarketRow>(
+    `SELECT * FROM markets WHERE status = 'open' AND decay = 'hazard'
+       AND ($1::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $1))`,
+    [ahead?.userId ?? null]
+  );
   const t = now();
   for (const m of rows) {
     const end = new Date(m.resolves_at).getTime();
