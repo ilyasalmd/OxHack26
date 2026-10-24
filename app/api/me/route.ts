@@ -55,7 +55,6 @@ export const GET = route(async (_req, user) => {
       solana: !!solanaConfig(),
       timescale: db.timescale,
       db: db.driver,
-      voice: !!process.env.ELEVENLABS_API_KEY,
     },
   };
 });

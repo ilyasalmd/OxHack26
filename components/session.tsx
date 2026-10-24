@@ -23,7 +23,6 @@ export type Me = {
     solana: boolean;
     timescale: boolean;
     db: string;
-    voice: boolean;
   };
 };
 

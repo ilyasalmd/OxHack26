@@ -30,7 +30,7 @@ export default function Privacy() {
       <p>To price a situation we send the AI its title and details, the first name or display name of the person it&apos;s about, the group&apos;s AI context, and short summaries of similar situations that group has already settled. We also send titles to create a text embedding for finding similar past situations, and a settled situation&apos;s title, outcome, trading summary and any note the settler wrote, so it can be summarised for the group&apos;s history. If the person it&apos;s about answered the optional &ldquo;About you&rdquo; questions, those answers go to the AI too. They are never shown to other members, and you can change or delete yours in Settings. Without the AI the app uses a built-in stats model.</p>
 
       <H>Voice recaps</H>
-      <p>If voice recaps are switched on, the recap text (a situation&apos;s title, its price, trading volume and the AI&apos;s reasoning) is sent to ElevenLabs to be read aloud. Otherwise your browser reads it out itself.</p>
+      <p>Recaps are read aloud by your own browser&apos;s speech, on your device. The text isn&apos;t sent to any voice service.</p>
 
       <H>Solana is public</H>
       <p>Every coin movement is mirrored as a token mint or burn on a Solana test network, and situations opening, settling or being called off are written as memos. Memos are public and can&apos;t be deleted. They can include the situation title (inside the reason for a coin movement), amounts, situation and group numbers, opening odds and results, and they are tied to your wallet&apos;s public address. They do not include your name, your username or chat messages. The tokens are worth nothing.</p>

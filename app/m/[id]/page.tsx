@@ -149,17 +149,10 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   async function recap() {
     setSpeaking(true);
     try {
-      const r = await fetch(`/api/markets/${id}/voice`);
-      if (r.headers.get("content-type")?.includes("audio")) {
-        const audio = new Audio(URL.createObjectURL(await r.blob()));
-        audio.onended = () => setSpeaking(false);
-        await audio.play();
-      } else {
-        const { text } = await r.json();
-        const u = new SpeechSynthesisUtterance(text);
-        u.onend = () => setSpeaking(false);
-        speechSynthesis.speak(u);
-      }
+      const { text } = await api<{ text: string }>(`/api/markets/${id}/voice`);
+      const u = new SpeechSynthesisUtterance(text);
+      u.onend = () => setSpeaking(false);
+      speechSynthesis.speak(u);
     } catch {
       setSpeaking(false);
     }

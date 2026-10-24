@@ -48,7 +48,7 @@ Everything here is free; none of it needs a card.
    bash deploy/setup.sh
    ```
    It installs Docker, adds swap, opens ports 80/443, writes `deploy/.env` with random secrets and starts everything. With no domain the site lives at `https://<server-ip>.sslip.io`. For your own domain, point an A record at the server and run `DOMAIN=stocks.example.com bash deploy/setup.sh` instead (or edit `DOMAIN` in `deploy/.env`).
-3. Optional: paste the `SOLANA_*` values and `ELEVENLABS_API_KEY` from your `.env.local` into `deploy/.env`, and point `OLLAMA_URL` and `OLLAMA_MODEL` at an Ollama server running Gemma, then run `docker compose up -d` from `deploy/`.
+3. Optional: paste the `SOLANA_*` values from your `.env.local` into `deploy/.env`, and point `OLLAMA_URL` and `OLLAMA_MODEL` at an Ollama server running Gemma, then run `docker compose up -d` from `deploy/`.
 4. Optional demo data (wipes the database): `docker compose exec app npm run seed && docker compose restart app` from `deploy/`.
 
 To update: `git pull && docker compose up -d --build` from `deploy/`. Logs: `docker compose logs -f app`. Keep `APP_SECRET` unchanged once people have signed up. `DEMO_MODE=true` lets the admin move their own demo clock; set it to `false` for real use.
@@ -93,7 +93,6 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 | **Tiger Data (Tiger Cloud)** | The app's database. Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression, and the pricing records. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
 | **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every stake and payout, memos for market lifecycle carrying each opening price's record hash, and an admin Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
 | **Gemma** (open model, local) | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past situations", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Runs through Ollama with no API key. |
-| **ElevenLabs** | "🔊 Recap" on any market reads a trading-floor style update or the final result. Set `ELEVENLABS_API_KEY`. |
 | **Vultr** | `deploy/`: Docker Compose stack (app, TimescaleDB, Caddy HTTPS) and a setup script for a Vultr VM. |
 
 ## Structure
