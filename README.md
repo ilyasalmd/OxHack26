@@ -37,6 +37,22 @@ Everything here is free; none of it needs a card.
 
 `npm test` runs the market-maths tests. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
 
+### Deploy on Vultr
+
+`deploy/` runs the app, TimescaleDB and Caddy (automatic HTTPS) on one VM. HTTPS isn't optional: chat encryption uses WebCrypto, which browsers only allow on secure origins.
+
+1. In Vultr, deploy **Cloud Compute** with **Ubuntu 24.04**, 2 GB RAM or more, in a region near your friends. Add your SSH key.
+2. SSH in as root, then:
+   ```bash
+   git clone https://github.com/ilyasalmd/OxHack26.git && cd OxHack26
+   bash deploy/setup.sh
+   ```
+   It installs Docker, adds swap, opens ports 80/443, writes `deploy/.env` with random secrets and starts everything. With no domain the site lives at `https://<server-ip>.sslip.io`. For your own domain, point an A record at the server and run `DOMAIN=stocks.example.com bash deploy/setup.sh` instead (or edit `DOMAIN` in `deploy/.env`).
+3. Optional: paste `GEMINI_API_KEY`, the `SOLANA_*` values and `ELEVENLABS_API_KEY` from your `.env.local` into `deploy/.env`, then run `docker compose up -d` from `deploy/`.
+4. Optional demo data (wipes the database): `docker compose exec app npm run seed && docker compose restart app` from `deploy/`.
+
+To update: `git pull && docker compose up -d --build` from `deploy/`. Logs: `docker compose logs -f app`. Keep `APP_SECRET` unchanged once people have signed up. `DEMO_MODE=true` lets anyone move the shared clock, so set it to `false` for real use.
+
 ## How it works
 
 | Piece | What it does |
@@ -77,7 +93,7 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 | **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every stake and payout, memos for market lifecycle, and an in-app Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
 | **Tiger Data (Timescale)** | Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
 | **ElevenLabs** | "🔊 Recap" on any market reads a trading-floor style update or the final result. Set `ELEVENLABS_API_KEY`. |
-| **Vultr** | `Dockerfile` for a one-command deploy on a Vultr VM. |
+| **Vultr** | `deploy/`: Docker Compose stack (app, TimescaleDB, Caddy HTTPS) and a setup script for a Vultr VM. |
 
 ## Structure
 
