@@ -176,3 +176,29 @@ test("once the bet has ended nobody can counter it or accept a counter, and a co
   assert.equal(await status(gone), "open");
   await db.query(`INSERT INTO group_members (group_id, user_id, joined_at) VALUES ($1,$2,now())`, [chat, people.maya.id]);
 });
+
+test("a bet aimed at one friend: only they can take, counter or turn it down, and turning it down refunds the poster", async () => {
+  const jake0 = await balance(people.jake);
+  const make = (title: string) =>
+    fb.createFriendBet(people.jake, chat, { title, resolvesAt: new Date(Date.now() + DAY).toISOString(), side: "yes", stake: 30, theirStake: 20, targetId: people.sam.id }).then((r) => r.id);
+  await rejects(fb.createFriendBet(people.jake, chat, { title: "Jake bets himself", resolvesAt: new Date(Date.now() + DAY).toISOString(), side: "yes", stake: 10, theirStake: 10, targetId: people.jake.id }), /not yourself/);
+
+  const a = await make("Sam runs 5k on Sunday");
+  await rejects(act("maya", a, { action: "take" }), /for sam/);
+  await rejects(act("maya", a, { action: "counter", theirStake: 10 }), /for sam/);
+  await rejects(act("maya", a, { action: "decline" }), /aimed at/);
+  await act("sam", a, { action: "take" });
+  assert.equal(await status(a), "live");
+
+  const b = await make("Sam cooks on Tuesday");
+  close(await balance(people.jake), jake0 - 60);
+  await act("sam", b, { action: "decline" });
+  assert.equal(await status(b), "cancelled");
+  close(await balance(people.jake), jake0 - 30);
+  await rejects(act("sam", b, { action: "take" }), /already took|isn't open/);
+
+  // An open bet has no one to turn it down.
+  const c = await post("Maya is up before 9");
+  await rejects(act("sam", c, { action: "decline" }), /aimed at/);
+  await act("jake", c, { action: "cancel" });
+});

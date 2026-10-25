@@ -53,7 +53,26 @@ The server's settings are in `/opt/friendstakes/deploy/.env`. That file is not i
 | `DEMO_MODE` | Demo clock buttons for the admin |
 | `DEMO_DATA_FOR_ALL` | Every account gets the sample chats |
 | `SOLANA_CLUSTER`, `SOLANA_PAYER_SECRET`, `SOLANA_MINT`, `SOLANA_OP_RECEIPTS` | Optional on-chain coin (devnet). Empty here, so the Chain page is off |
-| `GEMMA_API_KEY` | Gemma hosted by Google (a free key from aistudio.google.com/apikey). Without it the server has no GPU for Gemma and prices with the statistical model from history |
+| `GEMMA_API_KEY` | Gemma hosted by Google (see Turning on Gemma below). Without it the server has no GPU for Gemma and prices with the statistical model from history |
 | `OLLAMA_URL`, `OLLAMA_MODEL` | Optional Gemma on an Ollama machine instead |
 
 New settings added to `deploy/env.example` are copied into `deploy/.env` with their defaults on the next deploy.
+
+### Changing a setting from the Mac
+
+Put the value in the Mac's `.env.local`, then run:
+
+```bash
+npm run server:set-env                    # copies GEMMA_API_KEY
+npm run server:set-env -- NAME OTHER_NAME # any other settings by name
+```
+
+It sends each line over SSH with the deploy key, replaces that setting in `deploy/.env`, restarts the app, and prints only `GEMMA_API_KEY set` and `app restarted`; the value is never shown.
+
+### Turning on Gemma
+
+1. Make a key at aistudio.google.com/apikey. It works with both the older `AIza...` keys and the newer `AQ....` ones.
+2. Add `GEMMA_API_KEY=<the key>` to `.env.local` on the Mac, then run `npm run server:set-env`.
+3. Post a stake: its odds now come from Gemma (`gemma-4-26b-a4b-it`; `GEMMA_API_MODEL` changes it). If Google refuses, the app logs why in `docker compose logs app` and prices from history meanwhile.
+
+The key's Google project decides what it costs. A project with no billing gets the free tier. A project on prepaid billing with no credit left answers every call with `402 Your prepayment credits are depleted`: top it up in AI Studio, or make the key in a project without billing.

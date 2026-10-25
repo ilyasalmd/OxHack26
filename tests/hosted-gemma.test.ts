@@ -147,3 +147,19 @@ test("the Terms say where the snippets go, from the same setting", () => {
   assert.doesNotMatch(where(aiChatNotice(true, false)), /No outside AI company/);
   assert.match(where(aiChatNotice(true, true)), /through Ollama when it can, and otherwise on Google's servers/);
 });
+
+test("a project out of prepaid credit (402) says so and stops asking for a while", async () => {
+  env({ GEMMA_API_KEY: "k" });
+  const calls = fake(json({ error: { code: 402, message: "Your prepayment credits are depleted." } }, 402));
+  const warn = console.warn;
+  const said: string[] = [];
+  console.warn = (...a: unknown[]) => void said.push(a.join(" "));
+  try {
+    assert.equal(await embed("Jake is late"), null);
+    assert.equal(await embed("Still late"), null);
+  } finally {
+    console.warn = warn;
+  }
+  assert.equal(calls.length, 1, "paused after the 402");
+  assert.match(said.join("\n"), /no prepaid credit left/);
+});

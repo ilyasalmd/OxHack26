@@ -132,6 +132,11 @@ async function google<T>(path: string, body: object, timeoutMs: number): Promise
         daily ? 15 * 60_000 : Math.max(waitMs, 10_000)
       );
     }
+    if (res.status === 402)
+      throw new Unavailable(
+        `the Google project behind GEMMA_API_KEY has no prepaid credit left (${msg}). Top it up in AI Studio, or use a key from a project without billing, which gets the free tier`,
+        15 * 60_000
+      );
     if (res.status === 401 || res.status === 403 || (res.status === 400 && /api key/i.test(msg))) throw new Unavailable(`GEMMA_API_KEY was refused (${msg})`, 10 * 60_000);
     if (res.status === 404) throw new Unavailable(`${msg} Check GEMMA_API_MODEL`, 10 * 60_000);
     throw new GoogleHttpError(`Gemini API HTTP ${res.status}: ${msg}`, res.status);
