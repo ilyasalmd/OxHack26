@@ -1,7 +1,7 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { api, ApiError } from "./api";
-import { loadIdentity, unwrapGroupKey, wrapGroupKey } from "@/lib/e2ee";
+import { forgetIdentities, loadIdentity, unwrapGroupKey, wrapGroupKey } from "@/lib/e2ee";
 import { groupKey, shareKeyWithNewcomers } from "./groupkeys";
 import { registerPhotos, setPhotoViewer, type PhotoInfo } from "./media";
 import { clearCache, lastUser, meKey, readCache, rememberUser, writeCache } from "./chat/store";
@@ -45,6 +45,24 @@ type Ctx = {
 };
 
 const SessionCtx = createContext<Ctx>(null as unknown as Ctx);
+
+/**
+ * Every fresh open of the app (a new tab or window, or a link opened again) starts signed out, so
+ * whoever is holding the phone picks the account and presses Log in; a saved password only fills
+ * the form. Reloading or moving around inside the open tab keeps you signed in.
+ */
+let openedFresh: boolean | null = null;
+function isFreshOpen() {
+  if (openedFresh === null) {
+    try {
+      openedFresh = !sessionStorage.getItem("fs_open");
+      sessionStorage.setItem("fs_open", "1");
+    } catch {
+      openedFresh = false;
+    }
+  }
+  return openedFresh;
+}
 
 export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(null);
@@ -107,7 +125,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // the first /api/me is in flight, so a reload doesn't start from an empty screen.
   useEffect(() => {
     const uid = lastUser();
-    if (!uid) return;
+    if (!uid || isFreshOpen()) return;
     let alive = true;
     (async () => {
       const [cached, key] = await Promise.all([readCache<Me>(meKey(uid)), loadIdentity(uid)]);
@@ -124,8 +142,11 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 5000);
+    const signedOut = isFreshOpen()
+      ? Promise.all([api("/api/auth/logout", { method: "POST" }).catch(() => {}), forgetIdentities().catch(() => {}), clearCache().catch(() => {})])
+      : Promise.resolve();
+    void signedOut.then(refresh);
+    const t = setInterval(() => void signedOut.then(refresh), 5000);
     // Coming back to the tab (or the phone waking up) catches up at once rather than on the next tick.
     const wake = () => document.visibilityState === "visible" && refresh();
     document.addEventListener("visibilitychange", wake);
