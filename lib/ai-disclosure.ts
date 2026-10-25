@@ -1,4 +1,5 @@
 import { MAX_LEN, MAX_SNIPPETS } from "./chat-context";
+import { BOT_CONTEXT } from "./bot-turns";
 
 /** Relevant messages per open stock when the AI re-marks (lib/markets.ts repriceGroup). */
 export const STOCK_SNIPPETS = 8;
@@ -32,6 +33,10 @@ export const AI_CHAT = {
     {
       head: "What you see first",
       body: "Whoever lists a stake sees every message their phone picked, and which ones the AI used, before anything is posted.",
+    },
+    {
+      head: "Sample chats",
+      body: `The sample people (Mum, Dad, Jake, Priya and the rest) are run by the app, only in the sample chats. To answer you, one of them opens the last ${BOT_CONTEXT} messages of that chat with their own copy of its key, as any member could, and Gemma on our server writes their reply. Nothing is redacted for this and nothing leaves the server. It never happens in a chat you start.`,
     },
     {
       head: "Limits",
