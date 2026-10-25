@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyShares, bookAt, cost, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount } from "../lib/lmsr";
+import { applyShares, askPrice, bidPrice, bookAt, buyQuote, cashOutQuote, cost, hazardDecay, holdingValue, marginFor, priceYes, proceedsForShares, recenter, sharesForAmount } from "../lib/lmsr";
 import { maxStake, mayCall } from "../lib/economy";
 
 const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -65,4 +65,36 @@ test("nobody can resolve a market the way that pays them", () => {
   // ...but if every friend is long too, someone has to be able to settle it.
   assert.equal(mayCall(true, long, [long, long], true), true);
   assert.equal(mayCall(true, long, [long, long], false), false);
+});
+
+test("bookmaker: buying and cashing straight out loses the margin, never gains", () => {
+  const b = bookAt(250, 0.5);
+  const { shares } = buyQuote(b, "yes", 100, 0.03);
+  const out = cashOutQuote(applyShares(b, "yes", shares), "yes", shares, 0.03);
+  assert.ok(out < 100 && out > 90, `cash-out ${out}`);
+});
+
+test("bookmaker: a position is valued at its cash-out, so buying never shows a profit", () => {
+  const b = bookAt(250, 0.5);
+  const { shares } = buyQuote(b, "yes", 100, 0.03);
+  const v = holdingValue(applyShares(b, "yes", shares), { yes_shares: shares, no_shares: 0 }, 0.03);
+  assert.ok(v < 100, `value ${v}`);
+});
+
+test("bookmaker: the ask is above the AI's probability and the bid below it", () => {
+  const b = bookAt(250, 0.62);
+  assert.ok(askPrice(b, "yes", 0.03) > 0.62 && bidPrice(b, "yes", 0.03) < 0.62);
+  assert.ok(askPrice(b, "no", 0.03) > 0.38 && bidPrice(b, "no", 0.03) < 0.38);
+});
+
+test("each person's first trade on a stock is free of the margin, then everyone pays it", () => {
+  assert.equal(marginFor("stock", 0, 0.03, 1), 0);
+  assert.equal(marginFor("stock", 1, 0.03, 1), 0.03);
+  assert.equal(marginFor("stock", 7, 0.03, 1), 0.03);
+  // Bets always pay it.
+  assert.equal(marginFor("bet", 0, 0.03, 1), 0.03);
+  // A free first buy gets the whole stake's worth of shares; a later one, 97% of it.
+  const book = bookAt(250, 0.5);
+  close(buyQuote(book, "yes", 100, marginFor("stock", 0, 0.03, 1)).shares, sharesForAmount(book, "yes", 100));
+  close(buyQuote(book, "yes", 100, marginFor("stock", 1, 0.03, 1)).shares, sharesForAmount(book, "yes", 97));
 });

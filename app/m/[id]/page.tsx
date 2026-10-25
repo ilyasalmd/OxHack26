@@ -9,7 +9,7 @@ import { CandleChart, simulateCandles } from "@/components/candles";
 import { BetSlip, odds } from "@/components/bet-slip";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { TimeMachine } from "@/components/timemachine";
-import { proceedsForShares, sharesForAmount, type Side } from "@/lib/lmsr";
+import { buyQuote, type Side } from "@/lib/lmsr";
 import { fmtLine, priceMeaning, sides, typeLabel } from "@/lib/labels";
 import { formatOdds, useOddsFormat } from "@/lib/odds";
 import { ArrowUpRight, Book, Chat, ChevronRight, Flag, Hourglass, More, Volume } from "@/components/icons";
@@ -45,7 +45,8 @@ type Detail = {
   ticks: { ts: string; price: number; source: string }[];
   candles: { bucket: string; open: number; high: number; low: number; close: number; volume: number; n: number }[];
   trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string; bot?: boolean }[];
-  position: { yes_shares: number; no_shares: number; spent: number } | null;
+  position: { yes_shares: number; no_shares: number; spent: number; cashOut: { yes: number | null; no: number | null } | null } | null;
+  quotes: { vig: number; buyVig: number; ask: { yes: number; no: number }; bid: { yes: number; no: number } };
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
   me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
@@ -184,20 +185,21 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
 
   const pos = d.position;
   const hasPos = !!pos && (pos.yes_shares > 0.001 || pos.no_shares > 0.001);
-  const posValue = pos ? pos.yes_shares * m.price + pos.no_shares * (1 - m.price) : 0;
+  // Worth what the AI bookmaker pays to cash it out now.
+  const posValue = (pos?.cashOut?.yes ?? 0) + (pos?.cashOut?.no ?? 0);
 
   // "How this pays", worked through with this stake's price and this person's own shares.
   const EXAMPLE = 10;
   const signed = (x: number) => `${x >= 0 ? "+" : ""}${fmt(x)}`;
-  const exYes = sharesForAmount(book, "yes", EXAMPLE);
-  const exNo = sharesForAmount(book, "no", EXAMPLE);
+  const exYes = buyQuote(book, "yes", EXAMPLE, d.quotes.buyVig).shares;
+  const exNo = buyQuote(book, "no", EXAMPLE, d.quotes.buyVig).shares;
   const wins = isNumber ? { yes: "if it comes in over the line", no: "if it comes in under" } : { yes: "if it happens", no: "if it doesn't" };
   const howItPays = (
     <Fold title="How this pays" summary={<span className="text-xs text-mute">1 share pays 1 {c.ticker}</span>}>
       <ul className="list-disc space-y-2 pl-4 text-sm">
         <li>Every share pays 1 {c.ticker} if its side wins and nothing if it loses. {lbl.yesShort} wins {wins.yes}; {lbl.noShort} wins {wins.no}.</li>
         <li>
-          Right now a {lbl.yesShort} share costs about {fmt(m.price)} {c.ticker} and a {lbl.noShort} share about {fmt(1 - m.price)}. So {EXAMPLE} {c.ticker} on {lbl.yesShort} buys {fmt(exYes)} shares, paying {fmt(exYes)} {c.ticker} {wins.yes} (a gain of {fmt(exYes - EXAMPLE)}), and {EXAMPLE} {c.ticker} on {lbl.noShort} buys {fmt(exNo)}, paying {fmt(exNo)} {wins.no}. The cheaper side pays more because the group thinks it&apos;s less likely.
+          Right now a {lbl.yesShort} share costs about {fmt(d.quotes.ask.yes)} {c.ticker} and a {lbl.noShort} share about {fmt(d.quotes.ask.no)}, {d.quotes.buyVig > 0 ? <>which is the AI&apos;s price plus the bookmaker&apos;s {Math.round(d.quotes.buyVig * 100)}% margin.</> : <>which is the AI&apos;s price: your first trade on this stock has no margin.</>} So {EXAMPLE} {c.ticker} on {lbl.yesShort} buys {fmt(exYes)} shares, paying {fmt(exYes)} {c.ticker} {wins.yes} (a gain of {fmt(exYes - EXAMPLE)}), and {EXAMPLE} {c.ticker} on {lbl.noShort} buys {fmt(exNo)}, paying {fmt(exNo)} {wins.no}. The cheaper side pays more because the group thinks it&apos;s less likely.
         </li>
         {hasPos && pos && (
           <li>
@@ -208,7 +210,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         )}
         <li>
           {isStock
-            ? `Until it matures you can sell shares back at the going price, so you can take a profit or cut a loss early. Your first trade is free, then each one pays ${me.config.economy.stockFee} ${c.ticker}, which goes to ${d.creator.display_name} for listing it once it settles.`
+            ? `Until it matures you can cash shares out at the bookmaker's buy-back price, less its ${Math.round(d.quotes.vig * 100)}% margin, so you can take a profit or cut a loss early.`
             : "A bet is locked once placed and rides to the result."}{" "}
           At maturity the winning shares pay out, once someone has called the result and the chat has confirmed it. If only one person traded, they just get their money back.
         </li>
@@ -221,7 +223,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
     <section className="rounded-2xl border border-line bg-panel p-4">
       <div className="mb-2 text-sm font-semibold">Your position</div>
       <div className="flex justify-between text-sm">
-        <span className="text-mute">Value</span>
+        <span className="text-mute">{resolved ? "Paid out" : "Cash-out value"}</span>
         <span className="tabular">{fmt(resolved ? (m.outcome ? pos.yes_shares : pos.no_shares) : posValue)} {c.ticker}</span>
       </div>
       <div className="flex justify-between text-sm">
@@ -231,16 +233,17 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       {pos.yes_shares > 0.001 && (
         <div className="mt-2 flex items-center justify-between gap-2 text-sm">
           <span className="text-up">{isStock && !isNumber ? "Holding" : lbl.yes} {fmt(pos.yes_shares)} shares</span>
-          {!resolved && !m.closed && d.me.canSell && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "yes", pos.yes_shares)}>Sell for {fmt(proceedsForShares(book, "yes", pos.yes_shares))}</button>}
+          {!resolved && !m.closed && d.me.canSell && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "yes", pos.yes_shares)}>Sell for {fmt(pos.cashOut?.yes ?? 0)}</button>}
         </div>
       )}
       {pos.no_shares > 0.001 && (
         <div className="mt-1 flex items-center justify-between gap-2 text-sm">
           <span className="text-down">{lbl.no} {fmt(pos.no_shares)} shares</span>
-          {!resolved && !m.closed && d.me.canSell && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "no", pos.no_shares)}>Close for {fmt(proceedsForShares(book, "no", pos.no_shares))}</button>}
+          {!resolved && !m.closed && d.me.canSell && <button className="shrink-0 rounded-lg bg-white/[.07] px-3 py-1.5 text-sm font-medium hover:bg-white/10" disabled={busy} onClick={() => doTrade("sell", "no", pos.no_shares)}>Close for {fmt(pos.cashOut?.no ?? 0)}</button>}
         </div>
       )}
       {!resolved && !m.closed && !d.me.canSell && <p className="mt-2 text-xs text-mute">Locked in. A bet rides to the result and pays out when it settles.</p>}
+      {!resolved && !m.closed && d.me.canSell && <p className="mt-2 text-xs text-mute">The AI bookmaker buys back at its price less a {Math.round(d.quotes.vig * 100)}% margin.</p>}
     </section>
   );
 
@@ -470,7 +473,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             <p className="mt-3 text-xs text-mute">
               Stocks trade like a maturing bond: each long share pays 1 {c.ticker} (shown as 100) if it happens by {new Date(m.resolves_at).toLocaleDateString("en-GB")}.
               {m.decay === "hazard" ? " With no news, the price drifts down as maturity gets closer." : " The outcome is only known at maturity."}
-              {" "}Your first trade here is free; after that each trade pays {me.config.economy.stockFee} {c.ticker} to {d.creator.display_name}, who listed it, paid out at maturity{m.fees_held > 0 ? ` (${fmt(m.fees_held)} ${c.ticker} held so far)` : ""}.
+              {" "}Your first trade on it is free; after that the AI bookmaker takes a {Math.round(d.quotes.vig * 100)}% margin on each buy and each cash-out, from everyone, the lister included.
             </p>
           )}
         </Fold>
@@ -514,7 +517,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
        <aside className="sticky top-20 mt-6 hidden space-y-4 lg:block">
         {!resolved && !voided && d.me.canTrade && !m.closed && (
           <section className="rounded-2xl border border-line bg-panel p-4">
-            <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+            <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
           </section>
         )}
         {positionCard}
@@ -524,7 +527,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <div className="lg:hidden"><TimeMachine onJump={load} /></div>
 
       <Sheet open={slipOpen && !wide} onClose={() => setSlipOpen(false)} title={isStock ? "Trade" : "Bet slip"}>
-        <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+        <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
       </Sheet>
 
       <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Propose the result">

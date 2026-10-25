@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { applyShares, priceYes, sharesForAmount, type Book, type Side } from "@/lib/lmsr";
+import { askPrice, buyQuote, priceYes, type Book, type Side } from "@/lib/lmsr";
 import { sides, type Sided } from "@/lib/labels";
 import { decimalOdds, formatOdds, useOddsFormat } from "@/lib/odds";
 import { Button, fmt, pct } from "./ui";
@@ -21,6 +21,8 @@ type Props = {
   /** Fee this trade pays to the lister (0 when free), and who that is. */
   fee?: number;
   lister?: string;
+  /** The AI bookmaker's margin on each side. */
+  vig: number;
   busy: boolean;
   err: string;
   onPlace: (side: Side, amount: number) => void;
@@ -30,7 +32,7 @@ type Props = {
  * One slip for every trade. A bet reads like a bookmaker's: pick Yes or No, type a stake, see what
  * it returns, one tap. A stock reads like a broker's: Buy or Short, the price, what the shares pay.
  */
-export function BetSlip({ market, book, side, onSide, canShort, balance, maxStake, floor, ticker, fee = 0, lister, busy, err, onPlace }: Props) {
+export function BetSlip({ market, book, side, onSide, canShort, balance, maxStake, floor, ticker, fee = 0, lister, vig, busy, err, onPlace }: Props) {
   const [f] = useOddsFormat();
   const [amount, setAmount] = useState(Math.min(10, Math.max(1, Math.floor(maxStake))));
   const [raw, setRaw] = useState(String(Math.min(10, Math.max(1, Math.floor(maxStake)))));
@@ -40,11 +42,12 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
   const stock = kind === "stock";
   const lbl = sides(market);
   const number = market.answer === "number" && market.line != null;
+  // The AI's probability, and what the bookmaker charges per share on each side (its margin on top).
   const pYes = priceYes(book);
-  const price = side === "yes" ? pYes : 1 - pYes;
+  const ask = { yes: askPrice(book, "yes", vig), no: askPrice(book, "no", vig) };
+  const price = ask[side];
   const ok = amount >= 1 && amount <= max;
-  const shares = ok ? sharesForAmount(book, side, amount) : 0;
-  const after = ok ? priceYes(applyShares(book, side, shares)) : pYes;
+  const { shares, after } = ok ? buyQuote(book, side, amount, vig) : { shares: 0, after: pYes };
   const profit = shares - amount - fee;
   const show = (p: number) => (stock ? fmt(p * 100, 1) : pct(p));
 
@@ -60,8 +63,8 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2">
-        <Pick on={side === "yes"} tone="up" onClick={() => onSide("yes")} label={yesLabel} value={stock && !number ? show(pYes) : formatOdds(pYes, f)} sub={stock && !number ? "share price" : `${pct(pYes)} chance`} />
-        <Pick on={side === "no"} tone="down" disabled={!canShort} onClick={() => canShort && onSide("no")} label={noLabel} value={stock && !number ? show(1 - pYes) : formatOdds(1 - pYes, f)} sub={!canShort ? "not for you" : stock && !number ? "if it doesn't happen" : `${pct(1 - pYes)} chance`} />
+        <Pick on={side === "yes"} tone="up" onClick={() => onSide("yes")} label={yesLabel} value={stock && !number ? show(ask.yes) : formatOdds(ask.yes, f)} sub={stock && !number ? "buy price" : `AI: ${pct(pYes)} chance`} />
+        <Pick on={side === "no"} tone="down" disabled={!canShort} onClick={() => canShort && onSide("no")} label={noLabel} value={stock && !number ? show(ask.no) : formatOdds(ask.no, f)} sub={!canShort ? "not for you" : stock && !number ? "short price" : `AI: ${pct(1 - pYes)} chance`} />
       </div>
 
       <div className="rounded-2xl border border-line bg-ink p-4">
@@ -103,17 +106,15 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
         </div>
       </div>
 
-      {stock && !number && (
-        <p className="px-1 text-xs text-mute">
-          {fee > 0 ? `Includes a ${fee} ${ticker} fee to ${lister ?? "the lister"} (your first trade here was free).` : `Your first trade here is free; later trades pay 0.5 ${ticker} to ${lister ?? "the lister"}.`}
-        </p>
+      {stock && !number && fee > 0 && (
+        <p className="px-1 text-xs text-mute">Includes a {fee} {ticker} fee to {lister ?? "the lister"}.</p>
       )}
       {max < 1 && <p className="text-sm text-down">You&apos;re at the safety floor ({floor} {ticker} stays untouched). Your weekly allowance tops you up.</p>}
       {err && <p className="text-sm text-down">{err}</p>}
       <Button variant={side === "yes" ? "up" : "down"} className="w-full !py-3.5 text-[17px]" disabled={busy || !ok} onClick={() => onPlace(side, amount)}>
         {busy ? "Placing…" : stock && !number ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount + fee, fee ? 1 : 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
       </Button>
-      <p className="text-center text-[11px] text-mute">{stock && !number ? `Each share pays 1 ${ticker} if it happens, nothing if not. Price ${show(price)} now.` : `Odds ${formatOdds(price, f)}: 1 coin returns ${decimalOdds(price)} if you're right.`}</p>
+      <p className="text-center text-[11px] text-mute">{stock && !number ? `Each share pays 1 ${ticker} if it happens, nothing if not. Buy price ${show(price)} now, set by the AI bookmaker${vig > 0 ? ` with a ${Math.round(vig * 100)}% margin` : ", with no margin on your first trade"}.` : `Odds ${formatOdds(price, f)} from the AI bookmaker (${Math.round(vig * 100)}% margin): 1 coin returns ${decimalOdds(price)} if you're right.`}</p>
     </div>
   );
 }

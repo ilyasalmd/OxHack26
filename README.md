@@ -5,6 +5,7 @@
 - **Short-term bets** close at a deadline and settle YES/NO.
 - **Long-term stocks** trade like a maturing bond: they pay out if the outcome happens by maturity, and "by date X" stocks lose value as time runs out with no news (constant-hazard decay).
 - **Invest in yourself:** you can go long on stocks about you, never short them, and you can't bet on short-term stakes about yourself.
+- **The AI is the bookmaker:** it quotes a buy and a sell price around its probability with a 3% margin each side, and leans its quote against whichever side people pile into. Each market has a limit on what the house can lose, and trading pauses while the AI re-marks a chat. Positions count at their cash-out value, so buying never makes you look richer.
 - **Nobody gets wiped out:** a single trade is capped at 25% of your balance and you can't go below a 50-coin floor. Everyone starts with **500** and gets **+50 every week**.
 - **The group remembers:** every settled stake is summarised and stored. New questions pull up similar past outcomes (per person, per category) to set the opening odds and show friends the record.
 - **Private by design, with one disclosed exception:** chats are end-to-end encrypted in the browser. The server never reads message text. The AI gets only a few filtered, anonymised snippets picked on the phone when a stake is priced, and everyone agrees to that in the Terms when they sign up.

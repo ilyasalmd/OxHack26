@@ -1,9 +1,9 @@
 import { getDb } from "@/lib/db";
 import { route } from "@/lib/auth";
-import { isAdminUsername } from "@/lib/config";
+import { isAdminUsername, MARKET } from "@/lib/config";
 import { BALANCE_SERIES, chartPoints } from "@/lib/series";
 import { netWorth } from "@/lib/economy";
-import { priceYes } from "@/lib/lmsr";
+import { holdingValue, priceYes } from "@/lib/lmsr";
 import { explorer, onChainBalance, solanaConfig } from "@/lib/solana";
 import { walletSkill } from "@/lib/skill";
 import { cached } from "@/lib/cache";
@@ -52,7 +52,8 @@ export const GET = route(async (_req, user) => {
         no: p.no_shares,
         spent: p.spent,
         price: pr,
-        value: p.yes_shares * pr + p.no_shares * (1 - pr),
+        // Open positions are worth what cashing out pays now.
+        value: p.status === "resolved" ? (p.outcome ? p.yes_shares : p.no_shares) : p.status === "open" ? holdingValue({ b: p.b, qYes: p.q_yes, qNo: p.q_no }, p, MARKET.vig) : 0,
       };
     }),
     ledger,

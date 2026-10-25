@@ -1,6 +1,7 @@
 import type { Q } from "./db";
 import { netWorth } from "./economy";
-import { priceYes } from "./lmsr";
+import { holdingValue } from "./lmsr";
+import { MARKET } from "./config";
 import { groupCalls, isQuiet, skillByUser, stakeScores } from "./skill";
 import { now } from "./clock";
 
@@ -29,8 +30,9 @@ export async function leaderboard(q: Q, groupId: number, viewerId: number) {
     const groupPnl = pos
       .filter((p) => p.user_id === u.id)
       .reduce((s, p) => {
-        const pr = p.status === "resolved" ? (p.outcome ? 1 : 0) : priceYes({ b: p.b, qYes: p.q_yes, qNo: p.q_no });
-        return s + p.yes_shares * pr + p.no_shares * (1 - pr) - p.spent;
+        // Settled: what it paid. Open: what cashing out would pay now.
+        if (p.status === "resolved") return s + (p.outcome ? p.yes_shares : p.no_shares) - p.spent;
+        return s + holdingValue({ b: p.b, qYes: p.q_yes, qNo: p.q_no }, p, MARKET.vig) - p.spent;
       }, 0);
     const nw = await netWorth(q, u.id);
     const sk = skills.get(u.id);

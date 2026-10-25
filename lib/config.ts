@@ -14,9 +14,10 @@ export const ECONOMY = {
   // ...and nobody can trade below this floor, so nobody is ever wiped out.
   balanceFloor: 50,
   minTrade: 1,
-  // Stocks: your first trade on each one is free; every trade after that pays this to whoever
-  // listed it, held until maturity. The lister trades their own stock free.
-  stockFee: 0.5,
+  // Optional flat fee on stocks, off now that the AI bookmaker's margin (MARKET.vig) is the fee.
+  // If set: your first trade on each is free, then every trade pays this to whoever listed it, held
+  // until maturity. The lister trades their own stock free.
+  stockFee: 0,
   freeTrades: 1,
   // Invite friends: paid once, when this many friends who signed up with your link have joined a chat or made a stake.
   referralReward: 200,
@@ -33,6 +34,11 @@ export const MARKET = {
   maxProb: 0.97,
   // Situations resolving further out than this default to long-term "stocks".
   stockThresholdDays: 21,
+  // The AI bookmaker's margin on each side: buys keep this share of the stake, cash-outs pay this much less.
+  vig: 0.03,
+  // Per market, the bookmaker stops taking a side once its worst-case loss would pass this many
+  // times the book's liquidity b (b·ln 2 ≈ 0.69 b is the most a plain book can lose).
+  houseRisk: 1,
   // How much weight the history base rate gets against the AI when we have data.
   historyWeight: 0.3,
   // Cold start: with no history, profile answers or chat to go on, the AI is working from general
