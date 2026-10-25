@@ -39,3 +39,10 @@ test("hides a first name on its own when the display name is longer", () => {
   const people = [{ id: 1, username: "jthompson", display_name: "Jake Thompson" }];
   assert.equal(redact("Jake is going to be late again", people, 1, new Map()), "[SUBJECT] is going to be late again");
 });
+
+test("non-admins get the AI's reasoning cut to its first sentence", async () => {
+  const { firstSentence } = await import("../lib/text");
+  assert.equal(firstSentence("Jake is late 60% of the time. He took the Northern line twice."), "Jake is late 60% of the time.");
+  assert.equal(firstSentence("No full stop here"), "No full stop here");
+  assert.equal(firstSentence("Opened at 2.5 odds. Then moved."), "Opened at 2.5 odds.");
+});

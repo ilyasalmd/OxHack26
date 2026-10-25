@@ -264,6 +264,11 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
     }
     // A bet is a bet: once placed it rides to the result. Stocks can be traded until maturity.
     if (m.kind === "bet" && input.action === "sell") throw new HttpError(400, "A bet is locked once placed. It pays out when the result is in.");
+    if (m.kind === "bet") {
+      const [held] = await q.query<{ yes_shares: number; no_shares: number }>(`SELECT yes_shares, no_shares FROM positions WHERE market_id = $1 AND user_id = $2`, [marketId, user.id]);
+      const other = input.side === "yes" ? held?.no_shares : held?.yes_shares;
+      if (other && other > 1e-6) throw new HttpError(400, `You're already on ${input.side === "yes" ? sides(m).no : sides(m).yes}. A bet is locked once placed, so you can't switch sides.`);
+    }
     const [paused] = await q.query(`SELECT 1 FROM groups WHERE id = $1 AND repricing_until > now()`, [m.group_id]);
     if (paused) throw new HttpError(409, "The AI is re-marking this chat's stocks. Try again in a moment.");
     const [u] = await q.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1 FOR UPDATE`, [user.id]);

@@ -1,3 +1,4 @@
+import { firstSentence } from "@/lib/text";
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
@@ -63,7 +64,10 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     `SELECT id, display_name, username, color FROM users WHERE id = ANY($1::int[])`,
     [[m.creator_id, m.subject_id, m.proposed_by].filter(Boolean)]
   );
-  const { similar } = await findSimilar(db, m.group_id, m.title, m.subject_id);
+  const admin = isAdminUsername(user.username);
+  const lockedSide: "yes" | "no" | null =
+    m.kind === "bet" && position ? (position.yes_shares > 1e-6 ? "yes" : position.no_shares > 1e-6 ? "no" : null) : null;
+  const { similar } = admin ? await findSimilar(db, m.group_id, m.title, m.subject_id) : { similar: [] };
   const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [user.id]);
   const closed = isClosed(m);
   const buyVig = await tradeMargin(db, m, user.id);
@@ -81,7 +85,8 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   );
   return {
     // Only the admin is told which stakes are seeded demo history.
-    market: { ...m, sample: m.sample && isAdminUsername(user.username), price: price(m), closed },
+    // Only the admin gets the AI's full reasoning and the past results it was priced from.
+    market: { ...m, sample: m.sample && isAdminUsername(user.username), price: price(m), closed, ai_rationale: admin ? m.ai_rationale : firstSentence(m.ai_rationale) },
     creator: people.find((p) => p.id === m.creator_id),
     subject: people.find((p) => p.id === m.subject_id) ?? null,
     // A result somebody has put forward and the group hasn't yet confirmed or disputed.
@@ -108,13 +113,16 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     // The AI bookmaker's two-way quote: what a share costs to buy and what it pays to sell, per side.
     // buyVig is this person's margin on their next buy: nothing on their first trade on a stock.
     quotes: { vig: MARKET.vig, buyVig, ask: { yes: askPrice(bk, "yes", buyVig), no: askPrice(bk, "no", buyVig) }, bid: { yes: bidPrice(bk, "yes", MARKET.vig), no: bidPrice(bk, "no", MARKET.vig) } },
-    similar: similar.filter((s) => s.market_id !== m.id).map(({ embedding: _e, ...s }) => s),
+    similar: admin ? similar.filter((s) => s.market_id !== m.id).map(({ embedding: _e, ...s }) => s) : [],
     me: {
       balance: u.balance,
       maxStake: maxStake(u.balance),
       canTrade: !closed && !(isSubject && m.kind === "bet"),
-      canShort: !isSubject,
-      // Bets are locked once placed; stocks pay a small fee after the first free trade.
+      // Bets are locked once placed, so you can add to your side but never switch or sell;
+      // stocks can be bought and sold, with the margin after the first free trade.
+      lockedSide,
+      canLong: lockedSide !== "no",
+      canShort: !isSubject && lockedSide !== "yes",
       canSell: m.kind === "stock",
       fee: await tradeFee(db, m, user.id),
       // Before the deadline anyone can say it already happened (with evidence); after it, the
