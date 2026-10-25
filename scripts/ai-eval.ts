@@ -2,6 +2,7 @@
  * Walk-forward test of the pricing AI on the seeded history.
  *
  *   npm run ai:eval -- ollama:gemma4:12b      # one model; writes .data/ai-eval/<model>.json
+ *   EVAL_GAP_MS=4000 npm run ai:eval -- google:gemma-4-26b-a4b-it   # Gemma on the Gemini API (GEMMA_API_KEY), paced for the free tier
  *   npm run ai:eval -- report                 # table of every model run so far
  *
  * For each settled situation, oldest first, the model sees exactly what the app would have
@@ -52,9 +53,9 @@ async function load(db: PGlite) {
 async function run(spec: string) {
   const [provider, ...rest] = spec.split(":");
   const model = rest.join(":");
-  if (provider !== "ollama") throw new Error(`Use ollama:<model>, not ${spec}`);
+  if (provider !== "ollama" && provider !== "google") throw new Error(`Use ollama:<model> or google:<model>, not ${spec}`);
   process.env.AI_PROVIDER = provider;
-  process.env.OLLAMA_MODEL = model;
+  process.env[provider === "ollama" ? "OLLAMA_MODEL" : "GEMMA_API_MODEL"] = model;
   const gap = Number(process.env.EVAL_GAP_MS ?? 0);
 
   const db = await PGlite.create(SOURCE);

@@ -132,7 +132,7 @@ function Opening({ rec, anchor }: { rec: Rec; anchor: Data["anchor"] }) {
     sha256Hex(rec.record).then(setLocal);
   }, [rec.record]);
   const h = r.inputs.history;
-  const ai = r.provider === "heuristic" ? "Stats model (the AI didn't answer)" : `${r.model} via ${r.provider === "ollama" ? "Ollama on this Mac" : r.provider}`;
+  const ai = r.provider === "heuristic" ? "Stats model (the AI didn't answer)" : `${r.model} via ${r.provider === "ollama" ? "Ollama on this Mac" : r.provider === "google" ? "the Gemini API (Google AI Studio)" : r.provider}`;
 
   return (
     <>

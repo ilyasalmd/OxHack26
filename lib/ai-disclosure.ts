@@ -1,18 +1,26 @@
 import { MAX_LEN, MAX_SNIPPETS } from "./chat-context";
 import { BOT_CONTEXT } from "./bot-turns";
+import { AI } from "./config";
 
 /** Relevant messages per open stock when the AI re-marks (lib/markets.ts repriceGroup). */
 export const STOCK_SNIPPETS = 8;
 
+/** Where the AI runs, in the words the Terms and the privacy page use. */
+export function aiWhere(hosted = AI.usesGoogle, local = AI.chain.includes("ollama")) {
+  if (!hosted) return "To our server, where Gemma, an open model running on that same machine through Ollama, reads it to set the odds. No outside AI company receives it.";
+  return `To our server, which passes it to Gemma, an open model, to set the odds. Gemma runs ${local ? "on that same machine through Ollama when it can, and otherwise " : ""}on Google's servers through the Gemini API. As we're in the UK, Google's terms say it doesn't use this to improve its products and keeps it only for a limited time to check for abuse. No other AI company receives it.`;
+}
+
 /**
  * The one description of what the AI gets from a chat. It is always on, so this is shown
  * before someone creates or joins a chat, in group info, in Settings and on the privacy page.
- * The numbers come from the code that does the filtering, so the copy can't drift from it.
+ * The numbers come from the code that does the filtering, and where it goes from the AI setting,
+ * so the copy can't drift from either. `hosted` is for tests; the app reads the setting.
  */
-export const AI_CHAT = {
+export const aiChatNotice = (hosted = AI.usesGoogle, local = AI.chain.includes("ollama")) => ({
   title: "The AI reads relevant chat",
   status: "Always on, in every chat",
-  short: `When someone lists a stake or re-marks stocks, their phone picks up to ${MAX_SNIPPETS} messages about that person or topic, hides names and contact details, and sends only those to the AI on our server. Everyone sees what was sent.`,
+  short: `When someone lists a stake or re-marks stocks, their phone picks up to ${MAX_SNIPPETS} messages about that person or topic, hides names and contact details, and sends only those to the AI${hosted ? " through our server" : " on our server"}. Everyone sees what was sent.`,
   points: [
     {
       head: "What is picked",
@@ -24,7 +32,7 @@ export const AI_CHAT = {
     },
     {
       head: "Where it goes",
-      body: "To our server, where Gemma, an open model running on that same machine through Ollama, reads it to set the odds. No outside AI company receives it.",
+      body: aiWhere(hosted, local),
     },
     {
       head: "What is kept",
@@ -36,11 +44,13 @@ export const AI_CHAT = {
     },
     {
       head: "Sample chats",
-      body: `The sample people (Mum, Dad, Jake, Priya and the rest) are run by the app, only in the sample chats. To answer you, one of them opens the last ${BOT_CONTEXT} messages of that chat with their own copy of its key, as any member could, and Gemma on our server writes their reply. Nothing is redacted for this and nothing leaves the server. It never happens in a chat you start.`,
+      body: `The sample people (Mum, Dad, Jake, Priya and the rest) are run by the app, only in the sample chats. To answer you, one of them opens the last ${BOT_CONTEXT} messages of that chat with their own copy of its key, as any member could, and Gemma on our server writes their reply. Nothing is redacted for this, so it only happens when Gemma runs on our own machine, and nothing leaves the server. It never happens in a chat you start.`,
     },
     {
       head: "Limits",
       body: "Redaction can't catch everything. A message that describes someone without naming them still gets through, and the way someone writes can identify them. Keep anything you wouldn't want priced out of chats that have stakes.",
     },
   ],
-} as const;
+});
+
+export const AI_CHAT = aiChatNotice();

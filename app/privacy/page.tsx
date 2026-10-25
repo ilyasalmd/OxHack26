@@ -1,11 +1,17 @@
 import type { Metadata } from "next";
 import { H, LegalPage, UL } from "@/components/legal";
-import { AI_CHAT, STOCK_SNIPPETS } from "@/lib/ai-disclosure";
+import { aiChatNotice, STOCK_SNIPPETS } from "@/lib/ai-disclosure";
 import { MAX_LEN, MAX_SNIPPETS } from "@/lib/chat-context";
+import { AI } from "@/lib/config";
 
+// Rendered per request: where the AI runs (Ollama or Google) is a server setting, not a build-time one.
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Privacy · FriendStakes" };
 
 export default function Privacy() {
+  const AI_CHAT = aiChatNotice();
+  const hosted = AI.usesGoogle;
+  const local = AI.chain.includes("ollama");
   return (
     <LegalPage title="Privacy notice" updated="Draft of 24 October 2026">
       <p>This explains what FriendStakes keeps, who else sees it, and what you can do about it. The short version: the words in your group chats are end-to-end encrypted, but the stakes you trade on are not, the AI that prices them is always sent a few anonymised messages about each stake, and some of what the game does is public on a blockchain.</p>
@@ -37,7 +43,11 @@ export default function Privacy() {
       <p>In numbers: at most {MAX_SNIPPETS} messages per stake and {STOCK_SNIPPETS} per open stock each time stocks are re-marked, each cut to {MAX_LEN} characters. The messages that were used, with the AI&apos;s reason, are shown on the stake page to everyone in the chat. There is no setting to turn this off; if a chat should stay fully private, don&apos;t post stakes in it.</p>
 
       <H>The pricing AI</H>
-      <p>The AI that prices stakes is Gemma, an open model that runs on the same machine as the app through Ollama. Nothing below is sent to an outside AI company.</p>
+      {hosted ? (
+        <p>The AI that prices stakes is Gemma, an open model. {local ? "It runs on the same machine as the app through Ollama when it can, and otherwise" : "It runs"} on Google&apos;s servers through the Gemini API, so what&apos;s described below goes to Google. Text embeddings come from Google&apos;s own embedding model there. Google&apos;s terms for UK users say it doesn&apos;t use this to improve its products and keeps it only for a limited time to check for abuse. No other AI company receives it, and the sample people&apos;s replies are only written when Gemma runs on our own machine.</p>
+      ) : (
+        <p>The AI that prices stakes is Gemma, an open model that runs on the same machine as the app through Ollama. Nothing below is sent to an outside AI company.</p>
+      )}
       <p>To price a stake we send the AI its title and details, the first name or display name of the person it&apos;s about, the group&apos;s AI context, the anonymised chat messages described above, and short summaries of similar stakes that group has already settled. We also send titles to create a text embedding for finding similar past stakes, and a settled stake&apos;s title, outcome, trading summary and any note the settler wrote, so it can be summarised for the group&apos;s history. If the person it&apos;s about answered the optional &ldquo;About you&rdquo; questions, those answers go to the AI too. They are never shown to other members, and you can change or delete yours in Settings. Without the AI the app uses a built-in stats model.</p>
 
       <H>Voice recaps</H>

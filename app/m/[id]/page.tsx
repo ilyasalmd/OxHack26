@@ -436,7 +436,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         {positionCard && <div className="mt-5 lg:hidden">{positionCard}</div>}
 
         {!resolved && !voided && howItPays}
-        <Fold title="Why this price" summary={<>{m.evidence != null && m.evidence < 1 && <Badge tone="mute">Low data</Badge>}<Badge tone="brand">{m.ai_source === "ollama" ? "Gemma" : "Stats model"}</Badge>{m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}</>}>
+        <Fold title="Why this price" summary={<>{m.evidence != null && m.evidence < 1 && <Badge tone="mute">Low data</Badge>}<Badge tone="brand">{m.ai_source === "heuristic" ? "Stats model" : "Gemma"}</Badge>{m.decay === "hazard" && <Badge tone="down"><span className="inline-flex items-center gap-1"><Hourglass size={11} /> decays</span></Badge>}</>}>
           {m.evidence != null && m.evidence < 1 && (
             <p className="mb-2 rounded-xl bg-white/[.04] px-3 py-2 text-[13px] text-white/80">
               <b>Low data.</b> There&apos;s no history, profile or chat about this yet, so this is based on general knowledge. It opened closer to 50/50 than the AI said, and trades move it faster than usual.
