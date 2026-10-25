@@ -30,6 +30,8 @@ const Schema = z.object({
   encPrivateKeyRecovery: z.string().min(20).optional(),
   // A friend's invite code, when the invite link's cookie didn't make it.
   ref: z.string().max(32).optional(),
+  // The Terms include the AI reading relevant chat (lib/ai-disclosure.ts), so they must be ticked, not implied.
+  acceptedTerms: z.literal(true, { error: "Tick the box to agree to the Terms and Privacy notice" }),
 });
 
 export const POST = route(
@@ -47,8 +49,8 @@ export const POST = route(
       if (problem) throw new HttpError(409, problem);
       const [u] = await q.query<{ id: number }>(
         `INSERT INTO users (username, display_name, auth_hash, color, balance, last_allowance_at, created_at, public_key, enc_private_key, key_salt, wallet_pubkey, wallet_secret_enc,
-           recovery_hash, recovery_salt, enc_private_key_recovery)
-         VALUES ($1,$2,$3,$4,0,$5,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id`,
+           recovery_hash, recovery_salt, enc_private_key_recovery, terms_accepted_at)
+         VALUES ($1,$2,$3,$4,0,$5,$5,$6,$7,$8,$9,$10,$11,$12,$13,$5) RETURNING id`,
         [username, b.displayName, hash, COLORS[Math.floor(Math.random() * COLORS.length)], now(), b.publicKey, b.encPrivateKey, b.keySalt, wallet.pubkey, wallet.secretEnc,
           recoveryHash, recovery ? b.recoverySalt : null, recovery ? b.encPrivateKeyRecovery : null]
       );

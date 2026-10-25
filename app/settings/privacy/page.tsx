@@ -1,8 +1,8 @@
 "use client";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api } from "@/components/api";
 import { SafetySettings } from "@/components/safety-settings";
-import { AiChatNotice } from "@/components/ai-notice";
 import { Section, SettingsPage } from "@/components/settings";
 import { Button } from "@/components/ui";
 import { PROFILE_MAX, PROFILE_QUESTIONS } from "@/lib/profile-questions";
@@ -17,7 +17,7 @@ export default function PrivacyPage() {
         <SafetySettings />
       </Section>
       <Section title="What the AI gets from your chats">
-        <AiChatNotice />
+        <p className="text-sm text-mute">The AI that prices stakes reads a few relevant, anonymised chat messages. You agreed to this when you signed up. <Link href="/terms#ai" className="text-brand hover:underline">What it reads and what is kept</Link></p>
       </Section>
       <Section title="What the AI knows about you" note="Only the AI reads these, as context when it sets odds about you. Friends never see them.">
         <AboutYou />

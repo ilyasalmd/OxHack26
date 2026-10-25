@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { H, LegalPage, UL } from "@/components/legal";
+import { AI_CHAT } from "@/lib/ai-disclosure";
 
 export const metadata: Metadata = { title: "Terms · FriendStakes" };
 
@@ -40,10 +41,19 @@ export default function Terms() {
         <li>You can delete your account in Settings. See the privacy notice for what that does.</li>
       </UL>
 
-      <H>7. Our right to act</H>
+      <H id="ai">7. {AI_CHAT.title}</H>
+      <p>{AI_CHAT.status}. You agree to this when you create an account. {AI_CHAT.short}</p>
+      <UL>
+        {AI_CHAT.points.map((p) => (
+          <li key={p.head}><b className="text-white">{p.head}:</b> {p.body}</li>
+        ))}
+      </UL>
+      <p>There is no setting to turn this off. If a chat should stay fully private, don&apos;t post stakes in it.</p>
+
+      <H>8. Our right to act</H>
       <p>We can remove stakes, messages or accounts that break these terms, and we may change or reset the game&apos;s balances and data. FriendStakes is an early product provided as it is, with no promise that it will always be available or error-free, and we are not liable for losses, which for play money means losing coins.</p>
 
-      <H>8. Changes and contact</H>
+      <H>9. Changes and contact</H>
       <p>We may update these terms and will say so in the app when we do. Questions or reports: <span className="text-white">[contact email to be added]</span>.</p>
     </LegalPage>
   );

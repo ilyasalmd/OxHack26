@@ -250,3 +250,6 @@ CREATE TABLE IF NOT EXISTS pricing_records (
   created_at timestamptz NOT NULL
 );
 CREATE INDEX IF NOT EXISTS pricing_records_markets ON pricing_records USING gin (market_ids);
+
+-- When the person ticked the Terms at sign-up (they include the AI reading relevant chat). Null for accounts made before the box existed.
+ALTER TABLE users ADD COLUMN IF NOT EXISTS terms_accepted_at timestamptz;

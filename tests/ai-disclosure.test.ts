@@ -43,3 +43,23 @@ test("there is no per-group switch left on the server", () => {
   assert.ok(!markets.includes("ai_reads_chat"), "lib/markets.ts still gates snippets on a group flag");
   assert.ok(!groupRoute.includes("aiReadsChat"), "the group PATCH still accepts a toggle");
 });
+
+test("the full disclosure is in the Terms, and sign-up needs an explicit tick", () => {
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  const terms = read("../app/terms/page.tsx");
+  assert.ok(terms.includes("AI_CHAT.points.map") && terms.includes('id="ai"'), "Terms must render every point of the AI notice at #ai");
+  const signup = read("../app/api/auth/signup/route.ts");
+  assert.match(signup, /acceptedTerms: z\.literal\(true/, "the server must refuse a sign-up without the Terms tick");
+  assert.match(signup, /terms_accepted_at/, "the server must record when the Terms were accepted");
+  const form = read("../components/landing/auth-flow.tsx");
+  assert.match(form, /type="checkbox" required checked=\{agreed\}/, "the sign-up form must have a required Terms box");
+  assert.match(form, /!agreed\}/, "Create account must stay disabled until the box is ticked");
+});
+
+test("joining or opening a chat shows no AI notice", () => {
+  const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
+  for (const p of ["../app/join/[code]/page.tsx", "../components/shell.tsx", "../app/g/[id]/page.tsx", "../app/settings/privacy/page.tsx"]) {
+    const src = read(p);
+    assert.ok(!/AiChat(Notice|Banner)|AI reads chat/.test(src), `${p} still shows a per-chat AI notice`);
+  }
+});

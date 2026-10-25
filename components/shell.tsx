@@ -8,7 +8,6 @@ import { createGroup, groupKey } from "./groupkeys";
 import { warmChat } from "./chat/cache";
 import { clearCache } from "./chat/store";
 import { TimeMachine } from "./timemachine";
-import { AiChatNotice } from "./ai-notice";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
 import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, User as UserIcon, Wallet, Users } from "./icons";
 import { decryptPayload, forgetIdentities, type Payload } from "@/lib/e2ee";
@@ -255,7 +254,6 @@ export function useChatActions() {
           <Input placeholder="Group name, e.g. Flat 4B" value={name} onChange={(e) => setName(e.target.value)} autoFocus />
           <Input placeholder="Friends' usernames: @jake @priya" value={members} onChange={(e) => setMembers(e.target.value)} autoCapitalize="none" />
           <p className="text-xs text-mute">A fresh encryption key is made on this device and locked separately for each friend. The server never sees it.</p>
-          <AiChatNotice />
           {!identity && <p className="text-sm text-down">Unlock your chats first.</p>}
           {err && <p className="text-sm text-down">{err}</p>}
           <Button className="w-full" disabled={busy || !identity}>{busy ? "Creating…" : "Create chat"}</Button>
@@ -264,7 +262,6 @@ export function useChatActions() {
       <Sheet open={open === "join"} onClose={() => setOpen(null)} title="Join with an invite">
         <form onSubmit={join} className="space-y-3">
           <Input placeholder="Invite code or link" value={code} onChange={(e) => setCode(e.target.value)} autoCapitalize="none" autoFocus />
-          <AiChatNotice />
           {err && <p className="text-sm text-down">{err}</p>}
           <Button className="w-full" disabled={busy}>{busy ? "Joining…" : "Join"}</Button>
         </form>

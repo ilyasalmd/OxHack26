@@ -29,7 +29,8 @@ export default function Landing() {
       const uname = username.trim().toLowerCase().replace(/^@/, "");
       if (mode === "signup") {
         const s = await prepareSignup({ username: uname, displayName, password });
-        const r = await api<{ id: number }>("/api/auth/signup", { body: s.body });
+        // Only reachable once the Terms box is ticked (PasswordStep), so the agreement is real.
+        const r = await api<{ id: number }>("/api/auth/signup", { body: { ...s.body, acceptedTerms: true } });
         await saveIdentity(r.id, s.privateKey);
         setRecovery(s.recoveryCode);
         setIdentity(s.privateKey);
