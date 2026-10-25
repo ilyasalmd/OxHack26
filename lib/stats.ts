@@ -1,26 +1,27 @@
 import type { Q } from "./db";
 import { netWorth } from "./economy";
 import { priceYes } from "./lmsr";
+import { groupCalls, isQuiet, skillByUser, stakeScores } from "./skill";
+import { now } from "./clock";
 
 const brier = (p: number, y: boolean) => (p - (y ? 1 : 0)) ** 2;
 
-/** Leaderboard: balance, net worth and forecasting skill (Brier skill score vs always saying 50%). */
+/**
+ * Leaderboard: one per group, ranked by forecasting skill in this group's stakes (see lib/skill.ts).
+ * Everyone with a settled stake is ranked; people with none are listed after. Coins (net worth, one
+ * wallet across all your groups) and this group's P&L ride along but never decide the order.
+ */
 export async function leaderboard(q: Q, groupId: number, viewerId: number) {
   const members = await q.query<{ id: number; username: string; display_name: string; color: string }>(
     `SELECT u.id, u.username, u.display_name, u.color FROM users u JOIN group_members gm ON gm.user_id = u.id
      WHERE gm.group_id = $1 AND (NOT gm.guest OR gm.user_id = $2)`,
     [groupId, viewerId]
   );
-  // A trader's forecast is where they left the price; scored against what happened.
-  const trades = await q.query<{ user_id: number; price_after: number; outcome: boolean; pnl_side: string }>(
-    `SELECT t.user_id, t.price_after, m.outcome, t.side AS pnl_side FROM trades t JOIN markets m ON m.id = t.market_id
-     WHERE m.group_id = $1 AND m.status = 'resolved' AND t.action = 'buy'`,
-    [groupId]
-  );
+  const skills = skillByUser(stakeScores(await groupCalls(q, groupId)));
   // P&L from this group's markets only (balances are one wallet across all your groups).
   const pos = await q.query<{ user_id: number; yes_shares: number; no_shares: number; spent: number; status: string; outcome: boolean | null; b: number; q_yes: number; q_no: number }>(
     `SELECT p.user_id, p.yes_shares, p.no_shares, p.spent, m.status, m.outcome, m.b, m.q_yes, m.q_no
-     FROM positions p JOIN markets m ON m.id = p.market_id WHERE m.group_id = $1`,
+     FROM positions p JOIN markets m ON m.id = p.market_id WHERE m.group_id = $1 AND m.status <> 'void'`,
     [groupId]
   );
   const rows = [];
@@ -32,21 +33,22 @@ export async function leaderboard(q: Q, groupId: number, viewerId: number) {
         return s + p.yes_shares * pr + p.no_shares * (1 - pr) - p.spent;
       }, 0);
     const nw = await netWorth(q, u.id);
-    const mine = trades.filter((t) => t.user_id === u.id);
-    const b = mine.length ? mine.reduce((s, t) => s + brier(t.price_after, t.outcome), 0) / mine.length : null;
-    const hits = mine.filter((t) => (t.pnl_side === "yes") === t.outcome).length;
+    const sk = skills.get(u.id);
     rows.push({
       ...u,
       balance: nw.balance,
       netWorth: nw.total,
       groupPnl,
-      resolvedTrades: mine.length,
-      hitRate: mine.length ? hits / mine.length : null,
-      brier: b,
-      skill: b == null ? null : 1 - b / 0.25,
+      skill: sk && sk.stakes ? sk.skill : null,
+      stakes: sk?.stakes ?? 0,
+      early: sk ? sk.early : true,
+      tier: sk?.tier ?? null,
+      quiet: isQuiet(sk?.last),
+      // Whole weeks since their last call here (on the demo clock, so the browser needn't know it).
+      weeksSinceCall: sk?.last ? Math.floor((now().getTime() - sk.last) / (7 * 86_400_000)) : null,
     });
   }
-  return rows.sort((a, b) => b.netWorth - a.netWorth);
+  return rows.sort((a, b) => (a.skill == null ? 1 : 0) - (b.skill == null ? 1 : 0) || (b.skill ?? 0) - (a.skill ?? 0) || a.display_name.localeCompare(b.display_name));
 }
 
 /** AI vs crowd vs coin-flip on everything this group has resolved, plus calibration bins. */

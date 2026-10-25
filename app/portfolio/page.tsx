@@ -5,6 +5,8 @@ import { useSession } from "@/components/session";
 import { InviteFriends } from "@/components/invite-friends";
 import { api } from "@/components/api";
 import { Avatar, Badge, TopBar, fmt, pct } from "@/components/ui";
+import { skillPts } from "@/components/group-stats";
+import { HowSkillWorks } from "@/components/skill-sheet";
 import { ArrowUpRight, Check, ChevronRight, Clock, Coin, Copy, Lock, Timer, TrendUp, Trophy, Wallet } from "@/components/icons";
 
 type P = {
@@ -17,11 +19,24 @@ type P = {
   friendBets: number;
   skill: Skill;
 };
-type Read = { id: number; username: string; display_name: string; color: string; stakes: number; calls: number; score: number };
-type Skill = { score: number | null; calls: number; settled: number; rightSide: number | null; minCalls: number; friendsScored: number; beat: number; friendsAvg: number | null; field: number[]; reads: Read[]; readsMin: number; readsPending: number };
+type Read = { id: number; username: string; display_name: string; color: string; stakes: number; score: number };
+type GroupSkill = { id: number; name: string; emoji: string; skill: number; stakes: number; early: boolean };
+type Skill = {
+  me: { skill: number; stakes: number; early: boolean; tier: string | null; low: number; high: number } | null;
+  vsMarket: number | null;
+  earlyUntil: number;
+  friendsScored: number;
+  beat: number;
+  friendsAvg: number | null;
+  field: number[];
+  groups: GroupSkill[];
+  reads: Read[];
+  readsMin: number;
+  readsPending: number;
+};
 
-/** A skill score shown as points: 0 is a coin flip, 100 is perfect, negative is worse than guessing. */
-const pts = (s: number) => `${s >= 0 ? "+" : "−"}${Math.abs(Math.round(s * 100))}`;
+/** Skill in points (lib/skill.ts): 0 is level with the market, +10 means buying 10 points cheaper than things turn out to be worth. */
+const pts = (s: number) => skillPts(s);
 
 /**
  * The wallet, in the order people ask about it: how much have I got, how much is free, am I any good at
@@ -138,38 +153,48 @@ function SeeAll({ on, toggle }: { on: boolean; toggle: () => void }) {
 }
 
 /**
- * "How well do you know your friends?": a skill score, not correct/total, so a confident right call counts
- * for more than a timid one. Below it, where you sit among friends who also have a score.
+ * "How well do you know your friends?": forecasting skill across every chat you're in (lib/skill.ts),
+ * where you sit among friends, and the same number per chat (the one each chat's leaderboard uses).
  */
 function SkillCard({ s }: { s: Skill }) {
-  const ready = s.score != null;
+  const m = s.me;
   return (
     <section className="rounded-2xl bg-panel p-4">
-      <h3 className="text-[15px] font-semibold">How well do you know your friends?</h3>
-      {ready ? (
+      <div className="flex items-start justify-between gap-3">
+        <h3 className="text-[15px] font-semibold">How well do you know your friends?</h3>
+        <HowSkillWorks className="shrink-0 pt-0.5 text-xs" />
+      </div>
+      {m ? (
         <>
-          <div className="mt-2 flex items-baseline gap-2">
-            <span className="text-[44px] font-bold leading-none tracking-tight tabular text-brand">{pts(s.score!)}</span>
-            <span className="text-sm text-mute">skill score</span>
+          <div className="mt-2 flex items-center gap-2.5">
+            <span className="text-[44px] font-bold leading-none tracking-tight tabular text-brand">{pts(m.skill)}</span>
+            {m.tier && <span className="rounded-full bg-brand/15 px-2.5 py-1 text-[13px] font-semibold text-brand">{m.tier}</span>}
+            {m.early && <span className="rounded-full bg-white/[.06] px-2 py-0.5 text-[11px] font-semibold text-mute">early</span>}
           </div>
-          <p className="mt-1.5 text-sm">
-            {s.friendsScored > 0 ? <>Sharper than <span className="font-semibold tabular">{s.beat}</span> of your <span className="tabular">{s.friendsScored}</span> friends</> : <>No friends with a score yet</>}
-            <span className="text-mute"> · {s.settled} stakes settled</span>
+          <p className="mt-1.5 text-[12px] text-mute">
+            {m.stakes} settled {m.stakes === 1 ? "stake" : "stakes"} · likely between {pts(m.low)} and {pts(m.high)}
           </p>
-          {s.friendsScored > 0 && <Field field={s.field} me={s.score!} avg={s.friendsAvg} />}
-          <p className="mt-3 text-[11px] leading-relaxed text-mute">
-            0 is a coin flip, +100 is perfect. Confident calls that come true score most; confident misses cost most.
-            {s.rightSide != null && <> You were on the right side {Math.round(s.rightSide * 100)}% of the time.</>}
+          <p className="mt-2 text-sm">
+            {s.friendsScored > 0 ? <>Sharper than <span className="font-semibold tabular">{s.beat}</span> of your <span className="tabular">{s.friendsScored}</span> friends</> : <>No friends with a settled stake yet</>}
+            {s.vsMarket != null && <span className="text-mute"> · beat the market on {Math.round(s.vsMarket * 100)}% of stakes</span>}
           </p>
+          {s.friendsScored > 0 && <Field field={s.field} me={m.skill} avg={s.friendsAvg} />}
+          {s.groups.length > 0 && (
+            <div className="mt-4 border-t border-white/[.05] pt-3">
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-mute">By chat</div>
+              {s.groups.map((g) => (
+                <Link key={g.id} href={`/g/${g.id}/stats`} className="flex items-center gap-2 py-1.5 text-sm">
+                  <span className="min-w-0 flex-1 truncate">{g.emoji} {g.name}</span>
+                  {g.early && <span className="text-[11px] text-mute">early</span>}
+                  <span className="font-semibold tabular">{pts(g.skill)}</span>
+                </Link>
+              ))}
+            </div>
+          )}
+          <p className="mt-3 text-[11px] leading-relaxed text-mute">0 is as good as the market. Coins and voting don&apos;t count; calls made early count most.</p>
         </>
       ) : (
-        <>
-          <div className="mt-2 text-sm text-mute">Your score appears after {s.minCalls} settled calls.</div>
-          <div className="mt-3 flex gap-1">
-            {Array.from({ length: s.minCalls }, (_, i) => <span key={i} className={`h-1.5 flex-1 rounded-full ${i < s.calls ? "bg-brand" : "bg-white/[.08]"}`} />)}
-          </div>
-          <div className="mt-1.5 text-[11px] tabular text-mute">{s.calls} of {s.minCalls}</div>
-        </>
+        <p className="mt-2 text-sm text-mute">Your skill appears as soon as one of your stakes settles. Until then you&apos;re level with the market at 0.</p>
       )}
     </section>
   );
@@ -185,13 +210,13 @@ function Field({ field, me, avg }: { field: number[]; me: number; avg: number | 
     <div className="mt-4">
       <div className="relative h-6">
         <div className="absolute inset-x-0 top-1/2 h-px bg-line" />
-        <div className="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-mute/60" style={{ left: x(0) }} title="Coin flip" />
+        <div className="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-mute/60" style={{ left: x(0) }} title="Level with the market" />
         {field.map((v, i) => <span key={i} className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/30" style={{ left: x(v) }} />)}
         {avg != null && <span className="absolute top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/60" style={{ left: x(avg) }} title="Friends' average" />}
         <span className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-4 ring-panel" style={{ left: x(me) }} title="You" />
       </div>
       <div className="mt-1 flex justify-between text-[10px] uppercase tracking-wider text-mute">
-        <span>Guessing</span>
+        <span>Still learning</span>
         <span>Friends avg {avg != null ? pts(avg) : "–"}</span>
         <span>Sharp</span>
       </div>
@@ -226,7 +251,7 @@ function Reads({ s }: { s: Skill }) {
           ))}
         </ul>
       ) : (
-        <p className="py-3 text-sm text-mute">A friend shows up here once {s.readsMin} stakes about them have settled with you in them.</p>
+        <p className="py-3 text-sm text-mute">A friend shows up here once {s.readsMin} stakes about them have settled with you in them. Only you see this.</p>
       )}
       {shown.length > 0 && s.readsPending > 0 && <p className="border-t border-white/[.05] py-2.5 text-[11px] text-mute">{s.readsPending} more friends need {s.readsMin} settled stakes before they count.</p>}
     </section>
