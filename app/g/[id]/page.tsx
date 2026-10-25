@@ -84,7 +84,7 @@ export type Msg = {
   text?: string | null;
   payload?: Payload | null;
   /** Your own message before the server has it: shown at once, then confirmed. */
-  pending?: "sending" | "failed";
+  pending?: "sending" | "slow" | "failed";
   /** Stable React key across the optimistic → confirmed switch. */
   ck?: string;
   /** A photo or voice note you just sent, played from this device while it uploads. */
@@ -116,6 +116,9 @@ export type Feed = {
 };
 
 const PANELS = ["Markets", "Board", "Insights"] as const;
+// A send that hasn't come back says so after this long, and offers a retry after the second.
+const SLOW_SEND_MS = 5_000;
+const GIVE_UP_SEND_MS = 25_000;
 type Panel = (typeof PANELS)[number];
 
 export default function GroupPage({ params }: { params: Promise<{ id: string }> }) {
@@ -472,19 +475,27 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     const patch = (fn: (m: Msg) => Msg) => setMessages((old) => old.map((m) => (m.ck === ck && m.pending ? fn(m) : m)));
     const attempt = async () => {
       patch((m) => ({ ...m, pending: "sending" }));
+      // On a weak connection: say it's slow after a few seconds, and give up (with a retry) rather
+      // than spin for ever. The server knows the message by `n`, so a retry can't post it twice.
+      const stop = new AbortController();
+      const slow = setTimeout(() => patch((m) => (m.pending === "sending" ? { ...m, pending: "slow" } : m)), SLOW_SEND_MS);
+      const giveUp = setTimeout(() => stop.abort(), GIVE_UP_SEND_MS);
       try {
         if (a && file && !a.id) {
           a.id = await uploadEncrypted(file.kind, id, k.key, file.bytes);
           primeAttachment(a.id, file.url);
         }
         const body = await encryptMessage(k.key, text, { ...(a ? { a } : {}), n });
-        const { id: realId } = await api<{ id: number }>(`/api/groups/${id}/messages`, { body });
+        const { id: realId } = await api<{ id: number }>(`/api/groups/${id}/messages`, { body: { ...body, nonce: n }, signal: stop.signal });
         retries.current.delete(ck);
         // If the poll already brought it back, the bubble was confirmed there.
         setMessages((old) => sortMsgs(old.map((m) => (m.ck === ck && m.pending ? { ...m, id: realId, pending: undefined, payload: { t: text, a, n } } : m))));
         void poll();
       } catch {
         patch((m) => ({ ...m, pending: "failed" }));
+      } finally {
+        clearTimeout(slow);
+        clearTimeout(giveUp);
       }
     };
     retries.current.set(ck, attempt);
@@ -502,7 +513,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
    * once at least one other person has had it on screen. Who has read it is in the tooltip.
    */
   const delivery = (m: Msg): { state: Delivery; title?: string } => {
-    if (m.pending) return { state: m.pending };
+    if (m.pending) return { state: m.pending === "slow" ? "sending" : m.pending };
     const others = (feed?.members ?? []).filter((x) => x.id !== me?.user.id);
     if (!others.length) return { state: "sent" };
     const readers = others.filter((x) => (x.read_upto ?? 0) >= m.id);
@@ -894,6 +905,9 @@ function MessageRow({
             {last && who && (who.username ? <Link href={`/u/${who.username}`} prefetch={false} aria-label={`${who.display_name}'s profile`}><Avatar id={who.id} name={who.display_name} color={who.color} size={28} /></Link> : <Avatar name={who.display_name} color={who.color} size={28} />)}
           </div>
         )}
+        {mine && m.pending === "slow" && (
+          <span className="mb-1 shrink-0 text-xs text-mute" aria-live="polite">Slow connection, still sending</span>
+        )}
         {mine && m.pending === "failed" && m.ck && (
           <button onClick={() => onRetry(m.ck!)} className="mb-1 flex shrink-0 items-center gap-1 rounded-full bg-down/15 px-2.5 py-1 text-xs font-medium text-down hover:bg-down/25">
             <Alert size={13} /> Not sent, retry
@@ -904,7 +918,7 @@ function MessageRow({
           onTouchEnd={stopPress}
           onTouchMove={stopPress}
           onTouchCancel={stopPress}
-          className={`max-w-[78%] rounded-2xl [-webkit-touch-callout:none] lg:max-w-[430px] ${a?.kind === "image" ? "p-1" : "px-3.5 py-1.5"} ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-mine text-white" : "bg-raised"} ${m.pending === "sending" && media ? "opacity-80" : ""}`}>
+          className={`max-w-[78%] rounded-2xl [-webkit-touch-callout:none] lg:max-w-[430px] ${a?.kind === "image" ? "p-1" : "px-3.5 py-1.5"} ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-mine text-white" : "bg-raised"} ${(m.pending === "sending" || m.pending === "slow") && media ? "opacity-80" : ""}`}>
           {first && !mine && who && <div className={`text-[13px] font-semibold ${a?.kind === "image" ? "px-2.5 pb-1 pt-0.5" : ""}`} style={{ color: who.color }}>{who.display_name}</div>}
           {a?.kind === "image" ? (
             <ChatImage m={m} a={a} groupKey={groupKey} onOpen={() => onOpen(m)}>{!m.text && meta}</ChatImage>

@@ -38,19 +38,21 @@ export async function closeVault(q: Q, marketId: number, why: string) {
 }
 
 export async function netWorth(q: Q, userId: number) {
-  const [u] = await q.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [userId]);
-  const rows = await q.query<{ yes_shares: number; no_shares: number; b: number; q_yes: number; q_no: number }>(
-    `SELECT p.yes_shares, p.no_shares, m.b, m.q_yes, m.q_no
-     FROM positions p JOIN markets m ON m.id = p.market_id
-     WHERE p.user_id = $1 AND m.status = 'open'`,
-    [userId]
-  );
+  const [[u], rows, bets] = await Promise.all([
+    q.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [userId]),
+    q.query<{ yes_shares: number; no_shares: number; b: number; q_yes: number; q_no: number }>(
+      `SELECT p.yes_shares, p.no_shares, m.b, m.q_yes, m.q_no
+       FROM positions p JOIN markets m ON m.id = p.market_id
+       WHERE p.user_id = $1 AND m.status = 'open'`,
+      [userId]
+    ),
+    // Coins in friend bets count at what was put in until the bet finishes.
+    import("./friend-bet").then((f) => f.lockedInFriendBetsFor(q, userId)),
+  ]);
   const held = rows.reduce((s, r) => {
     const p = priceYes({ b: r.b, qYes: r.q_yes, qNo: r.q_no });
     return s + r.yes_shares * p + r.no_shares * (1 - p);
   }, 0);
-  // Coins in friend bets count at what was put in until the bet finishes.
-  const bets = await (await import("./friend-bet")).lockedInFriendBetsFor(q, userId);
   return { balance: u.balance, positions: round2(held + bets), total: round2(u.balance + held + bets) };
 }
 
@@ -65,6 +67,9 @@ export async function recordNetWorth(q: Q, userId: number) {
 }
 
 /** +50 every week, paid lazily whenever the user next shows up. */
+/** Whether at least one weekly allowance is waiting to be paid. */
+export const allowanceDue = (last: Date) => now().getTime() - new Date(last).getTime() >= ECONOMY.allowancePeriodMs;
+
 export async function applyAllowance(q: Q, userId: number) {
   const [u] = await q.query<{ last_allowance_at: Date }>(`SELECT last_allowance_at FROM users WHERE id = $1`, [userId]);
   if (!u) return 0;

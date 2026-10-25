@@ -9,7 +9,8 @@ const g = globalThis as unknown as { __fsWorker?: NodeJS.Timeout; __fsWorkerBusy
 const DECAY_EVERY_MS = 60_000;
 
 export function ensureWorker() {
-  if (g.__fsWorker) return;
+  // A second server on the same database (a test copy) leaves the background jobs to the live one.
+  if (g.__fsWorker || process.env.FS_WORKER === "off") return;
   g.__fsWorker = setInterval(async () => {
     if (g.__fsWorkerBusy) return;
     g.__fsWorkerBusy = true;

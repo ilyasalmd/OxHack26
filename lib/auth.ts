@@ -2,7 +2,7 @@ import crypto from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { getDb } from "./db";
 import { verify } from "./secret";
-import { applyAllowance } from "./economy";
+import { allowanceDue, applyAllowance } from "./economy";
 import { demoOffset, withClock } from "./clock";
 import { isAdminUsername } from "./config";
 
@@ -35,19 +35,24 @@ export async function currentUser(req: NextRequest): Promise<User | null> {
   const sid = sessionId(req);
   if (!sid) return null;
   const db = await getDb();
-  // Security times run on the real clock, not the demo time machine.
-  const [s] = await db.query<{ user_id: number; last_seen_at: Date }>(
-    `SELECT s.user_id, s.last_seen_at FROM sessions s JOIN users u ON u.id = s.user_id
+  // Security times run on the real clock, not the demo time machine. The session and the person
+  // come back in one round trip, since every request pays for it.
+  const [s] = await db.query<User & { last_seen_at: Date; last_allowance_at: Date }>(
+    `SELECT s.last_seen_at, u.last_allowance_at, u.id, u.username, u.display_name, u.color, u.balance, u.public_key, u.wallet_pubkey
+     FROM sessions s JOIN users u ON u.id = s.user_id
      WHERE s.id = $1 AND s.revoked_at IS NULL AND s.created_at > $2 AND u.deleted_at IS NULL`,
     [sid, new Date(Date.now() - MAX_AGE * 1000)]
   );
   if (!s) return null;
   if (Date.now() - new Date(s.last_seen_at).getTime() > 60_000)
     db.query(`UPDATE sessions SET last_seen_at = $2 WHERE id = $1`, [sid, new Date()]).catch(() => {});
-  await applyAllowance(db, s.user_id);
+  const { last_seen_at: _seen, last_allowance_at, ...user } = s;
+  // Only a week's allowance being due costs more queries (and changes the balance).
+  if (!allowanceDue(last_allowance_at)) return user;
+  await applyAllowance(db, s.id);
   const [u] = await db.query<User>(
     `SELECT id, username, display_name, color, balance, public_key, wallet_pubkey FROM users WHERE id = $1`,
-    [s.user_id]
+    [s.id]
   );
   return u ?? null;
 }

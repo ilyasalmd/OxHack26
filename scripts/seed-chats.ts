@@ -1,7 +1,7 @@
 /**
  * Three more sample chats with Ilyas in them, so the demo account has every kind of group:
  * a uni society committee, a couples chat and a siblings chat. Also puts Ilyas into the admin's
- * "Demo: punctuality" chat. Then run seed-rich.ts to fill them with settled stakes.
+ * "Friday Dinner Crew" chat. Then run seed-rich.ts to fill them with settled stakes.
  *
  *   npx tsx --env-file=.env.local scripts/seed-chats.ts
  *
@@ -173,7 +173,7 @@ async function main() {
   }
 
   // Ilyas joins the admin's demo chat as one of its people (Priya hands out that chat's key).
-  const [demo] = await db.query<{ id: number; created_at: Date }>(`SELECT id, created_at FROM groups WHERE name = 'Demo: punctuality'`);
+  const [demo] = await db.query<{ id: number; created_at: Date }>(`SELECT id, created_at FROM groups WHERE name = 'Friday Dinner Crew'`);
   if (demo) {
     const [already] = await db.query(`SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`, [demo.id, users.ilyas.id]);
     if (!already) {
@@ -187,7 +187,7 @@ async function main() {
       await db.query(`INSERT INTO group_members (group_id, user_id, joined_at) VALUES ($1,$2,$3)`, [demo.id, users.ilyas.id, demo.created_at]);
       await db.query(`INSERT INTO group_keys (group_id, user_id, wrapped_key, wrapped_by) VALUES ($1,$2,$3,$4)`, [demo.id, users.ilyas.id, await wrapGroupKey(raw, priyaPriv, users.ilyas.public_key), users.priya.id]);
       await db.query(`UPDATE group_members SET delivered_upto = x.m, read_upto = x.m FROM (SELECT max(id) AS m FROM messages WHERE group_id = $1) x WHERE group_id = $1 AND user_id = $2`, [demo.id, users.ilyas.id]);
-      console.log(`Added @ilyas to "Demo: punctuality"`);
+      console.log(`Added @ilyas to "Friday Dinner Crew"`);
     }
   }
   process.exit(0);

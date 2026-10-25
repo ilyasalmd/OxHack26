@@ -3,7 +3,7 @@
  *
  *   npx tsx --env-file=.env.local scripts/seed-demo.ts
  *
- * "Demo: punctuality" has the admin and five of the sample people, eight weeks of settled
+ * "Friday Dinner Crew" has the admin and five of the sample people, eight weeks of settled
  * lateness bets (Friday dinners and Sunday football) with their outcomes stored as the group's
  * memory, and real end-to-end encrypted chat about it, including this week's messages. Post a
  * new situation there as the admin (for example "Jake is late to Friday dinner") to watch the
@@ -18,7 +18,7 @@ import { bookAt } from "../lib/lmsr";
 import { deriveKeys, encryptMessage, importGroupKey, newGroupKey, unlockIdentity, wrapGroupKey } from "../lib/e2ee";
 import { PASSWORD } from "./seed-content";
 
-const NAME = "Demo: punctuality";
+const NAME = "Friday Dinner Crew";
 const HOUR = 36e5;
 const DAY = 24 * HOUR;
 const MEMBERS = ["priya", "jake", "sam", "maya", "omar"];
