@@ -81,10 +81,11 @@ export const AI = {
 
 export const DEMO_MODE = process.env.DEMO_MODE !== "false";
 
-// The app's admin accounts: usernames listed in ADMIN_USERNAMES (comma or space separated). Only
-// they see the Solana chain pages. Read at call time so a .env change is picked up on restart.
+// The app's admin accounts: usernames listed in ADMIN_USERNAMES (comma or space separated), and
+// stakesadmin alone when it isn't set. Only they see the Solana chain pages, the pricing records
+// and the demo clock. Read at call time so a .env change is picked up on restart.
 export const isAdminUsername = (username: string) =>
-  (process.env.ADMIN_USERNAMES ?? "").toLowerCase().split(/[,\s]+/).filter(Boolean).includes(username.toLowerCase());
+  (process.env.ADMIN_USERNAMES || "stakesadmin").toLowerCase().split(/[,\s]+/).filter(Boolean).includes(username.toLowerCase());
 
 // Demo: every account gets the synthetic sample chats (three months of bets, trades and chat).
 // New sign-ups join them automatically and `npm run demo:join` adds existing accounts. Set

@@ -19,7 +19,7 @@ import { closeVault, credit, maxStake, recordNetWorth, mayCall } from "./economy
 import { HttpError, type User } from "./auth";
 import { MAX_SNIPPETS, type Snippet } from "./chat-context";
 import { STOCK_SNIPPETS } from "./ai-disclosure";
-import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, topicProblem, votesNeeded } from "./safety";
+import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_HOURS, SETTLE_WINDOW_MS, topicProblem, votesNeeded } from "./safety";
 
 export type MarketRow = {
   id: number;
@@ -351,28 +351,19 @@ export async function tradeFee(q: Q, m: MarketRow, userId: number) {
   return n >= ECONOMY.freeTrades ? ECONOMY.stockFee : 0;
 }
 
-/** How long after the deadline the poster alone may call it before anyone in the chat can. */
-export const PROPOSE_GRACE_MS = 24 * 3600_000;
-/** An early "it happened" needs evidence: a photo, or a note at least this long saying what happened. */
+/** An early "it happened", or a result nobody would lose to, needs evidence: a photo, or a note at least this long. */
 export const EVIDENCE_MIN_CHARS = 10;
 
 /**
- * Who may put a result forward (never the person it's about):
- * - Before the deadline, anyone in the chat can say it already happened (YES only, since NO isn't
- *   known yet), with evidence. It settles only once another member confirms it.
- * - After the deadline, whoever posted it calls it; a day later anyone can, so nothing sits
- *   unsettled for ever. That result settles on a confirm, or by itself after 24 hours.
+ * Who may put a result forward: anyone in the chat, including the person it's about and people who
+ * bet on it. Whoever knows what happened says so; the protection is in who has to agree (voteState).
+ * Before the deadline only "it already happened" (YES) can be known, and it needs evidence.
  */
 export function assertCanPropose(m: MarketRow, user: User, outcome?: boolean, evidence = false) {
-  if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't call it");
   const past = new Date(m.resolves_at) <= now();
-  if (!past) {
-    if (outcome === false) throw new HttpError(400, `Before the deadline it can only be called ${sides(m).yes}. ${sides(m).no} isn't known until it closes.`);
-    if (!evidence) throw new HttpError(400, "Before the deadline you need evidence: say what happened, or add a photo, so the others can check it");
-    return;
-  }
-  if (m.creator_id !== user.id && now().getTime() < new Date(m.resolves_at).getTime() + PROPOSE_GRACE_MS)
-    throw new HttpError(403, "Only whoever posted it can propose the result until a day after the deadline");
+  if (past) return;
+  if (outcome === false) throw new HttpError(400, `Before the deadline it can only be called ${sides(m).yes}. ${sides(m).no} isn't known until it closes.`);
+  if (!evidence) throw new HttpError(400, "Before the deadline you need evidence: say what happened, or add a photo, so the others can check it");
 }
 
 async function assertMember(q: Q, groupId: number, userId: number) {
@@ -498,10 +489,13 @@ export async function proposeResult(user: User, marketId: number, result: boolea
       if (!photo) throw new HttpError(400, "Upload the photo to this chat first");
     }
     const early = new Date(m.resolves_at) > now();
-    assertCanPropose(m, user, outcome, evidenceId != null || said.length >= EVIDENCE_MIN_CHARS);
+    const evidence = evidenceId != null || said.length >= EVIDENCE_MIN_CHARS;
+    assertCanPropose(m, user, outcome, evidence);
     await assertMember(q, m.group_id, user.id);
-    // Under the row lock, so nobody can buy a side and then call it their way.
-    assertMayCall(await callableBy(q, m, user.id), outcome);
+    // When nobody who bet would lose to this result (everyone backed it), there's nobody with a
+    // reason to object, so the claim has to come with evidence, early or not.
+    if (!evidence && !(await hasLosers(q, m.id, outcome)))
+      throw new HttpError(400, "Everyone who bet backed this result, so add evidence: say what happened, or add a photo");
     await q.query(
       `UPDATE markets SET proposed_outcome = $2, proposed_by = $3, proposed_at = $4, proposed_note = $5, proposed_early = $6, proposed_evidence = $7 WHERE id = $1`,
       [marketId, outcome, user.id, now(), note.slice(0, 200), early, evidenceId]
@@ -513,7 +507,7 @@ export async function proposeResult(user: User, marketId: number, result: boolea
       "system",
       early
         ? `says “${m.title}” already happened${evidenceId != null ? " and added a photo" : ""}. It settles once most of the group checks the evidence and confirms it`
-        : `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. The group votes: it settles once most confirm, and with no majority against it settles in 24 hours`,
+        : `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. Anyone it doesn't pay can confirm or dispute it; it needs a confirmation within 24 hours, or it lapses as if nobody called it`,
       marketId,
       user.id
     );
@@ -521,30 +515,40 @@ export async function proposeResult(user: User, marketId: number, result: boolea
   });
 }
 
-export type VoteState = { eligible: number[]; needed: number; confirms: number[]; rejects: number[] };
+export type VoteState = { eligible: number[]; losers: number[]; needed: number; confirms: number[]; rejects: number[] };
+
+/** How much more a position pays if the market settles this way rather than the other. */
+const edge = (p: { yes_shares: number | null; no_shares: number | null }, outcome: boolean) => {
+  const d = (p.yes_shares ?? 0) - (p.no_shares ?? 0);
+  return outcome ? d : -d;
+};
+
+/** Whether anyone holding a position would lose if the market settled this way. */
+async function hasLosers(q: Q, marketId: number, outcome: boolean) {
+  const rows = await q.query<{ yes_shares: number; no_shares: number }>(`SELECT yes_shares, no_shares FROM positions WHERE market_id = $1`, [marketId]);
+  return rows.some((p) => edge(p, outcome) < -0.005);
+}
 
 /**
  * Who may vote on the proposed result and how the vote stands. Voters are the chat's own members
- * (not quiet guests), minus the proposer, the person it's about, and anyone the proposed result
- * would pay (the same rule as calling it, so friends on the same side can't wave it through).
+ * (not quiet guests) other than the proposer whom the result wouldn't pay; that includes the person
+ * it's about. `losers` are the voters it would cost: one of them agreeing settles it at once.
  */
 export async function voteState(q: Q, m: MarketRow): Promise<VoteState> {
-  if (m.proposed_outcome == null) return { eligible: [], needed: 0, confirms: [], rejects: [] };
+  if (m.proposed_outcome == null) return { eligible: [], losers: [], needed: 0, confirms: [], rejects: [] };
   const rows = await q.query<{ user_id: number; guest: boolean; yes_shares: number | null; no_shares: number | null }>(
     `SELECT gm.user_id, gm.guest, p.yes_shares, p.no_shares FROM group_members gm
      LEFT JOIN positions p ON p.market_id = $2 AND p.user_id = gm.user_id WHERE gm.group_id = $1`,
     [m.group_id, m.id]
   );
-  const holding = (r: (typeof rows)[number]) => (r.yes_shares != null ? { yes_shares: r.yes_shares, no_shares: r.no_shares ?? 0 } : null);
-  const past = new Date(m.resolves_at) <= now();
-  const eligible = rows
-    .filter((r) => !r.guest && r.user_id !== m.proposed_by && r.user_id !== m.subject_id)
-    .filter((r) => mayCall(m.proposed_outcome!, holding(r), rows.filter((o) => o.user_id !== r.user_id && o.user_id !== m.subject_id).map(holding), past))
-    .map((r) => r.user_id);
+  const voters = rows.filter((r) => !r.guest && r.user_id !== m.proposed_by && edge(r, m.proposed_outcome!) <= 0.005);
+  const eligible = voters.map((r) => r.user_id);
+  const losers = voters.filter((r) => edge(r, m.proposed_outcome!) < -0.005).map((r) => r.user_id);
   const votes = await q.query<{ user_id: number; confirm: boolean }>(`SELECT user_id, confirm FROM stake_votes WHERE market_id = $1 ORDER BY created_at`, [m.id]);
   const counted = votes.filter((v) => eligible.includes(v.user_id));
   return {
     eligible,
+    losers,
     needed: votesNeeded(eligible.length),
     confirms: counted.filter((v) => v.confirm).map((v) => v.user_id),
     rejects: counted.filter((v) => !v.confirm).map((v) => v.user_id),
@@ -567,9 +571,10 @@ async function clearProposal(q: Q, m: MarketRow, text: string, actorId: number |
 const tally = (v: VoteState) => ({ confirm: v.confirms.length, reject: v.rejects.length, eligible: v.eligible.length, needed: v.needed });
 
 /**
- * One member's vote on the proposed result. Once more than half of the members who can vote
- * confirm it, it settles; once more than half reject it, the claim is dropped (and trading opens
- * again if the deadline hasn't passed). A member can change their vote until it's decided.
+ * One member's vote on the proposed result. It settles at once if someone it costs confirms it (the
+ * strongest proof there is), or once most of the voters do; once most reject it, the claim is
+ * dropped (and trading opens again if the deadline hasn't passed). With no confirmation by the time the
+ * window ends, the claim lapses as if nobody called it (finaliseProposals). A member can change their vote until it's decided.
  */
 export async function voteOnResult(user: User, marketId: number, confirm: boolean) {
   const db = await getDb();
@@ -578,7 +583,6 @@ export async function voteOnResult(user: User, marketId: number, confirm: boolea
     if (!m) throw new HttpError(404, "Market not found");
     assertOpen(m);
     if (m.proposed_outcome == null) throw new HttpError(400, "Nobody has proposed a result yet");
-    if (m.subject_id === user.id) throw new HttpError(403, "The person it's about can't confirm or dispute it. You can call the stake off instead.");
     if (m.proposed_by === user.id) throw new HttpError(403, "You proposed this result, so another member has to review it");
     await assertMember(q, m.group_id, user.id);
     const before = await voteState(q, m);
@@ -599,7 +603,8 @@ export async function voteOnResult(user: User, marketId: number, confirm: boolea
       return { m, v, decided: "dropped" as const };
     }
     await systemMessage(q, m.group_id, "system", `${confirm ? "confirmed" : "rejected"} the result: ${v.confirms.length} of ${v.needed} confirmations needed`, marketId, user.id);
-    return { m, v, decided: v.confirms.length >= v.needed ? ("settle" as const) : null };
+    const conceded = confirm && v.losers.includes(user.id);
+    return { m, v, decided: conceded || v.confirms.length >= v.needed ? ("settle" as const) : null };
   });
   if (out.decided === "settle")
     await settle(out.m, out.m.proposed_outcome!, out.m.proposed_note, null, { suffix: `${out.v.confirms.length} of ${out.v.eligible.length} confirmed`, votes: out.v }).catch((e) => {
@@ -675,7 +680,7 @@ export async function callOffSituationsAbout(userId: number, displayName: string
   return open.length;
 }
 
-/** A proposal nobody reviewed for 24 hours (app clock) settles as proposed. Called by the worker.
+/** When the 24-hour window (app clock) ends undecided, a proposal settles only if it was approved. Called by the worker.
  * An early "it happened" can't settle this way before the deadline: until then it needs another
  * member to confirm it. If it's still waiting at the deadline, it's an ordinary proposal from then. */
 export async function finaliseProposals(q: Q) {
@@ -688,13 +693,17 @@ export async function finaliseProposals(q: Q) {
   );
   for (const m of due) {
     try {
-      // The vote ran out of time: the proposer's word stands unless more people rejected it than confirmed it.
+      // The vote ran out of time. A result needs approval: with at least one confirmation and more
+      // confirmations than rejections it stands; otherwise it lapses as if nobody had called it.
       const v = await voteState(q, m);
-      if (v.rejects.length > v.confirms.length) {
-        await clearProposal(q, m, `The vote on “${m.title}” ran out with more rejections than confirmations (${v.rejects.length} to ${v.confirms.length}), so the claim was dropped`, null);
+      if (!v.confirms.length || v.rejects.length >= v.confirms.length) {
+        const why = v.confirms.length || v.rejects.length
+          ? `ran out ${v.confirms.length}-${v.rejects.length} without enough approval`
+          : `got no confirmations in ${SETTLE_WINDOW_HOURS} hours`;
+        await clearProposal(q, m, `The claim on “${m.title}” ${why}, so it lapsed as if nobody had called it. Anyone can call it again`, null);
         continue;
       }
-      await settle(m, m.proposed_outcome!, m.proposed_note, m.proposed_by, { suffix: v.confirms.length || v.rejects.length ? `vote ran out ${v.confirms.length}-${v.rejects.length}, so it stands` : "no objections in 24h", votes: v });
+      await settle(m, m.proposed_outcome!, m.proposed_note, m.proposed_by, { suffix: `vote ran out ${v.confirms.length}-${v.rejects.length}, so it stands`, votes: v });
     } catch (e) {
       // Someone else (a confirm, a veto) got there first.
       if (!(e instanceof HttpError)) console.warn("[finalise]", (e as Error).message);

@@ -10,7 +10,7 @@ import { TimeMachine } from "@/components/timemachine";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, fmt, pct, timeLeft } from "@/components/ui";
 import { GroupMark, pendingChatNames } from "@/components/shell";
 import { cacheFor, decryptWith, persistChat, prefetchChat, restoreChat, sortMsgs, warmChat, type ChatKey } from "@/components/chat/cache";
-import { Alert, Camera, Chart, Plus, Chat, Check, ChevronLeft, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
+import { Alert, Camera, Chart, Plus, Chat, Check, ChevronLeft, Close, Flag, Hourglass, Key, Lock, More, Pencil, Settings, Sparkle, Timer, Trash, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
 import { FriendBetCard, NewFriendBet, StakeChooser, type FriendBetLite } from "@/components/friend-bet";
@@ -82,6 +82,9 @@ export type Msg = {
   /** A friend bet's card, or a line about what happened to it. */
   friend_bet_id?: number | null;
   created_at: string;
+  /** Set when the author changed the text; deleted messages have no ciphertext left at all. */
+  edited_at?: string | null;
+  deleted_at?: string | null;
   text?: string | null;
   payload?: Payload | null;
   /** Your own message before the server has it: shown at once, then confirmed. */
@@ -104,6 +107,8 @@ export type Feed = {
     photo_id?: number | null;
   };
   members: Member[];
+  /** Messages this app already has that were edited or deleted since. */
+  changes?: { id: number; ciphertext: string | null; iv: string | null; edited_at: string | null; deleted_at: string | null }[];
   /** People who wrote in the chat and have since left: name and colour only. */
   former: { id: number; username: string; display_name: string; color: string }[];
   myKey: { wrapped_key: string; wrapper_public_key: string } | null;
@@ -152,6 +157,9 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [sideOpen, setSideOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [reporting, setReporting] = useState<Msg | null>(null);
+  // Your own message's Edit / Delete menu, and the message being edited.
+  const [acting, setActing] = useState<Msg | null>(null);
+  const [editing, setEditing] = useState<Msg | null>(null);
   const [err, setErr] = useState("");
   const [keyFailed, setKeyFailed] = useState(false);
   const lastId = useRef(cached?.lastId ?? 0);
@@ -276,6 +284,18 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       }
       if (keyRef.current && identity && f.members.some((m) => !m.has_key)) {
         shareKeyWithNewcomers(id, identity, keyRef.current.raw, f.members).catch(() => {});
+      }
+      if (f.changes?.length) {
+        const byId = new Map(f.changes.map((c) => [c.id, c]));
+        const stale = msgsRef.current.filter((m) => {
+          const c = byId.get(m.id);
+          return c && (c.deleted_at ? !m.deleted_at : c.edited_at !== (m.edited_at ?? null));
+        });
+        if (stale.length) {
+          const updated = await decryptAll(stale.map((m) => ({ ...m, ...byId.get(m.id)!, payload: undefined, text: undefined })));
+          const next = new Map(updated.map((m) => [m.id, m.deleted_at ? { ...m, payload: null, text: null } : m]));
+          setMessages((cur) => cur.map((m) => next.get(m.id) ?? m));
+        }
       }
       if (fresh.length) {
         // The first fetch of a chat this device has never seen: it's history, so it appears in place.
@@ -503,6 +523,23 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     void attempt();
   }
   const sendText = (text: string) => sendOptimistic(text);
+
+  /** Your own message, re-encrypted with the chat key: the server only swaps the ciphertext. */
+  const editMessage = async (m: Msg, text: string) => {
+    const k = keyRef.current;
+    if (!k) throw new Error("The chat isn't unlocked on this device yet");
+    const extra = { ...(m.payload?.a ? { a: m.payload.a } : {}), ...(m.payload?.n ? { n: m.payload.n } : {}) };
+    const sealed = await encryptMessage(k.key, text, extra);
+    const r = await api<{ edited_at: string }>(`/api/groups/${id}/messages/${m.id}`, { method: "PATCH", body: sealed });
+    setMessages((cur) => cur.map((x) => (x.id === m.id ? { ...x, ...sealed, edited_at: r.edited_at, text, payload: { t: text, ...extra } } : x)));
+    poll();
+  };
+  /** Deleted for everyone in the chat. */
+  const deleteMessage = async (m: Msg) => {
+    const r = await api<{ deleted_at: string }>(`/api/groups/${id}/messages/${m.id}`, { method: "DELETE" });
+    setMessages((cur) => cur.map((x) => (x.id === m.id ? { ...x, ciphertext: null, iv: null, payload: null, text: null, deleted_at: r.deleted_at } : x)));
+    poll();
+  };
   const sendImage = (img: PickedImage, caption: string) => sendOptimistic(caption, { kind: "image", bytes: img.bytes, url: img.url, meta: { mime: "image/jpeg", w: img.w, h: img.h } });
   const sendVoice = (r: Recording) => sendOptimistic("", { kind: "voice", bytes: r.bytes, url: URL.createObjectURL(r.blob), meta: { mime: r.mime, dur: Math.round(r.dur * 10) / 10, wave: r.wave } });
   const typing = (mode: "text" | "voice" | null) => {
@@ -694,6 +731,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                         delivery={delivery}
                         animate={!!r.pending || r.id > animateAfter.current}
                         onReport={setReporting}
+                        onAct={setActing}
                         onReview={review}
                         onOpen={setViewing}
                         onRetry={(ck) => retries.current.get(ck)?.()}
@@ -773,6 +811,16 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           router.push(`/m/${mid}`);
         }}
       />
+      <MessageActions
+        m={acting}
+        onClose={() => setActing(null)}
+        onEdit={(m) => {
+          setActing(null);
+          setEditing(m);
+        }}
+        onDelete={deleteMessage}
+      />
+      <EditMessage m={editing} onClose={() => setEditing(null)} onSave={editMessage} />
       <ReportSheet
         open={!!reporting}
         onClose={() => setReporting(null)}
@@ -855,6 +903,7 @@ function MessageRow({
   delivery,
   animate,
   onReport,
+  onAct,
   onReview,
   onOpen,
   onRetry,
@@ -874,6 +923,8 @@ function MessageRow({
   /** Slide in (a message that just arrived) rather than appear in place (history). */
   animate?: boolean;
   onReport: (m: Msg) => void;
+  /** Your own message: open its Edit / Delete menu. */
+  onAct: (m: Msg) => void;
   onReview: (marketId: number, what: "confirm" | "dispute") => Promise<void>;
   onOpen: (m: Msg) => void;
   onRetry: (ck: string) => void;
@@ -893,8 +944,11 @@ function MessageRow({
     const a = m.payload?.a;
     const media = a?.kind === "image" || a?.kind === "voice";
     const d = mine ? delivery(m) : null;
+    // Only a sent message of your own can be changed; a deleted one has nothing left to change.
+    const actable = mine && !m.pending && !m.deleted_at && m.id > 0;
     const meta = (
       <span className={`inline-flex items-center gap-1 text-[10px] tabular ${a && !m.text ? (a.kind === "image" ? "text-white/85" : mine ? "text-white/60" : "text-mute") : `float-right ml-3 mt-1.5 ${mine ? "text-white/60" : "text-mute"}`}`}>
+        {m.edited_at && !m.deleted_at && <span>edited</span>}
         {clock(m.created_at)}
         {d && <DeliveryMark state={d.state} title={d.title} />}
       </span>
@@ -915,24 +969,34 @@ function MessageRow({
           </button>
         )}
         <div
-          onTouchStart={mine ? undefined : () => { stopPress(); press.current = setTimeout(() => onReport(m), 550); }}
+          onTouchStart={mine ? (actable ? () => { stopPress(); press.current = setTimeout(() => onAct(m), 500); } : undefined) : () => { stopPress(); press.current = setTimeout(() => onReport(m), 550); }}
           onTouchEnd={stopPress}
           onTouchMove={stopPress}
           onTouchCancel={stopPress}
           className={`max-w-[78%] rounded-2xl [-webkit-touch-callout:none] lg:max-w-[430px] ${a?.kind === "image" ? "p-1" : "px-3.5 py-1.5"} ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-mine text-white" : "bg-raised"} ${(m.pending === "sending" || m.pending === "slow") && media ? "opacity-80" : ""}`}>
-          {first && !mine && who && <div className={`text-[13px] font-semibold ${a?.kind === "image" ? "px-2.5 pb-1 pt-0.5" : ""}`} style={{ color: who.color }}>{who.display_name}</div>}
-          {a?.kind === "image" ? (
+          {first && !mine && who && <div className={`text-[13px] font-semibold ${a?.kind === "image" && !m.deleted_at ? "px-2.5 pb-1 pt-0.5" : ""}`} style={{ color: who.color }}>{who.display_name}</div>}
+          {m.deleted_at ? (
+            <span className={`italic ${mine ? "text-white/70" : "text-mute"}`}>
+              Message deleted
+              <span className={`float-right ml-3 mt-1.5 text-[10px] not-italic tabular ${mine ? "text-white/60" : "text-mute"}`}>{clock(m.created_at)}</span>
+            </span>
+          ) : a?.kind === "image" ? (
             <ChatImage m={m} a={a} groupKey={groupKey} onOpen={() => onOpen(m)}>{!m.text && meta}</ChatImage>
           ) : a?.kind === "voice" ? (
             <ChatVoice m={m} a={a} groupKey={groupKey} mine={mine}>{!m.text && meta}</ChatVoice>
           ) : null}
-          {(m.text || !a) && (
+          {!m.deleted_at && (m.text || !a) && (
             <span className={`whitespace-pre-wrap break-words ${a?.kind === "image" ? "block px-2.5 pt-1.5" : ""}`}>
               {m.text ?? (m.payload === undefined || !groupKey ? <span className="inline-flex items-center gap-1 italic text-mute"><Lock size={12} /> can&apos;t decrypt yet</span> : null)}
             </span>
           )}
-          {!(a && !m.text) && <span className={a?.kind === "image" ? "block px-2.5 pb-0.5" : ""}>{meta}</span>}
+          {!m.deleted_at && !(a && !m.text) && <span className={a?.kind === "image" ? "block px-2.5 pb-0.5" : ""}>{meta}</span>}
         </div>
+        {actable && (
+          <button onClick={() => onAct(m)} className="order-first mb-1 hidden shrink-0 rounded-md p-1 text-mute opacity-0 transition hover:bg-white/5 hover:text-white focus:opacity-100 group-hover:opacity-100 lg:block" title="Edit or delete" aria-label="Edit or delete message">
+            <More size={14} />
+          </button>
+        )}
         {!mine && (
           <button onClick={() => onReport(m)} className="mb-1 hidden shrink-0 rounded-md p-1 text-mute opacity-0 transition hover:bg-white/5 hover:text-white focus:opacity-100 group-hover:opacity-100 lg:block" title="Report message" aria-label="Report message">
             <Flag size={14} />
@@ -1500,6 +1564,116 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
           )}
         </div>
         {msg && <p className="text-sm text-mute">{msg}</p>}
+      </div>
+    </Sheet>
+  );
+}
+
+/** Edit / Delete for one of your own chat messages. Delete asks once more before it goes. */
+function MessageActions({ m, onClose, onEdit, onDelete }: { m: Msg | null; onClose: () => void; onEdit: (m: Msg) => void; onDelete: (m: Msg) => Promise<void> }) {
+  const [confirm, setConfirm] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    setConfirm(false);
+    setErr("");
+  }, [m]);
+  if (!m) return null;
+  const voice = m.payload?.a?.kind === "voice";
+  const row = "flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left font-medium transition hover:bg-white/5 disabled:opacity-40";
+  return (
+    <Sheet open onClose={onClose} title="Your message">
+      {m.text && <p className="mb-3 line-clamp-3 whitespace-pre-wrap break-words rounded-xl bg-raised px-3.5 py-2 text-sm text-mute">{m.text}</p>}
+      {confirm ? (
+        <div className="space-y-3">
+          <p className="text-sm text-mute">It disappears for everyone in the chat and the AI stops reading it. This can&apos;t be undone.</p>
+          {err && <p className="text-sm text-down">{err}</p>}
+          <div className="flex gap-2">
+            <Button variant="ghost" className="flex-1" onClick={() => setConfirm(false)} disabled={busy}>Keep it</Button>
+            <Button
+              variant="down"
+              className="flex-1"
+              disabled={busy}
+              onClick={async () => {
+                setBusy(true);
+                setErr("");
+                try {
+                  await onDelete(m);
+                  onClose();
+                } catch (e) {
+                  setErr(e instanceof Error ? e.message : "Couldn't delete it");
+                } finally {
+                  setBusy(false);
+                }
+              }}>
+              {busy ? "Deleting" : "Delete for everyone"}
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="-mx-1 space-y-0.5">
+          {!voice && (
+            <button className={row} onClick={() => onEdit(m)}>
+              <Pencil size={18} /> Edit
+            </button>
+          )}
+          <button className={`${row} text-down`} onClick={() => setConfirm(true)}>
+            <Trash size={18} /> Delete for everyone
+          </button>
+        </div>
+      )}
+    </Sheet>
+  );
+}
+
+/** Rewrite a message you sent. The new text is encrypted here, like a fresh message. */
+function EditMessage({ m, onClose, onSave }: { m: Msg | null; onClose: () => void; onSave: (m: Msg, text: string) => Promise<void> }) {
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+  useEffect(() => {
+    setText(m?.text ?? "");
+    setErr("");
+  }, [m]);
+  if (!m) return null;
+  // A photo can lose its caption; a text message can't become empty.
+  const empty = !text.trim() && !m.payload?.a;
+  const save = async () => {
+    if (empty || busy) return;
+    if (text.trim() === (m.text ?? "").trim()) return onClose();
+    setBusy(true);
+    setErr("");
+    try {
+      await onSave(m, text.trim());
+      onClose();
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : "Couldn't save the change");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Sheet open onClose={onClose} title="Edit message">
+      <textarea
+        autoFocus
+        value={text}
+        maxLength={4000}
+        rows={4}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            save();
+          }
+        }}
+        aria-label="Message"
+        className="w-full resize-none rounded-xl border border-line bg-raised px-3.5 py-2.5 text-[15px] outline-none focus:border-white/30"
+      />
+      <p className="mt-2 text-xs text-mute">Everyone in the chat sees it marked as edited.</p>
+      {err && <p className="mt-2 text-sm text-down">{err}</p>}
+      <div className="mt-4 flex gap-2">
+        <Button variant="ghost" className="flex-1" onClick={onClose} disabled={busy}>Cancel</Button>
+        <Button className="flex-1" onClick={save} disabled={busy || empty}>{busy ? "Saving" : "Save"}</Button>
       </div>
     </Sheet>
   );
