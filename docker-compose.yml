@@ -1,0 +1,11 @@
+# Local TimescaleDB (same engine as Tiger Cloud). Then set DATABASE_URL in .env.local.
+services:
+  db:
+    image: timescale/timescaledb:latest-pg17
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: friendstakes
+    ports: ["5432:5432"]
+    volumes: ["tsdata:/var/lib/postgresql/data"]
+volumes:
+  tsdata:

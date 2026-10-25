@@ -1,0 +1,63 @@
+/* Motion for the sign-in screens only. Transform and opacity do the work. */
+
+/* The mark pops in with a little overshoot, draws its arrow, then bobs. */
+.markPop { animation: markPop 0.75s cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+@keyframes markPop {
+  from { opacity: 0; transform: scale(0.4) rotate(-14deg); }
+  to { opacity: 1; transform: none; }
+}
+.bob { animation: bob 4.8s ease-in-out 1s infinite; }
+@keyframes bob {
+  0%, 100% { transform: translateY(0) rotate(0); }
+  50% { transform: translateY(-7px) rotate(-2.5deg); }
+}
+.drawLine, .drawHead { stroke-dasharray: 1; stroke-dashoffset: 1; }
+.drawLine { animation: draw 0.7s 0.35s cubic-bezier(0.6, 0, 0.2, 1) forwards; }
+.drawHead { animation: draw 0.3s 0.95s ease-out forwards; }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+
+/* Odds tokens: pop in one after another, then drift. */
+.chipIn { animation: chipIn 0.6s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes chipIn {
+  from { opacity: 0; transform: scale(0.3); }
+  to { opacity: 1; transform: none; }
+}
+.float {
+  transform: rotate(var(--r));
+  animation: float var(--d, 7s) ease-in-out infinite alternate;
+}
+@keyframes float {
+  from { transform: translateY(-10px) rotate(var(--r)); }
+  to { transform: translateY(10px) rotate(calc(var(--r) * -0.5)); }
+}
+
+.rise { animation: rise 0.55s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* The white step screen comes up over the lime like a sheet. */
+.sheet { animation: sheet 0.4s cubic-bezier(0.2, 0.9, 0.25, 1) both; }
+@keyframes sheet {
+  from { opacity: 0; transform: translateY(32px); }
+  to { opacity: 1; transform: none; }
+}
+
+.stepIn { animation: stepIn 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.stepBack { animation: stepBack 0.32s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes stepIn {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes stepBack {
+  from { opacity: 0; transform: translateX(-18px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .markPop, .bob, .chipIn, .float, .rise, .sheet, .stepIn, .stepBack {
+    animation: none !important;
+  }
+  .drawLine, .drawHead { animation: none !important; stroke-dashoffset: 0; }
+}

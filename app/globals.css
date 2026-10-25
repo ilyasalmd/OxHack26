@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+@theme {
+  /* Surfaces. Every theme below retints all of these, so the whole app changes colour, not just the accent. */
+  --color-ink: #0d100a;
+  --color-panel: #151a10;
+  --color-raised: #1d2316;
+  --color-line: #2a3220;
+  --color-mute: #99a08a;
+  --color-up: #7ccf9b;
+  --color-down: #f0646a;
+  --color-brand: #cfe36a;
+  /* The deep accent: your own chat bubbles and the send button, readable under white text. */
+  --color-mine: #4a7d22;
+  /* Tailwind's white/black are the app's foreground and "ink on accent" colours, so text-white,
+     bg-white/[.06], text-black on a brand button and bg-black/60 backdrops all follow the theme. */
+  --color-white: #f4f6ec;
+  --color-black: #0d100a;
+  --font-sans: var(--font-dm-sans), ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-display: var(--font-unbounded), var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+}
+
+/* Themes (Settings → Theme). Lime is the default above; each one is a full palette: background, panels,
+   lines, muted text, foreground, the accent and the deep accent. Light themes also set data-mode="light"
+   (lib/theme.ts) and swap foreground and "ink on accent", so the same classes read dark-on-light.
+   Generated from one table with a contrast check: body text 7:1, muted text and accent 4.5:1. */
+html[data-accent="butter"] {
+  --color-brand: #f0e08e; --color-mine: #8a6a12;
+  --color-ink: #14110a; --color-panel: #1d1910; --color-raised: #272216; --color-line: #38311f;
+  --color-mute: #a69d82; --color-white: #f8f4e6; --color-black: #14110a;
+}
+html[data-accent="peach"] {
+  --color-brand: #f5bd8a; --color-mine: #a3471f;
+  --color-ink: #160e0a; --color-panel: #211512; --color-raised: #2b1c17; --color-line: #3d2a22;
+  --color-mute: #ab968a; --color-white: #faf0e9; --color-black: #160e0a;
+}
+html[data-accent="mint"] {
+  --color-brand: #a9e4c5; --color-mine: #1f7a5a;
+  --color-ink: #071410; --color-panel: #0e1d18; --color-raised: #142822; --color-line: #1f3a30;
+  --color-mute: #8fab9e; --color-white: #ecf7f1; --color-black: #071410;
+}
+html[data-accent="sky"] {
+  --color-brand: #9fcbf2; --color-mine: #2257d6;
+  --color-ink: #0a1220; --color-panel: #101a2c; --color-raised: #16223a; --color-line: #22304a;
+  --color-mute: #8f9fb8; --color-white: #eef3fb; --color-black: #0a1220;
+}
+html[data-accent="lilac"] {
+  --color-brand: #c9b8f0; --color-mine: #6d4fd0;
+  --color-ink: #110b1c; --color-panel: #19112a; --color-raised: #221838; --color-line: #32264d;
+  --color-mute: #a094b6; --color-white: #f4eefb; --color-black: #110b1c;
+}
+html[data-accent="midnight"] {
+  --color-brand: #8ea2ff; --color-mine: #3b4cd6;
+  --color-ink: #05070f; --color-panel: #0b0f1e; --color-raised: #121831; --color-line: #1d2545;
+  --color-mute: #8790b3; --color-white: #eef0ff; --color-black: #05070f;
+}
+html[data-accent="sunset"] {
+  --color-brand: #ff9a76; --color-mine: #c2410c;
+  --color-ink: #170a12; --color-panel: #22101b; --color-raised: #2d1724; --color-line: #432234;
+  --color-mute: #b4919f; --color-white: #fff0ea; --color-black: #170a12;
+}
+html[data-accent="forest"] {
+  --color-brand: #e2c068; --color-mine: #2f6b3a;
+  --color-ink: #0a130d; --color-panel: #111d15; --color-raised: #18271d; --color-line: #25392b;
+  --color-mute: #94a897; --color-white: #f1f4ea; --color-black: #0a130d;
+}
+html[data-accent="neon"] {
+  --color-brand: #ff5fd2; --color-mine: #7c2cff;
+  --color-ink: #07060a; --color-panel: #100e16; --color-raised: #18151f; --color-line: #29243a;
+  --color-mute: #9a94ad; --color-white: #f6f2ff; --color-black: #07060a;
+}
+html[data-accent="mono"] {
+  --color-brand: #f2f2f2; --color-mine: #3a3a3a;
+  --color-ink: #000000; --color-panel: #0e0e0e; --color-raised: #181818; --color-line: #262626;
+  --color-mute: #9a9a9a; --color-white: #f2f2f2; --color-black: #000000;
+}
+html[data-accent="daylight"] {
+  --color-brand: #2457e6; --color-mine: #d6e2ff;
+  --color-ink: #f2f4f8; --color-panel: #ffffff; --color-raised: #f7f8fb; --color-line: #dde2ec;
+  --color-mute: #5f6878; --color-white: #141822; --color-black: #ffffff;
+  --color-up: #16794a; --color-down: #c8323a; --wall: #e7ebf2; --brand-soft: #a9c2ff;
+}
+html[data-accent="paper"] {
+  --color-brand: #a6461f; --color-mine: #f6d8c6;
+  --color-ink: #f5efe4; --color-panel: #fffaf2; --color-raised: #fbf4ea; --color-line: #e5dacb;
+  --color-mute: #73685a; --color-white: #231c14; --color-black: #fffaf2;
+  --color-up: #2f7a3b; --color-down: #b8322e; --wall: #ece3d4; --brand-soft: #f5bd8a;
+}
+html[data-accent="blossom"] {
+  --color-brand: #b8236b; --color-mine: #f8d3e4;
+  --color-ink: #fbf1f5; --color-panel: #ffffff; --color-raised: #fdf6f9; --color-line: #efd9e3;
+  --color-mute: #7a5d6b; --color-white: #2a1520; --color-black: #ffffff;
+  --color-up: #1e7a4c; --color-down: #c0303a; --wall: #f3e2ea; --brand-soft: #f4b4d0;
+}
+
+html[data-mode="light"] { color-scheme: light; }
+
+/* The sign-in screens are the brand's own lime-and-white world. On a light theme they keep white cards
+   and dark text, and wear a soft version of the theme's accent. */
+html[data-mode="light"] .brand-scope { --color-white: #ffffff; --color-black: #0d100a; --color-brand: var(--brand-soft); }
+
+/* Group initials on light themes: the bright tints darken a little so they stay readable. */
+html[data-mode="light"] .group-mark { filter: brightness(.72) saturate(1.25); }
+
+html, body { background: var(--color-ink); color: var(--color-white); }
+html:not([data-mode="light"]) { color-scheme: dark; }
+body { -webkit-font-smoothing: antialiased; }
+.tabular { font-variant-numeric: tabular-nums; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+.thin-scroll { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
+input, textarea, select { font-size: 16px; }
+@media (min-width: 1024px) { input, textarea, select { font-size: 14px; } }
+@keyframes pop { from { transform: scale(.97); opacity: 0 } to { transform: none; opacity: 1 } }
+.pop { animation: pop .16s ease-out; }
+@keyframes flashUp { 0% { color: var(--color-up) } 100% { color: inherit } }
+@keyframes flashDown { 0% { color: var(--color-down) } 100% { color: inherit } }
+@keyframes fade-up { from { transform: translateY(4px); opacity: 0 } to { transform: none; opacity: 1 } }
+.flash-up { animation: flashUp 1s ease-out; }
+.flash-down { animation: flashDown 1s ease-out; }
+
+/* Chat: a quiet dotted wall behind the bubbles, and new messages ease in. */
+.chat-wall {
+  background-color: var(--wall, var(--color-ink));
+  background-image: radial-gradient(var(--wall-dot) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Chat backgrounds (lib/wallpapers.ts) as variables, so each one has a dark and a light version. */
+:root {
+  --wall-dot: rgba(255, 255, 255, 0.035);
+  --wp-graphite: linear-gradient(#131417, #131417);
+  --wp-midnight: linear-gradient(160deg, #0b1020, #121c38);
+  --wp-ocean: linear-gradient(160deg, #08161c, #0d2731);
+  --wp-forest: linear-gradient(160deg, #0b1712, #11261c);
+  --wp-plum: linear-gradient(160deg, #170d1a, #25132b);
+  --wp-ember: linear-gradient(160deg, #1a0f0b, #2b1810);
+  --wp-slate: linear-gradient(160deg, #14171c, #1f242c);
+}
+html[data-mode="light"] {
+  --wall-dot: rgba(0, 0, 0, 0.05);
+  --wp-graphite: linear-gradient(#e9eaec, #e9eaec);
+  --wp-midnight: linear-gradient(160deg, #dfe5f5, #cdd7f0);
+  --wp-ocean: linear-gradient(160deg, #d8eef0, #c4e2e8);
+  --wp-forest: linear-gradient(160deg, #dcecdf, #c9e1cf);
+  --wp-plum: linear-gradient(160deg, #eedcef, #e2c9e6);
+  --wp-ember: linear-gradient(160deg, #f4e1d6, #ecd0bf);
+  --wp-slate: linear-gradient(160deg, #e3e7ec, #d3d9e1);
+}
+@keyframes msg-in { from { transform: translateY(6px); opacity: 0 } to { transform: none; opacity: 1 } }
+.msg-in { animation: msg-in .22s ease-out both; }
+/* A chat slides in from the right as it opens, like WhatsApp on a laptop. */
+@keyframes chat-in { from { transform: translateX(18px); opacity: .35 } to { transform: none; opacity: 1 } }
+.chat-in { animation: chat-in .18s cubic-bezier(.2, .8, .2, 1) both; }
+@media (prefers-reduced-motion: reduce) { .msg-in, .pop, .chat-in { animation: none; } }
+
+/* Typing indicator: three dots rising in turn. */
+@keyframes typing { 0%, 60%, 100% { transform: none; opacity: .45 } 30% { transform: translateY(-3px); opacity: 1 } }
+.typing-dot { animation: typing 1.2s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) { .typing-dot { animation: none; } }
+
+/* Phone tab bar: a floating sheet of "liquid glass". The panel colour at part strength, blurred and
+   saturated, with a bright top edge and a soft shadow, so it takes on every theme. The active tab sits in
+   a smaller glass pill that slides between tabs (transform only, so it stays cheap). */
+.glass-bar {
+  background: color-mix(in oklab, var(--color-panel) 58%, transparent);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), inset 0 -1px 0 rgba(0, 0, 0, 0.18), 0 12px 32px -8px rgba(0, 0, 0, 0.55);
+}
+.glass-pill {
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.13), rgba(255, 255, 255, 0.05));
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  transition: transform .32s cubic-bezier(.3, 1.35, .5, 1);
+}
+html[data-mode="light"] .glass-bar {
+  background: color-mix(in oklab, var(--color-panel) 52%, transparent);
+  border-color: rgba(0, 0, 0, 0.07);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 12px 30px -10px rgba(20, 24, 40, 0.28);
+}
+html[data-mode="light"] .glass-pill {
+  background: color-mix(in oklab, var(--color-brand) 11%, rgba(255, 255, 255, 0.85));
+  border-color: rgba(0, 0, 0, 0.06);
+  box-shadow: inset 0 1px 0 #fff, 0 2px 8px -2px rgba(20, 24, 40, 0.18);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-bar { background: color-mix(in oklab, var(--color-panel) 94%, transparent); }
+}
+@media (prefers-reduced-motion: reduce) { .glass-pill { transition: none; } }

@@ -1,0 +1,47 @@
+# Production stack for a single VM (Vultr or any Ubuntu box): the app, TimescaleDB and
+# Caddy for automatic HTTPS. Run from this folder: docker compose up -d --build
+# Settings come from deploy/.env (setup.sh writes it; see env.example).
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://postgres:${POSTGRES_PASSWORD}@db:5432/friendstocks
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    image: timescale/timescaledb:latest-pg17
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: friendstocks
+    volumes: ["tsdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d friendstocks"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # Gets a Let's Encrypt certificate for $DOMAIN. HTTPS is required: chat encryption
+  # uses WebCrypto, which browsers only allow on secure origins.
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [app]
+
+volumes:
+  tsdata:
+  caddy_data:
+  caddy_config:

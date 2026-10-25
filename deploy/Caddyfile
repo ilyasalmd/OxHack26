@@ -1,0 +1,7 @@
+{$DOMAIN} {
+	encode zstd gzip
+	# The app trusts Cf-Connecting-Ip for rate limits; only Cloudflare may set it, so drop any a client sends.
+	reverse_proxy app:3000 {
+		header_up -Cf-Connecting-Ip
+	}
+}

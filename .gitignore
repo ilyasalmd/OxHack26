@@ -7,3 +7,7 @@ node_modules
 *.tsbuildinfo
 next-env.d.ts
 solana-*.json
+.next-a/
+.next-b/
+.next-*/
+deploy/.deployed
