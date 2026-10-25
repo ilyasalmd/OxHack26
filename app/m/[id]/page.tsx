@@ -207,9 +207,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           {isStock
             ? `Until it matures you can sell shares back at the going price, so you can take a profit or cut a loss early. Your first trade is free, then each one pays ${me.config.economy.stockFee} ${c.ticker}, which goes to ${d.creator.display_name} for listing it once it settles.`
             : "A bet is locked once placed and rides to the result."}{" "}
-          At maturity the winning shares pay out. If only one person traded, they just get their money back.
+          At maturity the winning shares pay out, once someone has called the result and the chat has confirmed it. If only one person traded, they just get their money back.
         </li>
-        <li>If it&apos;s called off (by the person it&apos;s about, by reports, or because nobody called it and the market was too close to call), everyone gets back exactly what they put in, fees included.</li>
+        <li>If it&apos;s called off (by the person it&apos;s about, by reports, or because nobody confirmed what happened within 3 days of the deadline), everyone gets back exactly what they put in, fees included. The price is never used as the result: it says what people expected, not what happened.</li>
       </ul>
     </Fold>
   );
@@ -330,7 +330,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               {m.void_reason === "veto" && `${d.subject?.display_name ?? "The person it was about"} called it off.`}
               {m.void_reason === "dispute" && "The proposed result was disputed."}
               {m.void_reason === "reports" && "Members reported it."}
-              {m.void_reason === "unclaimed" && "Nobody called it within 3 days of the deadline, and the market was too close to call."}
+              {m.void_reason === "unclaimed" && "Nobody confirmed what happened within 3 days of the deadline. The price was a prediction, not a result, so it doesn't pay out."}
               {!m.void_reason && "It was voided."} Everyone was refunded what they spent, so nobody wins or loses.
             </p>
           </section>
