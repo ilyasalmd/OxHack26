@@ -250,6 +250,8 @@ export async function friendBetsForChat(q: Q, groupId: number) {
     claim_by: b.claim_by,
     claimed_at: b.claimed_at,
     winner_id: b.winner_id,
+    created_at: b.created_at,
+    settled_at: b.settled_at,
     counters: counters.filter((c) => c.bet_id === b.id).map(({ id, user_id, taker_stake }) => ({ id, user_id, taker_stake })),
   }));
 }
