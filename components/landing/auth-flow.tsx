@@ -20,7 +20,7 @@ const USERNAME = /^[a-z0-9_]{3,20}$/;
 const COMMON = new Set(["password", "12345678", "123456789", "qwerty", "qwertyuiop", "11111111", "abc12345", "iloveyou", "letmein", "password1", "00000000", "1234"]);
 const LIME = "#c6ff3d";
 
-export const TAGLINE = "Call it before it happens.";
+export const TAGLINE = "aight bet...";
 
 export type AuthProps = {
   username: string;
