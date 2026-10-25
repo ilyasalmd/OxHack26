@@ -228,7 +228,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
     <section className="rounded-2xl border border-line bg-panel p-4">
       <div className="mb-2 text-sm font-semibold">Your position</div>
       <div className="flex justify-between text-sm">
-        <span className="text-mute">{resolved ? "Paid out" : "Cash-out value"}</span>
+        <span className="text-mute">{resolved ? "Paid out" : d.me.canSell ? "Cash-out value" : "Worth now"}</span>
         <span className="tabular">{fmt(resolved ? (m.outcome ? pos.yes_shares : pos.no_shares) : posValue)} {c.ticker}</span>
       </div>
       <div className="flex justify-between text-sm">
