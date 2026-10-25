@@ -6,6 +6,7 @@ import { now } from "@/lib/clock";
 import { limit } from "@/lib/ratelimit";
 import { setTyping } from "@/lib/chat";
 import { notifyChat } from "@/lib/live";
+import { startBotReply } from "@/lib/bots";
 
 // The server only ever receives AES-GCM ciphertext for chat messages.
 export const POST = route<IdCtx>(async (req, user, ctx) => {
@@ -23,5 +24,7 @@ export const POST = route<IdCtx>(async (req, user, ctx) => {
   notifyChat(id);
   // Your own message is delivered to and read by you.
   await db.query(`UPDATE group_members SET delivered_upto = GREATEST(delivered_upto, $3::bigint), read_upto = GREATEST(read_upto, $3::bigint) WHERE group_id = $1 AND user_id = $2`, [id, user.id, m.id]);
+  // Demo only: in a sample chat, a sample person reads it and answers.
+  startBotReply(id, user.id);
   return m;
 });

@@ -2,10 +2,10 @@ import { getDb } from "./db";
 import { now } from "./clock";
 import { DEMO_BOTS, ECONOMY } from "./config";
 import { askJson } from "./ai";
-import { setTyping } from "./chat";
+import { markRead, setTyping } from "./chat";
 import { notifyChat } from "./live";
 import { creatorKey, SAMPLE_GROUPS } from "./demo";
-import { encryptMessage, importGroupKey, unwrapGroupKey } from "./e2ee";
+import { decryptPayload, encryptMessage, importGroupKey, unwrapGroupKey } from "./e2ee";
 import { book, getMarket, trade, voteOnResult, voteState } from "./markets";
 import { priceYes } from "./lmsr";
 import { maxStake } from "./economy";
@@ -34,6 +34,87 @@ const LINES = {
   no: ["no chance", "I'll take the other side of that", "not a hope, shorting it", "bold call, I'm betting against", "history says otherwise"],
   subject: ["wow, thanks for the faith", "I'm going to prove you all wrong", "this is slander"],
 };
+
+/**
+ * Demo only: when a real person writes in a sample chat, one of the sample people in it reads it
+ * within a second or so (so the sender's tick turns into the logo), and once the chat goes quiet
+ * for a few seconds one of them answers, in character, from the last few messages.
+ */
+const replying = new Map<number, { timer: NodeJS.Timeout; last: number }>();
+export function startBotReply(groupId: number, senderId: number) {
+  if (!DEMO_BOTS) return;
+  readSoon(groupId, senderId).catch((e) => console.warn("[bots] read", (e as Error).message));
+  const prev = replying.get(groupId);
+  if (prev) clearTimeout(prev.timer);
+  const last = prev?.last ?? 0;
+  // Wait for a pause in what they're typing; never more than one reply every 8 seconds per chat.
+  const wait = Math.max(3500 + Math.random() * 2000, last + 8000 - Date.now());
+  const timer = setTimeout(() => {
+    replying.set(groupId, { timer, last: Date.now() });
+    reply(groupId, senderId).catch((e) => console.warn("[bots] reply", (e as Error).message));
+  }, wait);
+  replying.set(groupId, { timer, last });
+}
+
+async function chatBots(groupId: number, excludeId: number) {
+  const db = await getDb();
+  const [sample] = await db.query(`SELECT 1 FROM groups gr WHERE gr.id = $1 AND ${SAMPLE_GROUPS}`, [groupId]);
+  if (!sample) return [];
+  const members = await db.query<Bot>(
+    `SELECT u.id, u.username, u.display_name, u.key_salt, u.enc_private_key, u.public_key, u.balance, gk.wrapped_key, w.public_key AS wrapper_public_key
+       FROM group_members gm JOIN users u ON u.id = gm.user_id AND u.deleted_at IS NULL
+       JOIN group_keys gk ON gk.group_id = gm.group_id AND gk.user_id = u.id JOIN users w ON w.id = gk.wrapped_by
+      WHERE gm.group_id = $1 AND NOT gm.guest AND u.id <> $2`,
+    [groupId, excludeId]
+  );
+  return shuffle(members.filter((b) => BOTS.has(b.username)));
+}
+
+async function readSoon(groupId: number, senderId: number) {
+  const bots = await chatBots(groupId, senderId);
+  if (!bots.length) return;
+  await sleep(700 + Math.random() * 900);
+  const db = await getDb();
+  await markRead(db, groupId, bots[0].id);
+  // A couple more catch up a moment later, as people do.
+  for (const b of bots.slice(1, 1 + Math.floor(Math.random() * 3))) {
+    await sleep(1500 + Math.random() * 4000);
+    await markRead(db, groupId, b.id);
+  }
+}
+
+async function reply(groupId: number, senderId: number) {
+  const bots = await chatBots(groupId, senderId);
+  const b = bots[0];
+  if (!b) return;
+  const priv = await creatorKey(b);
+  if (!priv) return;
+  const key = await importGroupKey(await unwrapGroupKey(b.wrapped_key, priv, b.wrapper_public_key));
+  const db = await getDb();
+  const recent = await db.query<{ ciphertext: string; iv: string; display_name: string }>(
+    `SELECT m.ciphertext, m.iv, u.display_name FROM messages m JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = $1 AND m.kind = 'chat' AND m.ciphertext IS NOT NULL ORDER BY m.id DESC LIMIT 8`,
+    [groupId]
+  );
+  const lines: string[] = [];
+  for (const r of recent.reverse()) {
+    const p = await decryptPayload(key, r.iv, r.ciphertext).catch(() => null);
+    if (p?.t) lines.push(`${r.display_name}: ${p.t.slice(0, 200)}`);
+  }
+  const [g] = await db.query<{ name: string }>(`SELECT name FROM groups WHERE id = $1`, [groupId]);
+  const person = BOTS.get(b.username)!;
+  setTyping(groupId, b.id, "text");
+  const prompt = `You are ${b.display_name}, texting in a group chat called "${g?.name ?? "the chat"}" with friends. The latest messages:
+${lines.join("\n")}
+Write ${b.display_name}'s next message: reply to the last one naturally, casual British English, lowercase is fine, under 15 words, no emoji, no hashtags.${person.boldness > 0.7 ? " You're a bit cocky." : ""}`;
+  const out = await askJson<{ reply: string }>(prompt, { type: "object", properties: { reply: { type: "string" } }, required: ["reply"] }, 15000);
+  const text = (typeof out?.reply === "string" ? out.reply : "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "").replace(/^["']|["']$/g, "").replace(new RegExp(`^${b.display_name}:\\s*`, "i"), "").trim().slice(0, 140);
+  await sleep(800 + Math.random() * 1200);
+  await say(groupId, b, text || pick(SMALL_TALK)).catch((e) => console.warn("[bots] chat", (e as Error).message));
+  setTyping(groupId, b.id, null);
+}
+
+const SMALL_TALK = ["haha fair", "say less", "honestly same", "wait what", "no way", "classic", "I'm in", "100%", "big if true", "we'll see about that"];
 
 /** Starts the bots for a freshly posted stake. Returns at once; they act over the next minute. */
 export function startBots(marketId: number, posterId: number) {
