@@ -10,7 +10,7 @@
 - **The group remembers:** every settled stake is summarised and stored. New questions pull up similar past outcomes (per person, per category) to set the opening odds and show friends the record.
 - **Private by design, with one disclosed exception:** chats are end-to-end encrypted in the browser. The server never reads message text. The AI gets only a few filtered, anonymised snippets picked on the phone when a stake is priced, and everyone agrees to that in the Terms when they sign up.
 
-**Trying the demo:** the live link and the demo accounts are in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md), and what you can tell the AI is in [docs/AI_INPUTS.md](docs/AI_INPUTS.md).
+**Trying the demo:** open **https://192.248.147.140.sslip.io** and sign in as `ilyas`, `jake` or any account in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md) (password `demo1234`), and what you can tell the AI is in [docs/AI_INPUTS.md](docs/AI_INPUTS.md).
 
 ## Run it
 
@@ -54,6 +54,8 @@ Everything here is free; none of it needs a card.
 `npm test` runs the market-maths tests. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
 
 ### Deploy on Vultr
+
+**The team's hosted copy is at https://192.248.147.140.sslip.io** and follows `main` by itself. [docs/DEPLOY.md](docs/DEPLOY.md) covers the server, how it updates, and its settings. To make your own:
 
 `deploy/` runs the app, TimescaleDB and Caddy (automatic HTTPS) on one VM. HTTPS isn't optional: chat encryption uses WebCrypto, which browsers only allow on secure origins.
 
