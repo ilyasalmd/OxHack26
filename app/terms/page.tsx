@@ -1,10 +1,13 @@
 import type { Metadata } from "next";
 import { H, LegalPage, UL } from "@/components/legal";
-import { AI_CHAT } from "@/lib/ai-disclosure";
+import { aiChatNotice } from "@/lib/ai-disclosure";
 
+// Rendered per request: where the AI runs (Ollama or Google) is a server setting, not a build-time one.
+export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Terms · FriendStakes" };
 
 export default function Terms() {
+  const AI_CHAT = aiChatNotice();
   return (
     <LegalPage title="Terms of use" updated="Draft of 24 October 2026">
       <p>FriendStakes is a game for groups of friends. You post &ldquo;stakes&rdquo; about things you or your friends might do (&ldquo;Jake is late to Friday dinner&rdquo;) and trade coins on whether they happen. These terms are the rules of the game. They are short on purpose.</p>

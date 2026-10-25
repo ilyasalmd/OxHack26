@@ -93,7 +93,7 @@ export function Insights({ groupId, moods, stockSnippets, withChat, onRepriced }
     try {
       const r = await api<{ applied: { title: string; from: number; to: number; reason: string }[]; skipped?: { title: string }[]; source: string }>(`/api/groups/${groupId}/reprice`, { body: { moods: shareMood ? moods() : null, chat: stockSnippets() } });
       const held = r.skipped?.length ? ` ${r.skipped.length} left alone because someone traded while the AI was thinking.` : "";
-      setNote(r.applied.length ? `Re-marked ${r.applied.length} stock(s) (${r.source}).${held}` : `No stock needed re-marking.${held}`);
+      setNote(r.applied.length ? `Re-marked ${r.applied.length} stock(s) (${r.source === "heuristic" ? "stats model" : r.source === "google" ? "Gemma via Google" : "Gemma"}).${held}` : `No stock needed re-marking.${held}`);
       onRepriced();
       load();
     } catch (e) {

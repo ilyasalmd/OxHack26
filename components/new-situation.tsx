@@ -354,7 +354,7 @@ function PreviewPane({ preview, busy, err, who, whenLabel, chosen, onType, onLin
       {preview.full ? (
         <div className="grid grid-cols-3 gap-2 text-center">
           <Stat label="Opens at" value={show(preview.openProb)} />
-          <Stat label={a.source === "ollama" ? "Gemma" : "Stats model"} value={show(a.probability)} />
+          <Stat label={a.source === "heuristic" ? "Stats model" : "Gemma"} value={show(a.probability)} />
           <Stat label={`History (n≈${preview.baseRateN.toFixed(0)})`} value={preview.baseRate == null ? "–" : show(preview.baseRate)} />
         </div>
       ) : (

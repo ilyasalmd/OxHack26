@@ -1,40 +1,56 @@
-import { AI, MARKET } from "./config";
+import { AI, MARKET, type AiProvider } from "./config";
 import { CATEGORIES, guessCategory, playbook } from "./categories";
 import { lexiconScore } from "./mood";
 import type { Snippet } from "./chat-context";
 
 export { CATEGORIES, guessCategory };
 
-// Privacy rule: the AI sees the situation itself, resolved-history stats, the
-// group's "AI context" (term dates etc.) and an optional on-device mood score.
-// With Ollama the model runs on the server's own machine and nothing leaves it.
+// Privacy rule: the AI sees the situation itself, resolved-history stats, the group's "AI context"
+// (term dates etc.) and an optional on-device mood score. With Ollama the model runs on the server's
+// own machine and nothing leaves it. With the Gemini API (a teammate without Ollama) the same prompts
+// go to Google's hosted Gemma instead, and lib/ai-disclosure.ts says so from the same setting.
 // Chat text arrives only as the snippets a member's browser picked as relevant (at most
 // 20 per stake, 8 per stock), with names replaced by roles and contact details removed
 // (lib/chat-context.ts). That is always on and described to users in lib/ai-disclosure.ts.
 
-// When Ollama isn't running, stop asking for a minute and use the stats fallback, so the log
-// carries one line instead of one per request.
-let pausedUntil = 0;
-const ready = () => AI.enabled && Date.now() >= pausedUntil;
-function failed(what: string, e: unknown) {
-  const msg = (e as Error).message;
-  if (/ECONNREFUSED|fetch failed|not found, try pulling/i.test(msg)) {
-    pausedUntil = Date.now() + 60_000;
-    console.warn(`[ai] Ollama unavailable (${msg}); using fallbacks for a minute`);
-  } else console.warn(`[ai] ${what}:`, msg);
+// A provider that can't answer for a while (Ollama not running, a refused key, Google's free-tier
+// limit) is skipped until it should be back, and the next one or the stats fallback is used, so the
+// log carries one line instead of one per request. Kept per task: chat and embeddings have separate quotas.
+type Task = "chat" | "embed";
+const pausedUntil = new Map<string, number>();
+const live = (task: Task) => AI.chain.filter((p) => Date.now() >= (pausedUntil.get(`${p}:${task}`) ?? 0));
+function pause(p: AiProvider, task: Task, e: Unavailable) {
+  pausedUntil.set(`${p}:${task}`, Date.now() + e.retryMs);
+  console.warn(`[ai] ${p === "ollama" ? "Ollama" : "Gemini API"} ${task === "embed" ? "embeddings " : ""}unavailable: ${e.message}. Skipping it for ${Math.round(e.retryMs / 1000)}s`);
 }
 
+/** The provider is down for a while (unreachable, refused, out of quota), as opposed to one bad answer. */
+export class Unavailable extends Error {
+  constructor(message: string, readonly retryMs: number) {
+    super(message);
+  }
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The JSON object in a reply, without any code fences or chatter around it. */
+const jsonPart = (text: string) => text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1);
+const schemaNote = (schema: object) => `\n\nReply with only a JSON object that matches this JSON Schema, with no code fences or other text:\n${JSON.stringify(schema)}`;
 
 /** Ollama's REST API on this machine (or OLLAMA_URL). */
 async function ollama<T>(path: string, body: object, timeoutMs: number): Promise<T> {
   const res = await fetch(`${AI.ollamaUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(AI.ollamaKey ? { authorization: `Bearer ${AI.ollamaKey}` } : {}) },
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(timeoutMs),
+  }).catch((e: Error) => {
+    throw /ECONNREFUSED|fetch failed/i.test(e.message) ? new Unavailable(`not running at ${AI.ollamaUrl}`, 60_000) : e;
   });
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((json as { error?: string }).error ?? `Ollama HTTP ${res.status}`);
+  if (!res.ok) {
+    const msg = (json as { error?: string }).error ?? `Ollama HTTP ${res.status}`;
+    throw /not found, try pulling/i.test(msg) ? new Unavailable(msg, 60_000) : new Error(msg);
+  }
   return json as T;
 }
 
@@ -47,9 +63,7 @@ export type Trace = { provider: string; model: string; prompt: string; raw: stri
 async function askOllama<T>(prompt: string, schema: object, timeoutMs: number, trace?: Trace): Promise<T> {
   const model = AI.model;
   const constrained = !noFormat.has(model);
-  const content = constrained
-    ? prompt
-    : `${prompt}\n\nReply with only a JSON object that matches this JSON Schema, with no code fences or other text:\n${JSON.stringify(schema)}`;
+  const content = constrained ? prompt : prompt + schemaNote(schema);
   try {
     // Thinking off for speed; the questions are short judgement calls.
     const res = await ollama<{ message: { content: string } }>(
@@ -59,7 +73,7 @@ async function askOllama<T>(prompt: string, schema: object, timeoutMs: number, t
     );
     const text = res.message.content;
     if (trace) trace.raw = text;
-    return JSON.parse(constrained ? text : text.slice(text.indexOf("{"), text.lastIndexOf("}") + 1)) as T;
+    return JSON.parse(constrained ? text : jsonPart(text)) as T;
   } catch (e) {
     if (constrained && /structured output is unavailable/i.test((e as Error).message)) {
       noFormat.add(model);
@@ -69,31 +83,143 @@ async function askOllama<T>(prompt: string, schema: object, timeoutMs: number, t
   }
 }
 
-/** The prompt's answer as JSON matching `schema`, or null so the caller can fall back. */
-export async function askJson<T>(prompt: string, schema: object, timeoutMs = 45000, trace?: Trace): Promise<T | null> {
-  if (!ready()) return null;
-  const t0 = Date.now();
-  if (trace) Object.assign(trace, { provider: AI.provider, model: AI.model });
-  try {
-    const out = await askOllama<T>(prompt, schema, timeoutMs, trace);
-    if (trace) trace.ms = Date.now() - t0;
-    return out;
-  } catch (e) {
-    if (trace) Object.assign(trace, { ms: Date.now() - t0, error: (e as Error).message.slice(0, 200) });
-    failed(`${AI.provider} call failed, using fallback`, e);
-    return null;
+// One short wait is worth it for a per-minute limit; anything longer and the caller is better off
+// with the stats model now than with Gemma in half a minute.
+const RATE_LIMIT_WAIT_MS = 8000;
+
+class GoogleHttpError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message);
   }
 }
 
-export async function embed(text: string): Promise<number[] | null> {
-  if (!ready()) return null;
-  try {
-    const res = await ollama<{ embeddings: number[][] }>("/api/embed", { model: AI.embeddingModel, input: text, keep_alive: "30m" }, 15000);
-    return res.embeddings?.[0] ?? null;
-  } catch (e) {
-    failed("embedding failed", e);
-    return null;
+type GoogleError = { error?: { code?: number; message?: string; status?: string; details?: { "@type"?: string; retryDelay?: string; violations?: { quotaId?: string }[] }[] } };
+
+/** How long Google says to wait after a 429, and whether it was the daily quota (which no short wait fixes). */
+export function rateLimit(err: NonNullable<GoogleError["error"]>) {
+  const details = err.details ?? [];
+  const delay = details.find((d) => d.retryDelay)?.retryDelay;
+  const quotas = details.flatMap((d) => d.violations ?? []).map((v) => v.quotaId ?? "").join(" ");
+  return { waitMs: delay ? Math.ceil(parseFloat(delay) * 1000) : 5000, daily: /PerDay/i.test(`${quotas} ${err.message ?? ""}`) };
+}
+
+/** The Gemini API (Google AI Studio), authenticated with GEMMA_API_KEY. */
+async function google<T>(path: string, body: object, timeoutMs: number): Promise<T> {
+  const deadline = Date.now() + timeoutMs;
+  for (let retried = false; ; retried = true) {
+    const res = await fetch(`${AI.googleUrl}/${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": AI.googleKey },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(Math.max(1000, deadline - Date.now())),
+    }).catch((e: Error) => {
+      throw /fetch failed|ENOTFOUND|EAI_AGAIN|ECONNREFUSED/i.test(e.message) ? new Unavailable(`can't reach ${AI.googleUrl}`, 60_000) : e;
+    });
+    const json = (await res.json().catch(() => ({}))) as T & GoogleError;
+    if (res.ok) return json;
+    const err = json.error ?? {};
+    const msg = err.message ?? `HTTP ${res.status}`;
+    if (res.status === 429) {
+      const { waitMs, daily } = rateLimit(err);
+      if (!daily && !retried && waitMs <= Math.min(RATE_LIMIT_WAIT_MS, deadline - Date.now() - 2000)) {
+        await sleep(waitMs);
+        continue;
+      }
+      throw new Unavailable(
+        daily
+          ? "the free tier's daily limit for this key's Google project is used up (it resets at midnight Pacific time). Use a key from your own project, or Ollama, until then"
+          : `the free tier's per-minute limit for this key's Google project was hit; Google asked for ${Math.round(waitMs / 1000)}s`,
+        daily ? 15 * 60_000 : Math.max(waitMs, 10_000)
+      );
+    }
+    if (res.status === 401 || res.status === 403 || (res.status === 400 && /api key/i.test(msg))) throw new Unavailable(`GEMMA_API_KEY was refused (${msg})`, 10 * 60_000);
+    if (res.status === 404) throw new Unavailable(`${msg} Check GEMMA_API_MODEL`, 10 * 60_000);
+    throw new GoogleHttpError(`Gemini API HTTP ${res.status}: ${msg}`, res.status);
   }
+}
+
+// Per model, how much of the optional request Google accepted: 0 = JSON mode and thinking off,
+// 1 = thinking off only, 2 = plain prompt. Not every Gemma on the API takes both, and a refusal is a 400.
+const googleLevel = new Map<string, number>();
+type GoogleReply = { candidates?: { content?: { parts?: { text?: string; thought?: boolean }[] }; finishReason?: string }[]; promptFeedback?: { blockReason?: string } };
+
+async function askGoogle<T>(prompt: string, schema: object, timeoutMs: number, trace?: Trace): Promise<T> {
+  const model = AI.googleModel;
+  const level = googleLevel.get(model) ?? 0;
+  const generationConfig = {
+    temperature: 0.3,
+    maxOutputTokens: 1200,
+    ...(level === 0 ? { responseMimeType: "application/json", responseJsonSchema: schema } : {}),
+    ...(level <= 1 ? { thinkingConfig: { thinkingLevel: "minimal" } } : {}),
+  };
+  const t0 = Date.now();
+  try {
+    const res = await google<GoogleReply>(
+      `models/${model}:generateContent`,
+      { contents: [{ role: "user", parts: [{ text: level === 0 ? prompt : prompt + schemaNote(schema) }] }], generationConfig },
+      timeoutMs
+    );
+    const c = res.candidates?.[0];
+    const text = (c?.content?.parts ?? []).filter((p) => !p.thought).map((p) => p.text ?? "").join("");
+    if (trace) trace.raw = text;
+    if (!text.includes("{")) throw new Error(`Gemini API gave no answer (${c?.finishReason ?? res.promptFeedback?.blockReason ?? "empty"})`);
+    return JSON.parse(jsonPart(text)) as T;
+  } catch (e) {
+    if (e instanceof GoogleHttpError && e.status === 400 && level < 2) {
+      googleLevel.set(model, level + 1);
+      return askGoogle<T>(prompt, schema, timeoutMs - (Date.now() - t0), trace);
+    }
+    throw e;
+  }
+}
+
+/**
+ * The prompt's answer as JSON matching `schema`, or null so the caller can fall back.
+ * `localOnly` keeps it on this machine (Ollama), for prompts that carry unredacted chat.
+ */
+export async function askJson<T>(prompt: string, schema: object, timeoutMs = 45000, trace?: Trace, opts: { localOnly?: boolean } = {}): Promise<T | null> {
+  const t0 = Date.now();
+  for (const p of live("chat")) {
+    if (opts.localOnly && p !== "ollama") continue;
+    if (trace) Object.assign(trace, { provider: p, model: p === "ollama" ? AI.model : AI.googleModel, raw: null, error: undefined });
+    try {
+      const out = p === "ollama" ? await askOllama<T>(prompt, schema, timeoutMs, trace) : await askGoogle<T>(prompt, schema, timeoutMs - (Date.now() - t0), trace);
+      if (trace) trace.ms = Date.now() - t0;
+      return out;
+    } catch (e) {
+      if (trace) Object.assign(trace, { ms: Date.now() - t0, error: (e as Error).message.slice(0, 200) });
+      if (e instanceof Unavailable) {
+        pause(p, "chat", e);
+        continue;
+      }
+      console.warn(`[ai] ${p} call failed, using fallback:`, (e as Error).message);
+      return null;
+    }
+  }
+  return null;
+}
+
+export async function embed(text: string): Promise<number[] | null> {
+  for (const p of live("embed")) {
+    try {
+      if (p === "ollama") {
+        const res = await ollama<{ embeddings: number[][] }>("/api/embed", { model: AI.embeddingModel, input: text, keep_alive: "30m" }, 15000);
+        return res.embeddings?.[0] ?? null;
+      }
+      if (AI.googleEmbeddingModel === "none") return null;
+      // Google's vectors are a different length from EmbeddingGemma's, so lib/memory.ts never compares the two.
+      const res = await google<{ embedding?: { values?: number[] } }>(`models/${AI.googleEmbeddingModel}:embedContent`, { content: { parts: [{ text }] } }, 15000);
+      return res.embedding?.values ?? null;
+    } catch (e) {
+      if (e instanceof Unavailable) {
+        pause(p, "embed", e);
+        continue;
+      }
+      console.warn("[ai] embedding failed:", (e as Error).message);
+      return null;
+    }
+  }
+  return null;
 }
 
 export type HistoryEvidence = {
@@ -118,7 +244,8 @@ export type Analysis = {
   probability: number;
   rationale: string;
   resolutionRule: string;
-  source: "ollama" | "heuristic";
+  /** Which AI answered: "ollama" (Gemma on this machine), "google" (Gemma on the Gemini API) or the stats model. */
+  source: AiProvider | "heuristic";
   /** Snippets the AI kept as relevant, with its reason. Everything else was ignored. */
   chatUsed: (Snippet & { why: string })[];
   /** The exact model call, with the subject's private profile answers blanked out of the prompt. */
@@ -219,7 +346,7 @@ Rules:
   if (out && Number.isFinite(out.probability)) {
     const { usefulSnippets, ...rest } = out as typeof out & { usefulSnippets?: { i: number; why: string }[] };
     const chatUsed = (usefulSnippets ?? []).filter((u) => snippets[u.i]).slice(0, 8).map((u) => ({ ...snippets[u.i], why: u.why }));
-    return applyWants({ ...rest, probability: clampP(out.probability), source: "ollama", chatUsed, trace }, want);
+    return applyWants({ ...rest, probability: clampP(out.probability), source: trace.provider as AiProvider, chatUsed, trace }, want);
   }
   const h = heuristicAnalysis(input.title, days, input.history);
   return applyWants({ ...(snippets.length ? applySnippetTilt(h, snippets) : h), trace }, want);
@@ -336,7 +463,8 @@ ${input.stocks
   )
   .join("\n")}
 Give each reason in under 15 words.`;
-  if (trace) Object.assign(trace, { prompt });
+  const t: Trace = trace ?? { provider: "none", model: "", prompt: "", raw: null, ms: 0 };
+  t.prompt = prompt;
   const out = await askJson<{ updates: { id: number; probability: number; reason: string }[] }>(
     prompt,
     {
@@ -354,9 +482,9 @@ Give each reason in under 15 words.`;
       required: ["updates"],
     },
     undefined,
-    trace
+    t
   );
-  if (out?.updates) return out.updates.map((u) => ({ ...u, probability: clampP(u.probability), source: "ollama" as const }));
+  if (out?.updates) return out.updates.map((u) => ({ ...u, probability: clampP(u.probability), source: t.provider as AiProvider }));
   // Fallback: nudge by mood only.
   return input.stocks
     .filter((s) => s.mood != null && Math.abs(s.mood) > 0.15)

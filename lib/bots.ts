@@ -159,7 +159,8 @@ ${a.lines.map((l) => `${l.name}${l.name === me ? " (you)" : ""}: ${l.text}`).joi
 ${task}
 Speak only for yourself, ${me}, in first person, and stay consistent with what you've already said. Talk to ${a.sender} the way ${me} would, given who they are to you.
 Casual British English, lowercase is fine, under 18 words, no emoji, no hashtags.${person.boldness > 0.7 ? " You're a bit cocky." : ""}`;
-  const out = await askJson<{ reply: string }>(prompt, { type: "object", properties: { reply: { type: "string" } }, required: ["reply"] }, 15000);
+  // The chat goes in unredacted, so only Gemma on this machine may read it; with only the Gemini API the canned lines answer.
+  const out = await askJson<{ reply: string }>(prompt, { type: "object", properties: { reply: { type: "string" } }, required: ["reply"] }, 15000, undefined, { localOnly: true });
   return (typeof out?.reply === "string" ? out.reply : "")
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
     .replace(/^["']|["']$/g, "")

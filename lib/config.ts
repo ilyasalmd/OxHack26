@@ -53,13 +53,24 @@ export const MARKET = {
 };
 
 // Getters so env changes (tests, the seed script) are picked up after import.
-// Which AI prices situations: Gemma, running locally through Ollama, or none (the stats model).
-// AI_PROVIDER=none forces the stats model; otherwise setting OLLAMA_MODEL turns Gemma on.
+// Which AI prices situations. Gemma either runs locally through Ollama, or is called on Google's
+// servers through the Gemini API (Google AI Studio key in GEMMA_API_KEY), so a teammate without
+// Ollama still gets Gemma. "none" is the stats model.
+// AI_PROVIDER=none forces the stats model. Unset, OLLAMA_MODEL picks Ollama, else a key picks Google.
+// With Ollama chosen and a key set, Google is the fallback whenever Ollama can't be reached.
+export type AiProvider = "ollama" | "google";
 export const AI = {
-  get provider(): "ollama" | "none" {
+  get provider(): AiProvider | "none" {
     const p = process.env.AI_PROVIDER;
-    if (p === "ollama" || p === "none") return p;
-    return process.env.OLLAMA_MODEL ? "ollama" : "none";
+    if (p === "ollama" || p === "google" || p === "none") return p;
+    if (process.env.OLLAMA_MODEL) return "ollama";
+    return this.googleKey ? "google" : "none";
+  },
+  /** The providers to try, in order. */
+  get chain(): AiProvider[] {
+    if (this.provider === "ollama") return this.googleKey ? ["ollama", "google"] : ["ollama"];
+    if (this.provider === "google" && this.googleKey) return ["google"];
+    return [];
   },
   get model() {
     return process.env.OLLAMA_MODEL ?? "gemma4:12b";
@@ -70,12 +81,33 @@ export const AI = {
   get ollamaUrl() {
     return (process.env.OLLAMA_URL ?? "http://127.0.0.1:11434").replace(/\/$/, "");
   },
+  /** Bearer token for an Ollama behind an authenticating proxy (e.g. a shared GPU server). */
+  get ollamaKey() {
+    return process.env.OLLAMA_API_KEY?.trim() ?? "";
+  },
+  get googleKey() {
+    return process.env.GEMMA_API_KEY?.trim() ?? "";
+  },
+  get googleModel() {
+    return process.env.GEMMA_API_MODEL ?? "gemma-4-26b-a4b-it";
+  },
+  /** Embeddings on the Gemini API come from Google's own model, not Gemma. "none" turns them off. */
+  get googleEmbeddingModel() {
+    return process.env.GEMMA_API_EMBEDDING_MODEL ?? "gemini-embedding-001";
+  },
+  get googleUrl() {
+    return (process.env.GEMMA_API_URL ?? "https://generativelanguage.googleapis.com/v1beta").replace(/\/$/, "");
+  },
+  /** True when stake text and snippets may go to Google rather than stay on this machine. */
+  get usesGoogle() {
+    return this.chain.includes("google");
+  },
   get enabled() {
-    return this.provider !== "none";
+    return this.chain.length > 0;
   },
   /** What the app calls the AI in the interface. */
   get label() {
-    return this.provider === "ollama" ? "Gemma" : "Stats model";
+    return this.enabled ? "Gemma" : "Stats model";
   },
 };
 
