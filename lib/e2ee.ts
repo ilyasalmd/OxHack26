@@ -195,10 +195,6 @@ export async function decryptPayload(groupKey: CryptoKey, iv: string, ciphertext
   }
 }
 
-export async function decryptMessage(groupKey: CryptoKey, iv: string, ciphertext: string) {
-  return (await decryptPayload(groupKey, iv, ciphertext))?.t ?? null;
-}
-
 /** Files: a random 12-byte IV followed by the AES-GCM ciphertext, as one byte array. */
 export async function encryptBytes(key: CryptoKey, data: Uint8Array) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
