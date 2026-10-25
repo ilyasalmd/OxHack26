@@ -9,7 +9,7 @@ import { now } from "./clock";
  * holds the request open and re-checks on its side, so the phone downloads nothing until there is
  * something new (or about 20s pass, when it gets a few bytes saying "unchanged"). New messages and
  * typing wake waiting requests at once; anything else (a trade, a bot, a vote) is noticed by the
- * server's own re-check within a second.
+ * server's own re-check within a few seconds.
  *
  * One server process is enough for the demo, like "typing…"; several instances would move the
  * wake-ups into Postgres LISTEN/NOTIFY or Redis.
@@ -50,7 +50,8 @@ function nextWake(keys: string[], ms: number, signal: AbortSignal) {
 export const fingerprint = (v: unknown) => crypto.createHash("sha1").update(JSON.stringify(v)).digest("base64url").slice(0, 16);
 
 const HOLD_MS = 20_000;
-const RECHECK_MS = 1_000;
+// Messages and typing wake waiters at once; this re-check only catches trades and votes.
+const RECHECK_MS = 3_000;
 
 /**
  * Builds the response, and if the caller already has it (same etag) and asked to wait, holds on
