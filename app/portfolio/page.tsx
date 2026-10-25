@@ -62,7 +62,7 @@ export default function Portfolio() {
   const split = (
     <div className="grid grid-cols-2 gap-2">
       <Box icon={<Wallet size={18} />} label="Available" value={fmt(p.netWorth.balance, 0)} sub={`Up to ${fmt(me.maxStake, 0)} a stake`} />
-      <Box icon={<Lock size={18} />} label="Committed" value={fmt(p.netWorth.positions, 0)} sub={`${open.length} stake${open.length === 1 ? "" : "s"}${p.friendBets > 0 ? ` · ${fmt(p.friendBets, 0)} in friend bets` : ""}`} />
+      <Box icon={<Lock size={18} />} label="Committed" value={fmt(p.netWorth.positions, 0)} sub={`${open.length} stake${open.length === 1 ? "" : "s"}${p.friendBets > 0 ? ` + ${fmt(p.friendBets, 0)} in bets` : ""}`} />
     </div>
   );
 
