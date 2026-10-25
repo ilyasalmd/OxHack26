@@ -1,31 +1,60 @@
 @import "tailwindcss";
 
 @theme {
-  --color-ink: #09090b;
-  --color-panel: #111113;
-  --color-raised: #18181b;
-  --color-line: #222226;
-  --color-mute: #8b8b94;
+  /* Surfaces. Every theme below retints all of these, so the whole app changes colour, not just the accent. */
+  --color-ink: #0d100a;
+  --color-panel: #151a10;
+  --color-raised: #1d2316;
+  --color-line: #2a3220;
+  --color-mute: #99a08a;
   --color-up: #7ccf9b;
   --color-down: #f0646a;
   --color-brand: #cfe36a;
+  /* The deep accent: your own chat bubbles and the send button, readable under white text. */
+  --color-mine: #4a7d22;
+  /* Tailwind's white/black are the app's foreground and "ink on accent" colours, so text-white,
+     bg-white/[.06], text-black on a brand button and bg-black/60 backdrops all follow the theme. */
+  --color-white: #f4f6ec;
+  --color-black: #0d100a;
   --font-sans: var(--font-geist), ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 }
 
-/* Accent themes (Settings → Colour). Lime is the default above. */
-html[data-accent="butter"] { --color-brand: #f0e08e; }
-html[data-accent="peach"] { --color-brand: #f5bd8a; }
-html[data-accent="mint"] { --color-brand: #a9e4c5; }
-html[data-accent="sky"] { --color-brand: #9fcbf2; }
-html[data-accent="lilac"] { --color-brand: #c9b8f0; }
+/* Themes (Settings → Colour). Lime is the default above; each one is a full palette: a tinted dark
+   background, panels, lines, muted text and foreground, plus the accent and the deep accent. */
+html[data-accent="butter"] {
+  --color-brand: #f0e08e; --color-mine: #8a6a12;
+  --color-ink: #14110a; --color-panel: #1d1910; --color-raised: #272216; --color-line: #38311f;
+  --color-mute: #a69d82; --color-white: #f8f4e6; --color-black: #14110a;
+}
+html[data-accent="peach"] {
+  --color-brand: #f5bd8a; --color-mine: #b8552a;
+  --color-ink: #160e0a; --color-panel: #211512; --color-raised: #2b1c17; --color-line: #3d2a22;
+  --color-mute: #ab968a; --color-white: #faf0e9; --color-black: #160e0a;
+}
+html[data-accent="mint"] {
+  --color-brand: #a9e4c5; --color-mine: #1f7a5a;
+  --color-ink: #071410; --color-panel: #0e1d18; --color-raised: #142822; --color-line: #1f3a30;
+  --color-mute: #8fab9e; --color-white: #ecf7f1; --color-black: #071410;
+}
+html[data-accent="sky"] {
+  --color-brand: #9fcbf2; --color-mine: #2b6cff;
+  --color-ink: #0a1220; --color-panel: #101a2c; --color-raised: #16223a; --color-line: #22304a;
+  --color-mute: #8f9fb8; --color-white: #eef3fb; --color-black: #0a1220;
+}
+html[data-accent="lilac"] {
+  --color-brand: #c9b8f0; --color-mine: #6d4fd0;
+  --color-ink: #110b1c; --color-panel: #19112a; --color-raised: #221838; --color-line: #32264d;
+  --color-mute: #a094b6; --color-white: #f4eefb; --color-black: #110b1c;
+}
 
-html, body { background: var(--color-ink); color: #f4f4f5; }
+html, body { background: var(--color-ink); color: var(--color-white); }
+html { color-scheme: dark; }
 body { -webkit-font-smoothing: antialiased; font-feature-settings: "ss01", "cv11"; }
 .tabular { font-variant-numeric: tabular-nums; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }
-.thin-scroll { scrollbar-width: thin; scrollbar-color: #2a2a2f transparent; }
+.thin-scroll { scrollbar-width: thin; scrollbar-color: var(--color-line) transparent; }
 input, textarea, select { font-size: 16px; }
 @media (min-width: 1024px) { input, textarea, select { font-size: 14px; } }
 @keyframes pop { from { transform: scale(.97); opacity: 0 } to { transform: none; opacity: 1 } }

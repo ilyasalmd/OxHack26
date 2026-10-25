@@ -127,7 +127,7 @@ export function Composer({
               ))}
             </div>
           </div>
-          <button type="button" onClick={finishVoice} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2b6cff] text-white" aria-label="Send voice note"><Send size={17} /></button>
+          <button type="button" onClick={finishVoice} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-mine text-white" aria-label="Send voice note"><Send size={17} /></button>
         </div>
       ) : (
         <form onSubmit={submit} className="mx-auto flex max-w-3xl items-center gap-1.5 lg:gap-2">
@@ -164,7 +164,7 @@ export function Composer({
             </button>
           </div>
           {hasText ? (
-            <button onMouseDown={(e) => e.preventDefault()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#2b6cff] text-white transition" aria-label="Send">
+            <button onMouseDown={(e) => e.preventDefault()} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-mine text-white transition" aria-label="Send">
               <Send size={17} />
             </button>
           ) : (

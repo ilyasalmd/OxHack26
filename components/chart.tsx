@@ -59,8 +59,8 @@ export function PriceChart({
   const y = (v: number) => H - ((v - lo) / (hi - lo)) * H;
   let d = `M ${x(pts[0].t)} ${y(pts[0].v)}`;
   for (let i = 1; i < pts.length; i++) d += ` H ${x(pts[i].t)} V ${y(pts[i].v)}`;
-  const up = pts[pts.length - 1].v >= pts[0].v;
-  const color = up ? "var(--color-up)" : "var(--color-down)";
+  // The line wears the theme's accent whichever way it went; the number above it says up or down.
+  const color = "var(--color-brand)";
   const hp = hover != null ? pts[hover] : null;
 
   function move(e: React.PointerEvent<SVGSVGElement>) {
@@ -88,14 +88,14 @@ export function PriceChart({
         >
           <defs>
             <linearGradient id="fill" x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity="0.25" />
+              <stop offset="0%" stopColor={color} stopOpacity="0.28" />
               <stop offset="100%" stopColor={color} stopOpacity="0" />
             </linearGradient>
           </defs>
-          <line x1="0" x2={W} y1={y(pts[0].v)} y2={y(pts[0].v)} stroke="#333" strokeDasharray="2 4" vectorEffect="non-scaling-stroke" />
+          <line x1="0" x2={W} y1={y(pts[0].v)} y2={y(pts[0].v)} stroke="var(--color-line)" strokeDasharray="2 4" vectorEffect="non-scaling-stroke" />
           <path d={`${d} V ${H} H ${x(pts[0].t)} Z`} fill="url(#fill)" />
           <path d={d} fill="none" stroke={color} strokeWidth="2" vectorEffect="non-scaling-stroke" />
-          {hp && <line x1={x(hp.t)} x2={x(hp.t)} y1="0" y2={H} stroke="#666" vectorEffect="non-scaling-stroke" />}
+          {hp && <line x1={x(hp.t)} x2={x(hp.t)} y1="0" y2={H} stroke="var(--color-mute)" vectorEffect="non-scaling-stroke" />}
         </svg>
         {hp && (
           <div className="pointer-events-none absolute -top-1 rounded-md bg-black/80 px-2 py-0.5 text-xs tabular" style={{ left: `min(calc(${(x(hp.t) / W) * 100}% ), calc(100% - 90px))` }}>
@@ -105,7 +105,7 @@ export function PriceChart({
       </div>
       <div className="mt-3 flex gap-1">
         {RANGES.map((r) => (
-          <button key={r.k} onClick={() => setRange(r.k)} className={`flex-1 rounded-full py-1.5 text-xs font-semibold ${range === r.k ? "bg-white/10 text-white" : "text-mute"}`}>
+          <button key={r.k} onClick={() => setRange(r.k)} className={`flex-1 rounded-full py-1.5 text-xs font-semibold transition ${range === r.k ? "bg-brand/15 text-brand" : "text-mute hover:text-white"}`}>
             {r.k}
           </button>
         ))}
@@ -114,16 +114,15 @@ export function PriceChart({
   );
 }
 
-export function Sparkline({ values, up, w = 64, h = 24 }: { values: number[]; up?: boolean; w?: number; h?: number }) {
+export function Sparkline({ values, w = 64, h = 24 }: { values: number[]; up?: boolean; w?: number; h?: number }) {
   if (values.length < 2) return <svg width={w} height={h} />;
   const lo = Math.min(...values);
   const hi = Math.max(...values) || 1;
   const span = hi - lo || 1;
   const d = values.map((v, i) => `${i ? "L" : "M"} ${(i / (values.length - 1)) * w} ${h - ((v - lo) / span) * h}`).join(" ");
-  const isUp = up ?? values[values.length - 1] >= values[0];
   return (
     <svg width={w} height={h}>
-      <path d={d} fill="none" stroke={isUp ? "var(--color-up)" : "var(--color-down)"} strokeWidth="1.5" />
+      <path d={d} fill="none" stroke="var(--color-brand)" strokeWidth="1.5" />
     </svg>
   );
 }

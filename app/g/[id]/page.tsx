@@ -804,7 +804,7 @@ function MessageRow({
           onTouchEnd={stopPress}
           onTouchMove={stopPress}
           onTouchCancel={stopPress}
-          className={`max-w-[78%] rounded-2xl [-webkit-touch-callout:none] lg:max-w-[430px] ${a?.kind === "image" ? "p-1" : "px-3.5 py-1.5"} ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-[#2b6cff] text-white" : "bg-raised"} ${m.pending === "sending" && media ? "opacity-80" : ""}`}>
+          className={`max-w-[78%] rounded-2xl [-webkit-touch-callout:none] lg:max-w-[430px] ${a?.kind === "image" ? "p-1" : "px-3.5 py-1.5"} ${corner} ${!first ? (mine ? "rounded-tr-md" : "rounded-tl-md") : ""} ${mine ? "bg-mine text-white" : "bg-raised"} ${m.pending === "sending" && media ? "opacity-80" : ""}`}>
           {first && !mine && who && <div className={`text-[13px] font-semibold ${a?.kind === "image" ? "px-2.5 pb-1 pt-0.5" : ""}`} style={{ color: who.color }}>{who.display_name}</div>}
           {a?.kind === "image" ? (
             <ChatImage m={m} a={a} groupKey={groupKey} onOpen={() => onOpen(m)}>{!m.text && meta}</ChatImage>

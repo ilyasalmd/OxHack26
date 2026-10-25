@@ -5,7 +5,7 @@ import { use, useCallback, useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
 import { PriceChart } from "@/components/chart";
-import { CandleChart } from "@/components/candles";
+import { CandleChart, simulateCandles } from "@/components/candles";
 import { BetSlip, odds } from "@/components/bet-slip";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, ago, fmt, pct, timeLeft } from "@/components/ui";
 import { TimeMachine } from "@/components/timemachine";
@@ -112,8 +112,11 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   // Live app clock (real time + demo offset), so a brand-new market still draws a line.
   const now = Date.now() + me.clock.offsetMs;
   const points = d.ticks.map((t) => ({ t: Date.parse(t.ts), v: t.price }));
-  const candles = d.candles.map((k) => ({ t: Date.parse(k.bucket), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume }));
+  const realCandles = d.candles.map((k) => ({ t: Date.parse(k.bucket), o: k.open, h: k.high, l: k.low, c: k.close, v: k.volume }));
   const chartNow = resolved || voided ? Math.max(...points.map((p) => p.t)) : now;
+  // A stock that has hardly traded still gets a candle chart: its closes follow the real ticks, the wiggle is drawn.
+  const illustrative = isStock && realCandles.length < 2 && points.length > 0;
+  const candles = illustrative ? simulateCandles(points, chartNow, id) : realCandles;
   const useCandles = isStock && candles.length >= 2 && chartMode === "candles";
 
   async function doTrade(action: "buy" | "sell", s: "yes" | "no", amt: number) {
@@ -314,10 +317,11 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                   {k === "candles" ? "Candles" : "Line"}
                 </button>
               ))}
+              {illustrative && chartMode === "candles" && <span className="ml-auto self-center text-[11px] text-mute" title="Too few trades for real hourly candles yet. The closes follow the actual price; the movement inside each bar is drawn.">Illustrative until it trades</span>}
             </div>
           )}
           {useCandles ? (
-            <CandleChart candles={candles} now={chartNow} format={show} onHover={(k) => setHover(k ? { t: k.t, v: k.c } : null)} height={wide ? 300 : 180} />
+            <CandleChart candles={candles} now={chartNow} format={show} onHover={(k) => setHover(k ? { t: k.t, v: k.c } : null)} height={wide ? 300 : 180} note={illustrative ? "Illustrative" : undefined} />
           ) : (
             <PriceChart points={points} now={chartNow} format={show} onHover={setHover} height={wide ? 300 : 180} />
           )}
@@ -398,15 +402,15 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         )}
         {!resolved && !voided && d.me.canTrade && !m.closed && (
           <div className="mt-5 grid grid-cols-2 gap-2 lg:hidden">
-            <button onClick={() => { setSide("yes"); setSlipOpen(true); }} className="rounded-2xl bg-up px-4 py-3 text-left text-black transition active:scale-[.98]">
+            <button onClick={() => { setSide("yes"); setSlipOpen(true); }} className="rounded-2xl bg-brand px-4 py-3 text-left text-black transition active:scale-[.98]">
               <div className="text-sm font-semibold">{lbl.yes}</div>
               <div className="text-2xl font-semibold tracking-tight tabular">{isStock && !isNumber ? show(m.price) : formatOdds(m.price, oddsFmt)}</div>
               {!(isStock && !isNumber) && <div className="text-[11px] text-black/60">{pct(m.price)} chance</div>}
             </button>
-            <button onClick={() => { setSide("no"); setSlipOpen(true); }} disabled={!d.me.canShort} className="rounded-2xl bg-down px-4 py-3 text-left text-white transition active:scale-[.98] disabled:opacity-40">
+            <button onClick={() => { setSide("no"); setSlipOpen(true); }} disabled={!d.me.canShort} className="rounded-2xl bg-raised px-4 py-3 text-left text-down ring-1 ring-inset ring-down/25 transition active:scale-[.98] disabled:opacity-40">
               <div className="text-sm font-semibold">{lbl.no}</div>
               <div className="text-2xl font-semibold tracking-tight tabular">{isStock && !isNumber ? show(1 - m.price) : formatOdds(1 - m.price, oddsFmt)}</div>
-              {!(isStock && !isNumber) && <div className="text-[11px] text-white/60">{pct(1 - m.price)} chance</div>}
+              {!(isStock && !isNumber) && <div className="text-[11px] text-mute">{pct(1 - m.price)} chance</div>}
             </button>
           </div>
         )}
