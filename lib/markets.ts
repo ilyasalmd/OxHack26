@@ -14,7 +14,7 @@ import { evidenceFor, type Similar } from "./memory";
 import { profileForPrompt, type ProfileAnswers } from "./profile-questions";
 import { openingMaths, profileCommitment, saveRecord, sha256, traceFields } from "./pricing-record";
 import type { Trace } from "./ai";
-import { applyShares, bookAt, buyQuote, cashOutQuote, hazardDecay, houseWorstLoss, marginFor, priceYes, recenter, type Book, type Side } from "./lmsr";
+import { applyShares, bookAt, buyQuote, cashOutValue, hazardDecay, houseWorstLoss, marginFor, priceYes, recenter, type Book, type Side } from "./lmsr";
 import { closeVault, credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import { MAX_SNIPPETS, type Snippet } from "./chat-context";
@@ -68,9 +68,14 @@ export type MarketRow = {
   matured_notified_at: Date | null;
   volume: number;
   chat_context: { shared: number; used: (Snippet & { why: string })[] } | null;
+  /** The book as real trades alone left it (null: same as q_yes/q_no). See schema-93-trade-book.sql. */
+  t_yes: number | null;
+  t_no: number | null;
 };
 
 export const book = (m: MarketRow): Book => ({ b: m.b, qYes: m.q_yes, qNo: m.q_no });
+/** The book only real trades have moved: what cash-outs are capped by (decay and AI re-marks never touch it). */
+export const tradeBook = (m: Pick<MarketRow, "b" | "q_yes" | "q_no" | "t_yes" | "t_no">): Book => ({ b: m.b, qYes: m.t_yes ?? m.q_yes, qNo: m.t_no ?? m.q_no });
 export const price = (m: MarketRow) => (m.status === "resolved" ? (m.outcome ? 1 : 0) : priceYes(book(m)));
 /** Trading stops at the resolve date, when a result is proposed, and for good once settled or voided. */
 export const isClosed = (m: MarketRow) => m.status !== "open" || m.proposed_outcome != null || new Date(m.resolves_at) <= now();
@@ -262,6 +267,12 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       if (m.kind === "bet") throw new HttpError(400, "You can't bet on a stake about yourself");
       if (input.side === "no" && input.action === "buy") throw new HttpError(400, "You can only go long on yourself. Invest in yourself!");
     }
+    // Whoever posted it chose the question, so they may know the answer before the AI's price does.
+    // They can join in once a friend has traded it, which also means a friend is on the other end.
+    if (m.creator_id === user.id && input.action === "buy") {
+      const [other] = await q.query(`SELECT 1 FROM trades WHERE market_id = $1 AND user_id <> $2 LIMIT 1`, [marketId, user.id]);
+      if (!other) throw new HttpError(400, "You posted this one, so let a friend trade it first. You can join in after.");
+    }
     // A bet is a bet: once placed it rides to the result. Stocks can be traded until maturity.
     if (m.kind === "bet" && input.action === "sell") throw new HttpError(400, "A bet is locked once placed. It pays out when the result is in.");
     if (m.kind === "bet") {
@@ -305,14 +316,17 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       shares = Math.min(input.amount, held);
       if (!(shares > 1e-6)) throw new HttpError(400, "No shares to sell");
       // Cashing out pays the bookmaker's buy-back price less its margin.
-      coins = Math.floor(cashOutQuote(bk, input.side, shares, vig) * 100) / 100;
+      // Capped by the trade book, so a price move made by decay or the AI can't be cashed out.
+      coins = Math.floor(cashOutValue(bk, tradeBook(m), input.side, shares, vig) * 100) / 100;
       // Without this, tiny sells that return almost nothing still pay the fee and push you under the floor.
       if (fee > 0 && u.balance + coins - fee < ECONOMY.balanceFloor - 1e-9) throw new HttpError(400, `That sale doesn't cover the ${fee} fee without taking you under the ${ECONOMY.balanceFloor} safety floor`);
       bk = applyShares(bk, input.side, -shares);
     }
     const after = priceYes(bk);
     const ts = now();
-    await q.query(`UPDATE markets SET q_yes = $2, q_no = $3, volume = volume + $4 WHERE id = $1`, [marketId, bk.qYes, bk.qNo, coins]);
+    // Real trades move both books by the same shares.
+    const tb = applyShares(tradeBook(m), input.side, input.action === "buy" ? shares : -shares);
+    await q.query(`UPDATE markets SET q_yes = $2, q_no = $3, t_yes = $5, t_no = $6, volume = volume + $4 WHERE id = $1`, [marketId, bk.qYes, bk.qNo, coins, tb.qYes, tb.qNo]);
     const sign = input.action === "buy" ? 1 : -1;
     await q.query(
       `INSERT INTO positions (market_id, user_id, yes_shares, no_shares, spent) VALUES ($1,$2,$3,$4,$5)
@@ -829,7 +843,8 @@ async function decayOne(q: Q, m: MarketRow, t: Date, force = false): Promise<Boo
   const p0 = priceYes(bk0);
   const p1 = Math.max(0.005, hazardDecay(p0, before, after));
   const bk = recenter(bk0, p1);
-  await q.query(`UPDATE markets SET q_yes = $2, last_decay_at = $3 WHERE id = $1`, [m.id, bk.qYes, t]);
+  // The trade book keeps where trades left it (filled in from the old quote the first time).
+  await q.query(`UPDATE markets SET t_yes = COALESCE(t_yes, q_yes), t_no = COALESCE(t_no, q_no), q_yes = $2, last_decay_at = $3 WHERE id = $1`, [m.id, bk.qYes, t]);
   if (Math.abs(p1 - p0) > 0.0005) await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'decay')`, [m.id, t, p1]);
   return bk;
 }
@@ -865,8 +880,11 @@ export type RemarkSnapshot = { stocks: (MarketRow & { subject_name: string | nul
  * What the AI gets to see: every open stock in the group, as it stands right now. The snapshot
  * remembers each stock's volume, which is how applyRemarks later tells whether anyone traded while
  * the AI was thinking.
+ *
+ * Moods and chat snippets come from the requester's browser and can't be checked, so for any stock
+ * the requester holds, they're dropped: nobody can feed the AI made-up signals about their own bet.
  */
-export async function snapshotForRemark(q: Q, groupId: number, moods: Record<string, number> | null, chat: Record<string, Snippet[]> | null): Promise<RemarkSnapshot> {
+export async function snapshotForRemark(q: Q, groupId: number, moods: Record<string, number> | null, chat: Record<string, Snippet[]> | null, requesterId: number | null = null): Promise<RemarkSnapshot> {
   const [grp] = await q.query<{ ai_context: string }>(`SELECT ai_context FROM groups WHERE id = $1`, [groupId]);
   const at = now();
   const stocks = await q.query<MarketRow & { subject_name: string | null }>(
@@ -874,6 +892,17 @@ export async function snapshotForRemark(q: Q, groupId: number, moods: Record<str
      WHERE m.group_id = $1 AND m.kind = 'stock' AND m.status = 'open' AND m.proposed_outcome IS NULL AND m.resolves_at > $2`,
     [groupId, at]
   );
+  const held = new Set(
+    requesterId == null
+      ? []
+      : (
+          await q.query<{ market_id: number }>(
+            `SELECT market_id FROM positions WHERE user_id = $1 AND market_id = ANY($2::int[]) AND (yes_shares > 1e-6 OR no_shares > 1e-6)`,
+            [requesterId, stocks.map((m) => m.id)]
+          )
+        ).map((r) => r.market_id)
+  );
+  const trusted = (m: MarketRow) => !held.has(m.id);
   return {
     at,
     stocks,
@@ -887,9 +916,9 @@ export async function snapshotForRemark(q: Q, groupId: number, moods: Record<str
         price: price(m),
         daysLeft: (new Date(m.resolves_at).getTime() - at.getTime()) / 86400000,
         subjectName: m.subject_name,
-        mood: m.subject_id && moods ? (moods[m.subject_id] ?? null) : null,
+        mood: m.subject_id && moods && trusted(m) ? (moods[m.subject_id] ?? null) : null,
         history: m.ai_rationale,
-        snippets: chat?.[m.id]?.slice(0, STOCK_SNIPPETS),
+        snippets: trusted(m) ? chat?.[m.id]?.slice(0, STOCK_SNIPPETS) : undefined,
       })),
     },
   };
@@ -930,7 +959,7 @@ export async function applyRemarks(groupId: number, snap: RemarkSnapshot, update
       // Decay owed since the snapshot lands first, then the AI's move is applied to the current book.
       const decayed = await decayOne(q, m, t, true);
       const bk = recenter(decayed, to);
-      await q.query(`UPDATE markets SET q_yes = $2 WHERE id = $1`, [m.id, bk.qYes]);
+      await q.query(`UPDATE markets SET t_yes = COALESCE(t_yes, q_yes), t_no = COALESCE(t_no, q_no), q_yes = $2 WHERE id = $1`, [m.id, bk.qYes]);
       await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'ai')`, [m.id, t, to]);
       return { ...base, applied: true };
     });
@@ -978,15 +1007,15 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
   // Nobody trades this chat's markets while the AI works out new quotes (the timeout covers a crash).
   await db.query(`UPDATE groups SET repricing_until = now() + interval '2 minutes' WHERE id = $1`, [groupId]);
   try {
-    return await remark(db, groupId, moods, chat);
+    return await remark(db, groupId, moods, chat, user.id);
   } finally {
     await db.query(`UPDATE groups SET repricing_until = NULL WHERE id = $1`, [groupId]);
   }
 }
 
-async function remark(db: Awaited<ReturnType<typeof getDb>>, groupId: number, moods: Record<string, number> | null, chat: Record<string, Snippet[]> | null) {
+async function remark(db: Awaited<ReturnType<typeof getDb>>, groupId: number, moods: Record<string, number> | null, chat: Record<string, Snippet[]> | null, requesterId: number) {
   await runDecay(db);
-  const snap = await snapshotForRemark(db, groupId, moods, chat);
+  const snap = await snapshotForRemark(db, groupId, moods, chat, requesterId);
   const trace: Trace = { provider: "none", model: "", prompt: "", raw: null, ms: 0 };
   // The slow part. No transaction is open and nothing is locked, so people keep trading meanwhile.
   const updates = await repriceStocks(snap.inputs, trace);

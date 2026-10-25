@@ -199,8 +199,9 @@ test("three friends, split bets: the winner calls it right after the deadline an
   // The case that used to deadlock: alice posted and backed YES, cara backed NO, it's about bob.
   const id = await open("Bob is late to Friday dinner", "bob");
   const alice0 = await balance(people.alice);
-  await mk.trade(people.alice, id, { side: "yes", action: "buy", amount: 30 });
+  // Cara trades first: whoever posted it (alice) joins in once a friend has.
   await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 30 });
+  await mk.trade(people.alice, id, { side: "yes", action: "buy", amount: 30 });
   await ageDeadline(id, 1);
   await mk.proposeResult(people.alice, id, true);
   const v = await mk.voteState(db, await mk.getMarket(db, id));
@@ -221,8 +222,8 @@ test("anyone can call it straight after the deadline, not just whoever posted it
 
 test("everyone backed the same side: calling it that way needs evidence, even after the deadline", async () => {
   const id = await open("Cara passes her driving test");
-  await mk.trade(people.alice, id, { side: "yes", action: "buy", amount: 20 });
   await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 20 });
+  await mk.trade(people.alice, id, { side: "yes", action: "buy", amount: 20 });
   await ageDeadline(id, 1);
   await rejects(mk.proposeResult(people.alice, id, true), /evidence/);
   await mk.proposeResult(people.alice, id, true, PROOF);
@@ -249,8 +250,8 @@ test("a claim nobody approves lapses when the window ends; one from the side it 
 
 test("in a bigger chat, one confirm from someone the result costs settles it without waiting for a majority", async () => {
   const { users: [a, b, , , ], id } = await chatOf(5);
-  await mk.trade(a, id, { side: "yes", action: "buy", amount: 20 });
   await mk.trade(b, id, { side: "no", action: "buy", amount: 20 });
+  await mk.trade(a, id, { side: "yes", action: "buy", amount: 20 });
   await mk.proposeResult(a, id, true, PROOF);
   assert.equal((await mk.voteState(db, await mk.getMarket(db, id))).needed, 3, "a majority of the four voters would be three");
   await mk.confirmResult(b, id);

@@ -20,8 +20,8 @@ export async function leaderboard(q: Q, groupId: number, viewerId: number) {
   );
   const skills = skillByUser(stakeScores(await groupCalls(q, groupId)));
   // P&L from this group's markets only (balances are one wallet across all your groups).
-  const pos = await q.query<{ user_id: number; yes_shares: number; no_shares: number; spent: number; status: string; outcome: boolean | null; b: number; q_yes: number; q_no: number }>(
-    `SELECT p.user_id, p.yes_shares, p.no_shares, p.spent, m.status, m.outcome, m.b, m.q_yes, m.q_no
+  const pos = await q.query<{ user_id: number; yes_shares: number; no_shares: number; spent: number; status: string; outcome: boolean | null; b: number; q_yes: number; q_no: number; t_yes: number | null; t_no: number | null }>(
+    `SELECT p.user_id, p.yes_shares, p.no_shares, p.spent, m.status, m.outcome, m.b, m.q_yes, m.q_no, m.t_yes, m.t_no
      FROM positions p JOIN markets m ON m.id = p.market_id WHERE m.group_id = $1 AND m.status <> 'void'`,
     [groupId]
   );
@@ -32,7 +32,7 @@ export async function leaderboard(q: Q, groupId: number, viewerId: number) {
       .reduce((s, p) => {
         // Settled: what it paid. Open: what cashing out would pay now.
         if (p.status === "resolved") return s + (p.outcome ? p.yes_shares : p.no_shares) - p.spent;
-        return s + holdingValue({ b: p.b, qYes: p.q_yes, qNo: p.q_no }, p, MARKET.vig) - p.spent;
+        return s + holdingValue({ b: p.b, qYes: p.q_yes, qNo: p.q_no }, p, MARKET.vig, { b: p.b, qYes: p.t_yes ?? p.q_yes, qNo: p.t_no ?? p.q_no }) - p.spent;
       }, 0);
     const nw = await netWorth(q, u.id);
     const sk = skills.get(u.id);
