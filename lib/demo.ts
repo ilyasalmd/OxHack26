@@ -85,7 +85,7 @@ export async function joinSampleGroups(userId: number, q?: Q) {
  * their profile keys for the new member; the server opens each one with the sample password
  * (as above) and wraps a copy, so the sample chats show faces rather than initials.
  */
-async function shareSamplePhotos(db: Q, userId: number, myPublicKey: string) {
+export async function shareSamplePhotos(db: Q, userId: number, myPublicKey: string) {
   const owners = await db.query<Member>(
     `SELECT DISTINCT u.id, u.username, u.key_salt, u.enc_private_key, u.public_key, pk.wrapped
        FROM group_members mine

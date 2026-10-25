@@ -318,6 +318,24 @@ def dog_beach():  # yasmin: her dog on the beach at sunset
     return img.filter(ImageFilter.GaussianBlur(0.6))
 
 
+def rooftop_dusk():  # nadia: Camden rooftops at dusk, string lights
+    rng = random.Random(17)
+    img = gradient([(0, (60, 40, 110)), (0.45, (220, 110, 120)), (0.6, (255, 170, 110)), (1, (40, 30, 50))])
+    img = glow(img, (S * 0.35, S * 0.58), S * 0.4, (255, 150, 100), 0.8)
+    img = ridge(img, int(S * 0.62), 26, (35, 25, 45), rng, roughness=2)
+    img = bokeh(img, rng, 90, [(255, 220, 150), (255, 200, 120), (255, 240, 200)], 3, 9, 1.2, (0.3, 0.75))
+    return img
+
+
+def snowy_peak():  # zayn: the Peak District in snow, clear sky
+    rng = random.Random(18)
+    img = gradient([(0, (70, 120, 200)), (0.5, (170, 205, 240)), (0.62, (245, 248, 252)), (1, (210, 220, 235))])
+    img = ridge(img, int(S * 0.5), 70, (235, 240, 250), rng, roughness=4)
+    img = ridge(img, int(S * 0.66), 30, (120, 140, 170), rng, roughness=2)
+    img = glow(img, (S * 0.78, S * 0.18), S * 0.3, (255, 250, 230), 0.6)
+    return img
+
+
 PICTURES = {
     "ilyas": golden_hour_sea,
     "jake": city_lights,
@@ -334,6 +352,8 @@ PICTURES = {
     "mum": tulips,
     "dad": lake_reflection,
     "yasmin": dog_beach,
+    "nadia": rooftop_dusk,
+    "zayn": snowy_peak,
 }
 
 if __name__ == "__main__":
