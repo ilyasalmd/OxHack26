@@ -13,6 +13,14 @@ export function TimeMachine({ onJump }: { onJump?: () => void }) {
   async function jump(hours: number) {
     setBusy(true);
     try {
+      // Deadlines really pass in the sample chats, so say what a jump forward will do first.
+      if (hours > 0) {
+        const p = await api<{ due: number; calledOff: number }>("/api/demo/advance", { body: { hours, preview: true } });
+        if (p.due > 0) {
+          const off = p.calledOff ? ` ${p.calledOff} of them will be called off and refunded if nobody reports a result.` : "";
+          if (!window.confirm(`This jump passes the deadline of ${p.due} live stake${p.due === 1 ? "" : "s"} in the sample chats.${off} Real chats aren't affected. Jump anyway?`)) return;
+        }
+      }
       await api("/api/demo/advance", { body: { hours } });
       await refresh();
       onJump?.();

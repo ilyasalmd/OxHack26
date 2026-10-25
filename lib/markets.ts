@@ -1,6 +1,12 @@
 import crypto from "node:crypto";
 import { getDb, type Q } from "./db";
 import { aheadOfRealTime, now } from "./clock";
+import { SAMPLE_GROUPS } from "./demo";
+
+// On the admin's demo clock, deadlines only move in the sample chats the admin is in. Real chats,
+// even ones the admin belongs to, stay on real time.
+const demoClockGroups = (userParam: string) =>
+  `group_id IN (SELECT gm.group_id FROM group_members gm JOIN groups gr ON gr.id = gm.group_id WHERE gm.user_id = ${userParam} AND ${SAMPLE_GROUPS})`;
 import { ECONOMY, MARKET } from "./config";
 import { sides } from "./labels";
 import { analyzeSituation, repriceStocks, summarizeOutcome, embed, type Analysis } from "./ai";
@@ -652,7 +658,7 @@ export async function finaliseProposals(q: Q) {
   const ahead = aheadOfRealTime();
   const due = await q.query<MarketRow>(
     `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NOT NULL AND GREATEST(proposed_at, resolves_at) <= $1
-       AND ($2::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $2)) ORDER BY proposed_at`,
+       AND ($2::int IS NULL OR ${demoClockGroups("$2")}) ORDER BY proposed_at`,
     [new Date(now().getTime() - SETTLE_WINDOW_MS), ahead?.userId ?? null]
   );
   for (const m of due) {
@@ -680,7 +686,7 @@ export async function announceMaturities(q: Q) {
   const t = now();
   const due = await q.query<MarketRow>(
     `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NULL AND matured_notified_at IS NULL AND resolves_at <= $1
-       AND ($2::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $2)) ORDER BY resolves_at`,
+       AND ($2::int IS NULL OR ${demoClockGroups("$2")}) ORDER BY resolves_at`,
     [t, ahead?.userId ?? null]
   );
   const days = MATURITY_FALLBACK_HOURS / 24;
@@ -711,7 +717,7 @@ export async function settleUnclaimed(q: Q) {
   const ahead = aheadOfRealTime();
   const due = await q.query<MarketRow>(
     `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NULL AND resolves_at <= $1
-       AND ($2::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $2)) ORDER BY resolves_at`,
+       AND ($2::int IS NULL OR ${demoClockGroups("$2")}) ORDER BY resolves_at`,
     [new Date(now().getTime() - MATURITY_FALLBACK_MS), ahead?.userId ?? null]
   );
   const days = MATURITY_FALLBACK_HOURS / 24;
@@ -802,7 +808,7 @@ export async function runDecay(q: Q) {
   const ahead = aheadOfRealTime();
   const rows = await q.query<{ id: number }>(
     `SELECT id FROM markets WHERE status = 'open' AND decay = 'hazard'
-       AND ($1::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $1))`,
+       AND ($1::int IS NULL OR ${demoClockGroups("$1")})`,
     [ahead?.userId ?? null]
   );
   const t = now();

@@ -285,6 +285,18 @@ async function chatOf(n: number) {
   return { users, id };
 }
 
+test("the demo clock only moves deadlines in sample chats, never a real chat the admin is in", async () => {
+  const { users: [admin, friend], id: real } = await chatOf(2);
+  const [g] = await db.query<{ id: number }>(`INSERT INTO groups (name, invite_code, created_by, created_at) VALUES ('sample', 'clock-test-demo', $1, now()) RETURNING id`, [admin.id]);
+  for (const u of [admin, friend]) await db.query(`INSERT INTO group_members (group_id, user_id, joined_at) VALUES ($1,$2,now())`, [g.id, u.id]);
+  const sample = await mk.createMarket(admin, g.id, { title: `Clock test ${made}`, resolvesAt: new Date(Date.now() + 2 * DAY).toISOString(), subjectUsername: null });
+  await clock.withClock(9 * DAY, admin.id, () => mk.runDecay(db));
+  const notified = async (id: number) => (await db.query<{ n: boolean }>(`SELECT matured_notified_at IS NOT NULL AS n FROM markets WHERE id = $1`, [id]))[0].n;
+  assert.equal(await notified(real), false, "the real chat's stake is untouched");
+  assert.equal(await status(real), "open");
+  assert.ok((await notified(sample)) || (await status(sample)) !== "open", "the sample chat's deadline passed on the demo clock");
+});
+
 test("votes needed: one voter decides alone, then two, then more than half", async () => {
   const { votesNeeded } = await import("../lib/safety");
   assert.deepEqual([0, 1, 2, 3, 4, 5, 6, 7].map(votesNeeded), [0, 1, 2, 2, 3, 3, 4, 4]);
