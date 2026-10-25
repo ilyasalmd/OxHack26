@@ -79,6 +79,12 @@ const BETS: Record<string, { past: Past[]; now: Now[] }> = {
 const who = async (q: Q, username: string) =>
   (await q.query<User>(`SELECT id, username, display_name, color, balance, public_key FROM users WHERE username = $1 AND deleted_at IS NULL`, [username]))[0];
 
+const skip = (title: string) => (e: unknown) => {
+  if ((e as { status?: number }).status !== 400) throw e;
+  console.log(`  "${title}": ${(e as Error).message}, skipped`);
+  return null;
+};
+
 async function main() {
   const db = await getDb();
   for (const [chat, { past, now }] of Object.entries(BETS)) {
@@ -113,9 +119,12 @@ async function main() {
     // Live and open: through the real code, so coins are set aside and the cards work.
     for (const [a, title, side, stake, theirs, days, taker, counter] of now) {
       const p = await who(db, a);
-      const { id } = await createFriendBet(p, g.id, { title, resolvesAt: new Date(Date.now() + days * DAY).toISOString(), side, stake, theirStake: theirs });
-      if (taker) await actOnFriendBet(await who(db, taker), id, { action: "take" });
-      if (counter) await actOnFriendBet(await who(db, counter[0]), id, { action: "counter", theirStake: counter[1] });
+      // A fresh copy's balances differ from the live app's, so a stake over someone's cap is skipped
+      // (or left open when only the taker is short) rather than stopping the rest.
+      const made = await createFriendBet(p, g.id, { title, resolvesAt: new Date(Date.now() + days * DAY).toISOString(), side, stake, theirStake: theirs }).catch(skip(title));
+      if (!made) continue;
+      if (taker) await actOnFriendBet(await who(db, taker), made.id, { action: "take" }).catch(skip(title));
+      if (counter) await actOnFriendBet(await who(db, counter[0]), made.id, { action: "counter", theirStake: counter[1] }).catch(skip(title));
     }
     console.log(`${chat}: ${past.length} settled, ${now.filter((n) => n[6]).length} live, ${now.filter((n) => !n[6]).length} open`);
   }

@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "setup": "tsx scripts/setup.ts",
     "seed": "tsx --env-file-if-exists=.env.local scripts/seed.ts",
     "ai:eval": "tsx --env-file-if-exists=.env.local scripts/ai-eval.ts",
     "solana:devnet": "tsx --env-file-if-exists=.env.local scripts/devnet-publish.ts",
