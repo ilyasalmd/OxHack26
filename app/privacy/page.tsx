@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import { H, LegalPage, UL } from "@/components/legal";
+import { AI_CHAT, STOCK_SNIPPETS } from "@/lib/ai-disclosure";
+import { MAX_LEN, MAX_SNIPPETS } from "@/lib/chat-context";
 
 export const metadata: Metadata = { title: "Privacy · FriendStakes" };
 
 export default function Privacy() {
   return (
     <LegalPage title="Privacy notice" updated="Draft of 24 October 2026">
-      <p>This explains what FriendStakes keeps, who else sees it, and what you can do about it. The short version: the words in your group chats are end-to-end encrypted, but the stakes you trade on are not, and some of what the game does is public on a blockchain.</p>
+      <p>This explains what FriendStakes keeps, who else sees it, and what you can do about it. The short version: the words in your group chats are end-to-end encrypted, but the stakes you trade on are not, the AI that prices them is always sent a few anonymised messages about each stake, and some of what the game does is public on a blockchain.</p>
 
       <H>Who is responsible</H>
       <p><span className="text-white">[Name of the person or company running FriendStakes]</span>. Contact: <span className="text-white">[contact email to be added]</span>.</p>
@@ -23,11 +25,20 @@ export default function Privacy() {
 
       <H>What is end-to-end encrypted</H>
       <p>The text of your chat messages is encrypted on your device with a key shared only among the group&apos;s members. The server stores the scrambled text, who sent it and when, and can&apos;t read it. Everything else listed above is not end-to-end encrypted. Leaving a group removes your access going forward; messages already on your device stay there.</p>
-      <p>Two things can move chat text off your device, both by your choice. If a group turns on &ldquo;AI reads relevant chat&rdquo;, members&apos; phones may send up to 20 matching messages per stake to the AI, with names swapped for roles and emails, numbers and links removed; everyone in the chat is told when it&apos;s switched on or off. And if you report a message you can tick &ldquo;include the message text&rdquo;; we keep a copy only if you do.</p>
+      <p>Two things move chat text off your device. The first is the AI reading relevant chat, described in the next section: it is always on, and you are told so before you create or join a chat. The second is by your choice: if you report a message you can tick &ldquo;include the message text&rdquo;, and we keep a copy only if you do.</p>
+
+      <H id="ai">{AI_CHAT.title}</H>
+      <p>{AI_CHAT.status}. {AI_CHAT.short}</p>
+      <UL>
+        {AI_CHAT.points.map((p) => (
+          <li key={p.head}><b className="text-white">{p.head}:</b> {p.body}</li>
+        ))}
+      </UL>
+      <p>In numbers: at most {MAX_SNIPPETS} messages per stake and {STOCK_SNIPPETS} per open stock each time stocks are re-marked, each cut to {MAX_LEN} characters. The messages that were used, with the AI&apos;s reason, are shown on the stake page to everyone in the chat. There is no setting to turn this off; if a chat should stay fully private, don&apos;t post stakes in it.</p>
 
       <H>The pricing AI</H>
       <p>The AI that prices stakes is Gemma, an open model that runs on the same machine as the app through Ollama. Nothing below is sent to an outside AI company.</p>
-      <p>To price a stake we send the AI its title and details, the first name or display name of the person it&apos;s about, the group&apos;s AI context, and short summaries of similar stakes that group has already settled. We also send titles to create a text embedding for finding similar past stakes, and a settled stake&apos;s title, outcome, trading summary and any note the settler wrote, so it can be summarised for the group&apos;s history. If the person it&apos;s about answered the optional &ldquo;About you&rdquo; questions, those answers go to the AI too. They are never shown to other members, and you can change or delete yours in Settings. Without the AI the app uses a built-in stats model.</p>
+      <p>To price a stake we send the AI its title and details, the first name or display name of the person it&apos;s about, the group&apos;s AI context, the anonymised chat messages described above, and short summaries of similar stakes that group has already settled. We also send titles to create a text embedding for finding similar past stakes, and a settled stake&apos;s title, outcome, trading summary and any note the settler wrote, so it can be summarised for the group&apos;s history. If the person it&apos;s about answered the optional &ldquo;About you&rdquo; questions, those answers go to the AI too. They are never shown to other members, and you can change or delete yours in Settings. Without the AI the app uses a built-in stats model.</p>
 
       <H>Voice recaps</H>
       <p>Recaps are read aloud by your own browser&apos;s speech, on your device. The text isn&apos;t sent to any voice service.</p>

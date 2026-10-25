@@ -11,7 +11,8 @@ import type { Trace } from "./ai";
 import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount, type Book, type Side } from "./lmsr";
 import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
-import type { Snippet } from "./chat-context";
+import { MAX_SNIPPETS, type Snippet } from "./chat-context";
+import { STOCK_SNIPPETS } from "./ai-disclosure";
 import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, topicProblem, votesNeeded } from "./safety";
 
 export type MarketRow = {
@@ -114,7 +115,7 @@ export type Preview = {
   similar: Pick<Similar, "id" | "title" | "outcome" | "summary" | "similarity" | "ai_prob" | "crowd_prob" | "created_at">[];
   subject: { id: number; display_name: string; username: string } | null;
   vector: number[] | null;
-  /** Exactly what this request sent to the AI from the chat (empty unless the group opted in). */
+  /** Exactly what this request sent to the AI from the chat, as picked and redacted on the poster's phone. */
   chatShared: Snippet[];
   /** Everything else the AI was given, for the pricing record. */
   inputs: { groupContext: string; mood: number | null; subjectRecord: string | null; profile: ReturnType<typeof profileCommitment> };
@@ -134,9 +135,9 @@ export async function previewSituation(groupId: number, input: SituationInput, c
   const hit = previewCache.get(key);
   if (hit && Date.now() - hit.at < 10 * 60_000) return hit.value;
 
-  const [grp] = await db.query<{ ai_context: string; ai_reads_chat: boolean }>(`SELECT ai_context, ai_reads_chat FROM groups WHERE id = $1`, [groupId]);
-  // Chat snippets are only ever forwarded when the whole group has opted in.
-  const chatShared = grp?.ai_reads_chat ? (input.chatSnippets ?? []).slice(0, 20) : [];
+  const [grp] = await db.query<{ ai_context: string }>(`SELECT ai_context FROM groups WHERE id = $1`, [groupId]);
+  // Chat reading is always on (lib/ai-disclosure.ts says so to users); the cap is enforced here too.
+  const chatShared = (input.chatSnippets ?? []).slice(0, MAX_SNIPPETS);
   const { history, similar, vector } = await evidenceFor(db, groupId, title, subject?.id ?? null);
   const [prof] = subject ? await db.query<{ answers: ProfileAnswers }>(`SELECT answers FROM profiles WHERE user_id = $1`, [subject.id]) : [];
   const subjectProfile = profileForPrompt(prof?.answers);
@@ -822,8 +823,7 @@ export type RemarkSnapshot = { stocks: (MarketRow & { subject_name: string | nul
  * the AI was thinking.
  */
 export async function snapshotForRemark(q: Q, groupId: number, moods: Record<string, number> | null, chat: Record<string, Snippet[]> | null): Promise<RemarkSnapshot> {
-  const [grp] = await q.query<{ ai_context: string; ai_reads_chat: boolean }>(`SELECT ai_context, ai_reads_chat FROM groups WHERE id = $1`, [groupId]);
-  if (!grp?.ai_reads_chat) chat = null;
+  const [grp] = await q.query<{ ai_context: string }>(`SELECT ai_context FROM groups WHERE id = $1`, [groupId]);
   const at = now();
   const stocks = await q.query<MarketRow & { subject_name: string | null }>(
     `SELECT m.*, u.display_name AS subject_name FROM markets m LEFT JOIN users u ON u.id = m.subject_id
@@ -845,7 +845,7 @@ export async function snapshotForRemark(q: Q, groupId: number, moods: Record<str
         subjectName: m.subject_name,
         mood: m.subject_id && moods ? (moods[m.subject_id] ?? null) : null,
         history: m.ai_rationale,
-        snippets: chat?.[m.id]?.slice(0, 8),
+        snippets: chat?.[m.id]?.slice(0, STOCK_SNIPPETS),
       })),
     },
   };
