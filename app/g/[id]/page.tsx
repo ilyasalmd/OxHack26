@@ -602,7 +602,6 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
               ) : (
                 <>
                   <span className="truncate">{dm ? `@${peer?.username ?? ""}` : `${feed.members.length} members`}</span>
-                  <span className="flex shrink-0 items-center gap-1"><Lock size={11} /> {dm ? "Private" : "Encrypted"}</span>
                 </>
               )}
             </div>

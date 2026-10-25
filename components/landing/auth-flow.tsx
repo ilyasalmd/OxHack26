@@ -97,7 +97,6 @@ export function PhoneAuth(p: AuthProps) {
           <button type="button" onClick={() => go("login")} className="flex h-14 w-full items-center justify-center rounded-full bg-white text-[17px] font-semibold text-black transition active:scale-[.98] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black">
             Log in
           </button>
-          <p className="pt-2 text-center text-[13px] text-black/55">Play money only.</p>
         </div>
       </div>
     );
@@ -158,7 +157,6 @@ export function DeskAuth(p: AuthProps) {
             )}
           </div>
         </div>
-        <p className="mt-6 text-xs text-black/50 [@media(max-height:820px)]:hidden">Play money only.</p>
       </div>
     </div>
   );
@@ -345,7 +343,8 @@ function PasswordStep({ username, password, setPassword, busy, err, submit }: Au
       <Hint tone={tone} id={hintId}>{hint}</Hint>
 
       <ErrorLine err={/username/i.test(err) ? "" : err} />
-      <label className="mt-6 flex items-start gap-3 text-left text-[13px] leading-relaxed text-black/60">
+      <p className="mt-6 text-left text-[13px] leading-relaxed text-black/60">Your chats are end-to-end encrypted: only the people in a chat can read it. Your password unlocks your keys, so keep it safe.</p>
+      <label className="mt-4 flex items-start gap-3 text-left text-[13px] leading-relaxed text-black/60">
         <input type="checkbox" required checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-black" />
         <span>
           I agree to the{" "}
