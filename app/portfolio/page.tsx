@@ -98,17 +98,17 @@ export default function Portfolio() {
         <div className="min-w-0">
           {hero}
           <div className="mt-6">{split}</div>
-          <InviteFriends className="mt-3 lg:hidden" />
           <div className="mt-3 lg:hidden"><SkillCard s={p.skill} /></div>
           <div className="lg:hidden"><Reads s={p.skill} /></div>
+          <InviteFriends className="mt-3 lg:hidden" />
           {inPlay}
           {activity}
           <div className="lg:hidden">{walletCard}</div>
         </div>
         <aside className="sticky top-20 hidden space-y-3 lg:block">
           <SkillCard s={p.skill} />
-          <InviteFriends />
           <Reads s={p.skill} />
+          <InviteFriends />
           {walletCard}
         </aside>
       </div>
@@ -376,12 +376,12 @@ function ChainCard({ wallet, chain, ticker, admin }: { wallet: NonNullable<P["wa
           <span className="flex-1" />
           {wallet.enabled && <span className="tabular"><span className="text-mute">on-chain </span>{wallet.onChain == null ? "–" : fmt(wallet.onChain)} <span className="text-mute">{ticker}</span></span>}
         </div>
-        {!wallet.enabled && <p className="mt-2 text-xs text-mute">Chain sync is off: set SOLANA_PAYER_SECRET and SOLANA_MINT to mirror every buy-in (burn) and payout (mint) on devnet.</p>}
+        {!wallet.enabled && <p className="mt-2 text-xs text-mute">Chain sync is off: set SOLANA_PAYER_SECRET and SOLANA_MINT to put every buy-in and payout on the chain.</p>}
         {chain.length > 0 && (
           <div className="mt-3 space-y-1.5">
             {chain.slice(0, 6).map((op) => (
               <div key={op.id} className="flex items-center gap-2 text-xs">
-                <Badge tone={op.kind === "mint" ? "up" : "down"}>{op.kind}</Badge>
+                <Badge tone={op.kind === "mint" || op.kind === "payout" ? "up" : "down"}>{op.kind}</Badge>
                 <span className="tabular">{fmt(op.amount)}</span>
                 <span className="flex-1" />
                 {op.url ? <a href={op.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-brand">confirmed <ArrowUpRight size={11} /></a> : <span className="text-mute" title={op.error ?? ""}>{op.status}</span>}
