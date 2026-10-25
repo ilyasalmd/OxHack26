@@ -16,7 +16,7 @@ export function BrandMark({ size = 96, className = "" }: { size?: number; classN
 
 export function Wordmark({ className = "", delay = 0.15 }: { className?: string; delay?: number }) {
   return (
-    <h1 className={`${s.rise} font-black lowercase leading-none tracking-[-0.055em] ${className}`} style={{ animationDelay: `${delay}s` }}>
+    <h1 className={`${s.rise} font-display font-extrabold lowercase leading-none tracking-[-0.06em] ${className}`} style={{ animationDelay: `${delay}s` }}>
       friendstakes
     </h1>
   );
