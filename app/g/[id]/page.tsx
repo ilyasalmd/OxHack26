@@ -12,7 +12,6 @@ import { GroupMark, pendingChatNames } from "@/components/shell";
 import { cacheFor, decryptWith, persistChat, prefetchChat, restoreChat, sortMsgs, warmChat, type ChatKey } from "@/components/chat/cache";
 import { Alert, Camera, Chart, Plus, Chat, Check, ChevronLeft, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
-import { AiChatBanner, AiChatNotice } from "@/components/ai-notice";
 import { NewSituation } from "@/components/new-situation";
 import { FriendBetCard, NewFriendBet, StakeChooser, type FriendBetLite } from "@/components/friend-bet";
 import { Board, Insights } from "@/components/group-stats";
@@ -490,7 +489,6 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                 <>
                   <span className="truncate">{dm ? `@${peer?.username ?? ""}` : `${feed.members.length} members`}</span>
                   <span className="flex shrink-0 items-center gap-1"><Lock size={11} /> {dm ? "Private" : "Encrypted"}</span>
-                  <span className="flex shrink-0 items-center gap-1" title="The AI reads relevant chat. Tap for exactly what it receives."><Sparkle size={11} /> <span className="lg:hidden">AI</span><span className="hidden lg:inline">AI reads chat</span></span>
                 </>
               )}
             </div>
@@ -544,7 +542,6 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           {identity && !feed.myKey && (
             <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> Waiting for a friend&apos;s app to share the chat key with you. Markets work in the meantime.</p>
           )}
-          <AiChatBanner groupId={id} />
           <div ref={wall} onScroll={onWallScroll} className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper, wallUrl === "error" ? null : wallUrl)}>
             <div className="mx-auto max-w-3xl px-3 py-3 lg:px-6 lg:py-5">
               {hidden > 0 && (
@@ -1345,11 +1342,10 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
         </div>
         <div>
           <div className="mb-1 text-sm font-semibold">AI context</div>
-          <p className="mb-2 text-xs text-mute">Shared with the AI to price stakes: term dates, exam weeks, fixtures, deadlines. Relevant chat messages are shared too, as described below.</p>
+          <p className="mb-2 text-xs text-mute">Shared with the AI to price stakes: term dates, exam weeks, fixtures, deadlines. Relevant chat messages are shared too, as set out in the <Link href="/terms#ai" className="text-brand hover:underline">Terms</Link>.</p>
           <textarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={4} placeholder="e.g. Autumn term ends 12 Dec. Exams 5–16 Jan. Results out 1 Jul." className="w-full rounded-xl border border-line bg-ink p-3 outline-none" />
           <Button variant="ghost" className="mt-2 w-full" onClick={saveCtx}>Save context</Button>
         </div>
-        <AiChatNotice />
         <div>
           <div className="mb-2 text-sm font-semibold">Members</div>
           {feed.members.map((m) => (

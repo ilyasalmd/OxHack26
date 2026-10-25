@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session";
@@ -13,7 +14,6 @@ import { forgetIdentities } from "@/lib/e2ee";
 import { ODDS_FORMATS, useOddsFormat } from "@/lib/odds";
 import { ACCENTS, useAccent } from "@/lib/theme";
 import { PROFILE_MAX, PROFILE_QUESTIONS } from "@/lib/profile-questions";
-import { AiChatNotice } from "@/components/ai-notice";
 
 type Account = { username: string; displayName: string; color: string; createdAt: string; hasRecovery: boolean; usernameChangedAt: string | null; nextUsernameChangeAt: string | null };
 type Session = { id: string; device: string; place: string; createdAt: string; lastSeenAt: string; current: boolean };
@@ -193,7 +193,7 @@ function Laptop({ account, sessions, changed, loadSessions, open }: PageProps) {
         </Section>
 
         <Section id="privacy" title="Privacy" description="Who can post stakes about you, and what the AI gets from your chats.">
-          <AiChatNotice className="mb-3" />
+          <p className="mb-3 text-sm text-mute">The AI that prices stakes reads a few relevant, anonymised chat messages. You agreed to this when you signed up. <Link href="/terms#ai" className="text-brand hover:underline">What it reads and what is kept</Link></p>
           <SafetySettings />
         </Section>
 
@@ -599,7 +599,7 @@ function Phone({ account, sessions, open }: PageProps) {
       </Group>
       <section>
         <h2 className="px-1 pb-2 text-xs font-medium uppercase tracking-wider text-mute">Privacy</h2>
-        <AiChatNotice className="mb-3" />
+        <p className="mb-3 px-1 text-sm text-mute">The AI that prices stakes reads a few relevant, anonymised chat messages. You agreed to this when you signed up. <Link href="/terms#ai" className="text-brand hover:underline">What it reads and what is kept</Link></p>
         <SafetySettings />
       </section>
       <section>

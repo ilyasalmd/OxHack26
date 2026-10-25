@@ -304,6 +304,7 @@ function PasswordStep({ username, password, setPassword, busy, err, submit }: Au
   const id = useId();
   const hintId = useId();
   const [show, setShow] = useState(false);
+  const [agreed, setAgreed] = useState(false);
   const pw = password;
   const common = COMMON.has(pw.toLowerCase()) || pw.toLowerCase() === clean(username);
   const mixed = /[a-z]/i.test(pw) && /[^a-z]/i.test(pw);
@@ -344,12 +345,16 @@ function PasswordStep({ username, password, setPassword, busy, err, submit }: Au
       <Hint tone={tone} id={hintId}>{hint}</Hint>
 
       <ErrorLine err={/username/i.test(err) ? "" : err} />
-      <button className={`${primary} mt-6`} disabled={busy || pw.length < 4}>{busy ? "Setting up your keys…" : "Create account"}</button>
-      <p className="mt-4 text-center text-xs leading-relaxed text-black/45">
-        By creating an account you agree to our{" "}
-        <Link href="/terms" target="_blank" className="font-semibold text-black/70 underline-offset-2 hover:underline">Terms</Link> and{" "}
-        <Link href="/privacy" target="_blank" className="font-semibold text-black/70 underline-offset-2 hover:underline">Privacy notice</Link>.
-      </p>
+      <label className="mt-6 flex items-start gap-3 text-left text-[13px] leading-relaxed text-black/60">
+        <input type="checkbox" required checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 h-5 w-5 shrink-0 accent-black" />
+        <span>
+          I agree to the{" "}
+          <Link href="/terms" target="_blank" className="font-semibold text-black/80 underline-offset-2 hover:underline">Terms</Link> and{" "}
+          <Link href="/privacy" target="_blank" className="font-semibold text-black/80 underline-offset-2 hover:underline">Privacy notice</Link>, including that{" "}
+          <Link href="/terms#ai" target="_blank" className="font-semibold text-black/80 underline-offset-2 hover:underline">the AI reads relevant chat</Link> to price stakes.
+        </span>
+      </label>
+      <button className={`${primary} mt-5`} disabled={busy || pw.length < 4 || !agreed}>{busy ? "Setting up your keys…" : "Create account"}</button>
     </form>
   );
 }

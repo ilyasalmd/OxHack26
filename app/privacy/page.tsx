@@ -25,7 +25,7 @@ export default function Privacy() {
 
       <H>What is end-to-end encrypted</H>
       <p>The text of your chat messages is encrypted on your device with a key shared only among the group&apos;s members. The server stores the scrambled text, who sent it and when, and can&apos;t read it. Everything else listed above is not end-to-end encrypted. Leaving a group removes your access going forward; messages already on your device stay there.</p>
-      <p>Two things move chat text off your device. The first is the AI reading relevant chat, described in the next section: it is always on, and you are told so before you create or join a chat. The second is by your choice: if you report a message you can tick &ldquo;include the message text&rdquo;, and we keep a copy only if you do.</p>
+      <p>Two things move chat text off your device. The first is the AI reading relevant chat, described in the next section: it is always on, and you agree to it in the Terms when you sign up. The second is by your choice: if you report a message you can tick &ldquo;include the message text&rdquo;, and we keep a copy only if you do.</p>
 
       <H id="ai">{AI_CHAT.title}</H>
       <p>{AI_CHAT.status}. {AI_CHAT.short}</p>
