@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import { Avatar, Button, fmt, pct } from "./ui";
+import { Avatar, Button, fmt } from "./ui";
 import { Book } from "./icons";
+import { HowSkillWorks } from "./skill-sheet";
 import { STOCK_SNIPPETS } from "@/lib/ai-disclosure";
 
 type Data = {
-  leaderboard: { id: number; username: string; display_name: string; color: string; balance: number; netWorth: number; groupPnl: number; resolvedTrades: number; hitRate: number | null; brier: number | null; skill: number | null }[];
+  leaderboard: { id: number; username: string; display_name: string; color: string; balance: number; netWorth: number; groupPnl: number; skill: number | null; stakes: number; early: boolean; tier: string | null; quiet: boolean; weeksSinceCall: number | null }[];
   insights: {
     n: number;
     brier: { ai: number | null; crowd: number | null; opening: number | null; baseline: number | null };
@@ -28,29 +29,51 @@ function useInsights(groupId: number) {
   return { d, load };
 }
 
+/** Skill in points, signed: +11, −6. */
+export const skillPts = (v: number) => `${v >= 0.5 ? "+" : v <= -0.5 ? "−" : ""}${Math.abs(Math.round(v))}`;
+
+const quietFor = (weeks: number | null) => (weeks == null ? "quiet" : weeks >= 9 ? `quiet for ${Math.floor(weeks / 4.3)} months` : `quiet for ${Math.max(4, weeks)} weeks`);
+
+/** One board per group, ranked by forecasting skill alone. Coins show on each row but never decide the order. */
 export function Board({ groupId, ticker, meId }: { groupId: number; ticker: string; meId: number }) {
   const { d } = useInsights(groupId);
   if (!d) return <p className="p-10 text-center text-mute">Loading…</p>;
+  const ranked = d.leaderboard.filter((u) => u.skill != null);
+  const waiting = d.leaderboard.filter((u) => u.skill == null);
+  const row = (u: Data["leaderboard"][number], rank: number | null) => (
+    <div key={u.id} className={`mb-2 flex items-center gap-3 rounded-xl border p-3 ${u.id === meId ? "border-white/15 bg-white/[.06]" : "border-line bg-panel"} ${u.quiet ? "opacity-55" : ""}`}>
+      <div className={`w-6 text-center text-sm font-semibold tabular ${rank === 1 ? "text-brand" : "text-mute"}`}>{rank ?? ""}</div>
+      <Avatar id={u.id} name={u.display_name} color={u.color} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5">
+          <span className="truncate font-semibold">{u.display_name}{u.id === meId ? " (you)" : ""}</span>
+          {u.skill != null && u.early && <span className="rounded-full bg-brand/15 px-1.5 py-px text-[10px] font-semibold text-brand">early</span>}
+        </div>
+        <div className="truncate text-xs text-mute">
+          {u.skill == null ? "No settled stakes yet" : u.quiet ? `${u.tier} · ${quietFor(u.weeksSinceCall)}` : `${u.tier} · ${u.stakes} ${u.stakes === 1 ? "stake" : "stakes"}`}
+        </div>
+      </div>
+      <div className="text-right">
+        {u.skill != null && <div className="font-bold tabular">{skillPts(u.skill)}</div>}
+        <div className="text-xs tabular text-mute">{fmt(u.netWorth, 0)} {ticker}</div>
+      </div>
+    </div>
+  );
   return (
     <div className="p-3">
-      {d.leaderboard.map((u, i) => (
-        <div key={u.id} className={`mb-2 flex items-center gap-3 rounded-xl border p-3 ${u.id === meId ? "border-white/15 bg-white/[.06]" : "border-line bg-panel"}`}>
-          <div className={`w-6 text-center text-sm font-semibold tabular ${i === 0 ? "text-brand" : "text-mute"}`}>{i + 1}</div>
-          <Avatar name={u.display_name} color={u.color} />
-          <div className="min-w-0 flex-1">
-            <div className="truncate font-semibold">{u.display_name}</div>
-            <div className="text-xs text-mute">
-              {u.skill == null ? "no settled trades" : `skill ${u.skill >= 0 ? "+" : ""}${(u.skill * 100).toFixed(0)} · hit ${pct(u.hitRate ?? 0)} · ${u.resolvedTrades} trades`}
-            </div>
-          </div>
-          <div className="text-right">
-            <div className="font-bold tabular">{fmt(u.netWorth, 0)} <span className="text-xs font-normal text-mute">{ticker}</span></div>
-            <div className={`text-xs tabular ${u.groupPnl >= 0 ? "text-up" : "text-down"}`}>{u.groupPnl >= 0 ? "+" : "−"}{fmt(Math.abs(u.groupPnl), 0)} here</div>
-          </div>
-        </div>
-      ))}
+      <div className="mb-2 flex items-center justify-between px-1 text-xs">
+        <HowSkillWorks />
+        <span className="text-mute">skill · coins</span>
+      </div>
+      {ranked.map((u, i) => row(u, i + 1))}
+      {waiting.length > 0 && (
+        <>
+          <div className="mx-1 mb-2 mt-4 border-t border-dashed border-line pt-3 text-xs font-semibold text-mute">No settled stakes yet</div>
+          {waiting.map((u) => row(u, null))}
+        </>
+      )}
       <p className="px-2 pt-2 text-xs text-mute">
-        Ranked by net worth (cash + open positions at market price, one wallet across all your groups). Green/red is profit or loss from this group's stakes only. Skill is a Brier skill score: +100 is perfect foresight, 0 is no better than saying 50% every time.
+        Ranked by skill in this chat&apos;s settled stakes: 0 is as good as the market, and early means fewer than five. Coins are your whole wallet across every chat, shown for interest; they don&apos;t affect the order.
       </p>
     </div>
   );

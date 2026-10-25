@@ -32,7 +32,7 @@ const T0 = Date.now();
 const START = T0 - DAYS * DAY;
 const at = (t: number) => (g.__fsScriptOffset = t - Date.now());
 // Aim for this many settled bets in total, however often the content says things come up.
-const TARGET_SETTLED = 120;
+const TARGET_SETTLED = 200;
 
 let seed = 2026;
 const rnd = () => {
@@ -192,7 +192,8 @@ async function main() {
             subjectUsername: tpl.subject,
           });
         });
-        const traders = shuffle(c.spec.members.filter((m) => m !== tpl.subject)).slice(0, 2 + Math.floor(rnd() * 3));
+        // Three to five friends trade each one, so most stakes count towards skill (it needs three traders).
+        const traders = shuffle(c.spec.members.filter((m) => m !== tpl.subject)).slice(0, 3 + Math.floor(rnd() * 3));
         traders.forEach((who, i) => add(open + ((i + 1) / (traders.length + 1)) * tpl.hours * HOUR * 0.85, () => (holder.id ? act(who, holder.id, tpl.p) : Promise.resolve())));
         const outcome = rnd() < tpl.p;
         add(close + HOUR, async () => {
