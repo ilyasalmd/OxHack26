@@ -113,16 +113,3 @@ export function PriceChart({
     </div>
   );
 }
-
-export function Sparkline({ values, w = 64, h = 24 }: { values: number[]; up?: boolean; w?: number; h?: number }) {
-  if (values.length < 2) return <svg width={w} height={h} />;
-  const lo = Math.min(...values);
-  const hi = Math.max(...values) || 1;
-  const span = hi - lo || 1;
-  const d = values.map((v, i) => `${i ? "L" : "M"} ${(i / (values.length - 1)) * w} ${h - ((v - lo) / span) * h}`).join(" ");
-  return (
-    <svg width={w} height={h}>
-      <path d={d} fill="none" stroke="var(--color-brand)" strokeWidth="1.5" />
-    </svg>
-  );
-}
