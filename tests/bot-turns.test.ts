@@ -148,5 +148,30 @@ test("without the AI, replies still fit the message and the person", () => {
   assert.match(cannedReply("dad", "im good how r u", { rand: r }), /\?|fine|good/);
   assert.match(cannedReply("mum", "love you mum", { rand: r }), /love you/);
   assert.notEqual(cannedReply("jake", "hey", { rand: r, avoid: ["yo"] }), "yo");
-  assert.ok(["100%", "lol", "facts", "true", "fr", "haha", "same"].includes(quickReaction("jake")));
+  assert.ok(["100%", "lol", "facts", "true", "fr", "haha", "same"].includes(quickReaction("jake", "that film was class")));
+});
+
+test("keyboard mash gets a confused reply, a greeting gets a greeting, never a stray filler word", () => {
+  assert.equal(intentOf("heiwfhrifhegrherhriefjwifej"), "gibberish");
+  assert.equal(intentOf("asdfghjkl"), "gibberish");
+  assert.equal(intentOf("congratulations"), "statement");
+  assert.equal(intentOf("straightforward"), "statement");
+  assert.equal(intentOf("hahahaha"), "laugh");
+  for (let k = 0; k < 50; k++) {
+    const mash = cannedReply("zara", "heiwfhrifhegrherhriefjwifej");
+    assert.match(mash, /\?|what/);
+    const hi = cannedReply("zara", "hello");
+    assert.match(hi, /hey|hello|yo/);
+    for (const t of ["hello", "heiwfhrifhegr", "is it raining?", "what time is it", "lunch was nice"]) {
+      assert.ok(!["fair", "alright", "classic", "ok"].includes(cannedReply("zara", t)), t);
+    }
+  }
+});
+
+test("a quick reaction only when one fits, and no line is repeated from the chat", () => {
+  assert.ok(["lol", "lmao", "haha"].includes(quickReaction("jake", "lmaooo")));
+  // "hello" doesn't get "100%": the chip-in says hello too.
+  assert.match(quickReaction("jake", "hello"), /hey|hello|yo/);
+  const avoid = ["hey!", "heyy what's up", "hello hello"];
+  for (let k = 0; k < 30; k++) assert.equal(cannedReply("jake", "hi", { avoid }), "yo, what's going on");
 });
