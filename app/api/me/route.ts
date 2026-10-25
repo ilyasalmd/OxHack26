@@ -6,10 +6,13 @@ import { CURRENCY, DEMO_MODE, ECONOMY, AI, isAdminUsername } from "@/lib/config"
 import { solanaConfig } from "@/lib/solana";
 import { ensureWorker } from "@/lib/worker";
 import { AVATAR_COLS } from "@/lib/chat";
+import { settleReferralsAround } from "@/lib/referrals";
 
 export const GET = route(async (_req, user) => {
   ensureWorker();
   const db = await getDb();
+  // Invite rewards are paid lazily, like the weekly allowance, on whichever side shows up first.
+  await db.tx((q) => settleReferralsAround(q, user.id));
   // Your app has fetched the chat list, so the newest message in each chat counts as delivered.
   await db.query(
     `UPDATE group_members gm SET delivered_upto = x.top
