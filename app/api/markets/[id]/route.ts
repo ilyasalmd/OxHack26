@@ -2,7 +2,7 @@ import { firstSentence } from "@/lib/text";
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
-import { book, getMarket, isClosed, price, tradeBook, voteState } from "@/lib/markets";
+import { book, getMarket, isClosed, oddsDisputeBlock, price, tradeBook, voteState } from "@/lib/markets";
 import { askPrice, bidPrice, cashOutValue } from "@/lib/lmsr";
 import { maxStake } from "@/lib/economy";
 import { tradeFee, tradeMargin } from "@/lib/markets";
@@ -64,8 +64,9 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     : null;
   const people = await db.query<{ id: number; display_name: string; username: string; color: string }>(
     `SELECT id, display_name, username, color FROM users WHERE id = ANY($1::int[])`,
-    [[m.creator_id, m.subject_id, m.proposed_by].filter(Boolean)]
+    [[m.creator_id, m.subject_id, m.proposed_by, m.odds_disputed_by].filter(Boolean)]
   );
+  const oddsDisputer = people.find((p) => p.id === m.odds_disputed_by);
   const admin = isAdminUsername(user.username);
   const lockedSide: "yes" | "no" | null =
     m.kind === "bet" && position ? (position.yes_shares > 1e-6 ? "yes" : position.no_shares > 1e-6 ? "no" : null) : null;
@@ -88,7 +89,10 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   return {
     // Only the admin is told which stakes are seeded demo history.
     // Only the admin gets the AI's full reasoning and the past results it was priced from.
-    market: { ...m, sample: m.sample && isAdminUsername(user.username), price: price(m), closed, ai_rationale: admin ? m.ai_rationale : firstSentence(m.ai_rationale) },
+    // Everyone else gets the one-line summary, which never quotes the chat (older stakes: the first sentence).
+    market: { ...m, sample: m.sample && isAdminUsername(user.username), price: price(m), closed, ai_rationale: admin ? m.ai_rationale : m.ai_summary || firstSentence(m.ai_rationale) },
+    // The one odds dispute a stake allows: who asked and what the AI said when it looked again.
+    oddsDispute: m.odds_dispute ? { ...m.odds_dispute, by: oddsDisputer ?? null } : null,
     creator: people.find((p) => p.id === m.creator_id),
     subject: people.find((p) => p.id === m.subject_id) ?? null,
     // A result somebody has put forward and the group hasn't yet confirmed or disputed.
@@ -136,6 +140,8 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       myVote: vote?.confirms.includes(user.id) ? true : vote?.rejects.includes(user.id) ? false : null,
       canVeto: open && isSubject,
       canReport: m.creator_id !== user.id || isSubject,
+      // Null when this person may ask the AI to think again about the odds; otherwise why not.
+      oddsDisputeBlock: await oddsDisputeBlock(db, m, user.id),
       reported: !!mine,
       canResolveYes: true,
       // NO/Under can't be known before the deadline.

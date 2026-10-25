@@ -34,6 +34,8 @@ const STEPS: [script: string, why: string][] = [
   ["seed-bios", "bios"],
   ["seed-group-photos", "group pictures"],
   ["seed-newcomers", "Kofi, Hana, Theo, Ruby and Harrow Sixth Form"],
+  ["seed-context", "profiles, habits and linked history for the AI"],
+  ["reorder-sample-chats", "chat history in date order"],
   ["demo-join", "every real account in every sample chat"],
 ];
 // A step that stops because its work is already done says so in one of these ways.
