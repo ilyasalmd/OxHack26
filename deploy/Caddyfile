@@ -3,5 +3,9 @@
 	# The app trusts Cf-Connecting-Ip for rate limits; only Cloudflare may set it, so drop any a client sends.
 	reverse_proxy app:3000 {
 		header_up -Cf-Connecting-Ip
+		# While a deploy swaps the app container, hold requests until it answers instead of
+		# returning an empty 502, which a browser shows as a blank white page.
+		lb_try_duration 60s
+		lb_try_interval 250ms
 	}
 }

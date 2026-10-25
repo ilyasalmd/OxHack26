@@ -34,7 +34,14 @@ if [ "${1:-}" != "--force" ] && [ "$(cat .deployed 2>/dev/null)" = "$commit" ]; 
 fi
 
 echo "$(date -Is) deploying $branch: $(git log -1 --format='%h %s')"
-docker compose up -d --build --remove-orphans
+# The image is built while the old app keeps serving; Caddy holds requests during the swap.
+DEPLOY_COMMIT=$commit docker compose up -d --build --remove-orphans
+# Caddy reads its config once, and git checkout replaces the file, so restart it after a change.
+caddy_sum=$(sha1sum Caddyfile | cut -c1-40)
+if [ "$(cat .caddy-deployed 2>/dev/null)" != "$caddy_sum" ]; then
+  docker compose restart caddy
+  echo "$caddy_sum" > .caddy-deployed
+fi
 echo "$commit" > .deployed
 docker image prune -f >/dev/null
 # Demo accounts and sample chats: only adds what the database is missing, never wipes it.
