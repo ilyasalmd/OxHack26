@@ -10,7 +10,21 @@
 - **The group remembers:** every settled stake is summarised and stored. New questions pull up similar past outcomes (per person, per category) to set the opening odds and show friends the record.
 - **Private by design, with one disclosed exception:** chats are end-to-end encrypted in the browser. The server never reads message text. The AI gets only a few filtered, anonymised snippets picked on the phone when a stake is priced, and everyone agrees to that in the Terms when they sign up.
 
-**Trying the demo:** open **https://192.248.147.140.sslip.io** and sign in as `ilyas`, `jake` or any account in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md) (password `demo1234`), and what you can tell the AI is in [docs/AI_INPUTS.md](docs/AI_INPUTS.md).
+## For judges
+
+- **Live app:** **https://192.248.147.140.sslip.io**, always on and hosted on Vultr (every demo account is in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md); how it is hosted is in [docs/DEPLOY.md](docs/DEPLOY.md)).
+- **Log in** as `ilyas`, `aariz`, `durukan` or `barkin` with password `demo1234`. Two browsers let you chat between friends.
+- **Run it yourself** in three commands: `npm install`, `npm run setup`, `npm run dev` (details in [Run it](#run-it)). No keys or accounts needed.
+- **What to tell the AI** when you post a stake: [docs/AI_INPUTS.md](docs/AI_INPUTS.md).
+
+| Track | Where it is used |
+| --- | --- |
+| **HRT: Best use of data for predictions & decision making** | Each stake's opening odds come from the group's own settled history (similarity-weighted base rates, per person and category), then Gemma adjusts them from the evidence. An LMSR market maker turns that into live prices, stocks decay with time, and every pricing decision is recorded and scored (Brier skill vs the crowd and a coin flip). |
+| **Tiger Data** | The database: hypertables for price and net-worth series, an hourly candle continuous aggregate and compression policies (`lib/db.ts`, `lib/schema.sql`). |
+| **Solana** | The in-game coin is an SPL token with an on-chain vault per stake, sent exactly once through an outbox, with pricing-record hashes in memos (`lib/solana.ts`, `lib/outbox.ts`, the admin's Chain page). |
+| **Google Gemini API** | Gemma, Google's open model, prices stakes through Ollama locally or the Gemini API (`lib/ai.ts`). |
+| **Vultr** | One-command deploy of the app, TimescaleDB and HTTPS on a Vultr VM (`deploy/`). |
+
 
 ## Run it
 
@@ -51,7 +65,7 @@ Everything here is free; none of it needs a card.
   Privacy: the redacted snippets and stake text go to Google, so the Terms (section 7) and the privacy page switch to say so whenever a key is set. For a UK developer Google applies its paid-service data terms even on the free tier: it doesn't use the data to improve its products and keeps it for a limited time for abuse checks. The sample people's chat replies read unredacted messages, so they only use Ollama; with Google alone they answer with canned lines. Google's terms also expect a paid (billing-enabled) project for an app that's open to the public in the UK or EU, so the free key is for development and the hackathon demo.
 - **Gemma on a Vultr GPU (if the free tier is too tight):** rent a Vultr Cloud GPU, install Ollama, `ollama pull gemma4:12b`, and put it behind Caddy with HTTPS that only lets through requests carrying your bearer token (Ollama itself has no login, so never expose port 11434 directly). Then each teammate sets `OLLAMA_URL=https://your-gpu-host`, `OLLAMA_MODEL=gemma4:12b` and `OLLAMA_API_KEY=<the token>`, which the app sends as `Authorization: Bearer`. This keeps Google out of the loop and has no rate limit, but costs money by the hour.
 
-`npm test` runs the market-maths tests. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
+`npm test` runs the unit tests (market maths, settling rules, the Solana outbox against a fake chain, chat redaction, the hosted-Gemma client and more); `npm run typecheck` checks the types. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
 
 ### Deploy on Vultr
 
@@ -123,6 +137,9 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 app/            Next.js 16 pages (chats, group chat, market, portfolio) and API routes
 components/     UI, chart, session + key handling
 lib/            market engine, AI, memory, Solana, E2EE, DB
-scripts/        seed.ts, solana-setup.ts
-tests/          LMSR and max-trade tests
+scripts/        setup.ts (runs every seed step), seed*.ts, solana-setup.ts, devnet-publish.ts,
+                ai-eval.ts, vault-check.ts, avatars/ (painted sample photos)
+tests/          unit tests (node:test, run with npm test)
+deploy/         Vultr VM: Docker Compose, Caddy, setup and auto-update scripts
+docs/           demo logins and what you can tell the AI
 ```

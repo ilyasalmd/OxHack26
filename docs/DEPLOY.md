@@ -53,6 +53,7 @@ The server's settings are in `/opt/friendstakes/deploy/.env`. That file is not i
 | `DEMO_MODE` | Demo clock buttons for the admin |
 | `DEMO_DATA_FOR_ALL` | Every account gets the sample chats |
 | `SOLANA_CLUSTER`, `SOLANA_PAYER_SECRET`, `SOLANA_MINT`, `SOLANA_OP_RECEIPTS` | Optional on-chain coin (devnet). Empty here, so the Chain page is off |
-| `OLLAMA_URL`, `OLLAMA_MODEL` | Optional Gemma. The server has no GPU, so it prices with the statistical model from history |
+| `GEMMA_API_KEY` | Gemma hosted by Google (a free key from aistudio.google.com/apikey). Without it the server has no GPU for Gemma and prices with the statistical model from history |
+| `OLLAMA_URL`, `OLLAMA_MODEL` | Optional Gemma on an Ollama machine instead |
 
 New settings added to `deploy/env.example` are copied into `deploy/.env` with their defaults on the next deploy.
