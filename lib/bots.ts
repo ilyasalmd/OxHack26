@@ -11,7 +11,8 @@ import { priceYes } from "./lmsr";
 import { maxStake } from "./economy";
 import { PEOPLE } from "../scripts/seed-content";
 import { BOT_CONTEXT, pickTurns, type Turns } from "./bot-turns";
-import { cannedReply, quickReaction } from "./bot-lines";
+import { cannedReply, PERSONAS, quickReaction } from "./bot-lines";
+import { cutContacts } from "./chat-context";
 import type { User } from "./auth";
 
 /**
@@ -114,8 +115,8 @@ async function reply(groupId: number, senderId: number) {
   const bots = await chatBots(groupId, senderId);
   if (!bots.length) return;
   const db = await getDb();
-  const members = await db.query<{ id: number; username: string; display_name: string }>(
-    `SELECT u.id, u.username, u.display_name FROM group_members gm JOIN users u ON u.id = gm.user_id AND u.deleted_at IS NULL WHERE gm.group_id = $1`,
+  const members = await db.query<{ id: number; username: string; display_name: string; bio: string | null }>(
+    `SELECT u.id, u.username, u.display_name, u.bio FROM group_members gm JOIN users u ON u.id = gm.user_id AND u.deleted_at IS NULL WHERE gm.group_id = $1`,
     [groupId]
   );
   const recent = await recentChat(groupId, bots[0]);
@@ -135,16 +136,19 @@ async function reply(groupId: number, senderId: number) {
     if (i > 0) await sleep(2500 + Math.random() * 5000);
     // Read again, so whoever chips in sees the reply before theirs.
     const lines = i === 0 ? recent : await recentChat(groupId, b);
-    const mine = lines.filter((l) => l.userId === b.id).map((l) => l.text);
+    // Nobody repeats a line someone in the chat just used.
+    const used = lines.map((l) => l.text);
     setTyping(groupId, b.id, "text");
     let text: string;
     if (turns.quick.includes(b.id)) {
       // A quick "100%" or "lol" takes a second to type and needs no model.
-      text = quickReaction(b.username, { avoid: mine });
+      text = quickReaction(b.username, said, { avoid: used });
       await sleep(700 + Math.random() * 800);
     } else {
       const role = i === 0 ? turns.why : "chip-in";
-      text = (await writeReply({ b, chat: g?.name ?? "the chat", context: g?.ai_context ?? "", sender, lines, role })) || cannedReply(b.username, said, { avoid: mine });
+      const bio = members.find((m) => m.id === b.id)?.bio ?? "";
+      const written = await writeReply({ b, bio, chat: g?.name ?? "the chat", context: g?.ai_context ?? "", sender, said, lines, role });
+      text = written && !used.some((u) => u.toLowerCase() === written.toLowerCase()) ? written : cannedReply(b.username, said, { avoid: used });
       await sleep(800 + Math.random() * 1200);
     }
     await say(groupId, b, text).catch((e) => console.warn("[bots] chat", (e as Error).message));
@@ -152,29 +156,39 @@ async function reply(groupId: number, senderId: number) {
   }
 }
 
-/** One message from a sample person, written by the model from the recent chat; null if the model is off. */
-async function writeReply(a: { b: Bot; chat: string; context: string; sender: string; lines: Said[]; role: Turns["why"] | "chip-in" }) {
+/**
+ * One message from a sample person, written by Gemma from the recent chat in their voice; empty if
+ * no model answers. Ollama on this machine goes first; with GEMMA_API_KEY set, Google's hosted
+ * Gemma writes it otherwise, so contact details are cut first (Terms section 7 says so).
+ */
+async function writeReply(a: { b: Bot; bio: string; chat: string; context: string; sender: string; said: string; lines: Said[]; role: Turns["why"] | "chip-in" }) {
   const me = a.b.display_name;
   const person = BOTS.get(a.b.username)!;
   const task = {
-    named: `${a.sender} is talking to you. Answer what ${a.sender} just said or asked you, as ${me}.`,
-    reply: `${a.sender} is replying to you. Answer what ${a.sender} just said or asked you, as ${me}.`,
-    open: `${a.sender} said that to the whole chat and you're the one who picks it up.`,
-    "someone-else": `${a.sender} was talking to someone else; add a short aside without answering for them.`,
-    "chip-in": `Someone has already answered ${a.sender}. Chip in briefly with your own take; don't repeat them or answer for them.`,
+    named: `${a.sender} is talking to you. Answer what ${a.sender} just said or asked you.`,
+    reply: `${a.sender} is replying to you. Answer what ${a.sender} just said or asked you.`,
+    open: `${a.sender} said that to the whole chat and you're the one who answers.`,
+    "someone-else": `${a.sender} was talking to someone else. Add a short aside of your own without answering for them.`,
+    "chip-in": `Someone has already answered ${a.sender}. Chip in briefly with your own take; don't repeat what they said.`,
   }[a.role];
-  const prompt = `You are ${me}, texting in a group chat called "${a.chat}".${a.context ? `\nAbout this chat: ${a.context}` : ""}
-The latest messages, oldest first (your own are marked "(you)"):
-${a.lines.map((l) => `${l.name}${l.name === me ? " (you)" : ""}: ${l.text}`).join("\n")}
+  const who = [PERSONAS[a.b.username], a.bio && `Your profile says: "${a.bio}"`, person.boldness > 0.7 ? "You're a bit cocky." : ""].filter(Boolean).join(". ");
+  const prompt = `You are ${me}, a real person texting in a group chat called "${a.chat}". Stay in character.
+Who you are: ${who}.${a.context ? `\nAbout this chat: ${a.context}` : ""}
+The latest messages, oldest first (yours are marked "(you)"):
+${a.lines.map((l) => `${l.name}${l.name === me ? " (you)" : ""}: ${cutContacts(l.text)}`).join("\n")}
 
+${a.sender}'s last message: "${cutContacts(a.said)}"
 ${task}
-Speak only for yourself, ${me}, in first person, and stay consistent with what you've already said. Talk to ${a.sender} the way ${me} would, given who they are to you.
-Text the way real friends and family do: casual British English, lowercase is fine, usually a few words and never more than 18, sometimes a question back. No emoji, no hashtags, no greeting unless they greeted you.${person.boldness > 0.7 ? " You're a bit cocky." : ""}`;
-  // The chat goes in unredacted, so only Gemma on this machine may read it; with only the Gemini API the canned lines answer.
-  const out = await askJson<{ reply: string }>(prompt, { type: "object", properties: { reply: { type: "string" } }, required: ["reply"] }, 15000, undefined, { localOnly: true });
+How to write it:
+- React to what ${a.sender} actually said. A greeting gets a greeting back; a question gets an answer (make up plausible details that fit who you are and the chat); news gets a reaction; a plan gets a yes, no or maybe.
+- If the message is keyboard mash or makes no sense, react the way a friend would ("??", "you good?", "pocket text?").
+- Never a bare filler word like "fair" or "alright" on its own unless it truly fits. Don't repeat anything already said above.
+- Talk to ${a.sender} the way ${me} would, given who they are to you. First person, only for yourself.
+- Text like a real person: casual British English, lowercase is fine, usually 3 to 12 words, never more than 20. No emoji, no hashtags, no quotation marks, don't start with your own name.`;
+  const out = await askJson<{ reply: string }>(prompt, { type: "object", properties: { reply: { type: "string" } }, required: ["reply"] }, 15000);
   return (typeof out?.reply === "string" ? out.reply : "")
     .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
-    .replace(/^["']|["']$/g, "")
+    .replace(/^["'“”]+|["'“”]+$/g, "")
     .replace(new RegExp(`^${me}( \\(you\\))?:\\s*`, "i"), "")
     .trim()
     .slice(0, 160);
@@ -210,7 +224,7 @@ async function runBots(marketId: number, posterId: number) {
     const side: "yes" | "no" = isSubject ? "yes" : view >= p0 ? "yes" : "no";
     return { b, person, isSubject, side, trades: !(isSubject && m.kind === "bet") };
   });
-  const lines = await chatLines(m.title, p0, plans.map((p) => ({ name: p.b.display_name, side: p.side, isSubject: p.isSubject, boldness: p.person.boldness })));
+  const lines = await chatLines(m.title, p0, plans.map((p) => ({ name: p.b.display_name, persona: PERSONAS[p.b.username] ?? "", side: p.side, isSubject: p.isSubject, boldness: p.person.boldness })));
 
   for (const [i, p] of plans.entries()) {
     await sleep(i === 0 ? 3000 + Math.random() * 3000 : 6000 + Math.random() * 9000);
@@ -283,10 +297,10 @@ async function say(groupId: number, b: Bot, text: string) {
 }
 
 /** One short line per bot from Gemma, in the group-chat voice; canned lines if the model is off or slow. */
-async function chatLines(title: string, price: number, who: { name: string; side: "yes" | "no"; isSubject: boolean; boldness: number }[]) {
+async function chatLines(title: string, price: number, who: { name: string; persona: string; side: "yes" | "no"; isSubject: boolean; boldness: number }[]) {
   const prompt = `Friends in a group chat just saw this bet posted: "${title}" (the market says ${Math.round(price * 100)}% it happens).
 Write one short reply for each person below, in order, as they'd text it: casual British English, lowercase is fine, under 12 words, no emoji, no hashtags.
-${who.map((w, i) => `${i + 1}. ${w.name}: ${w.isSubject ? "it's about them, they're a bit defensive" : w.side === "yes" ? "thinks it will happen and is betting on it" : "thinks it won't and is betting against it"}${w.boldness > 0.7 ? ", cocky" : ""}`).join("\n")}`;
+${who.map((w, i) => `${i + 1}. ${w.name}${w.persona ? ` (${w.persona})` : ""}: ${w.isSubject ? "it's about them, they're a bit defensive" : w.side === "yes" ? "thinks it will happen and is betting on it" : "thinks it won't and is betting against it"}${w.boldness > 0.7 ? ", cocky" : ""}`).join("\n")}`;
   const out = await askJson<{ lines: string[] }>(prompt, { type: "object", properties: { lines: { type: "array", items: { type: "string" } } }, required: ["lines"] }, 20000);
   const clean = (s: unknown) => (typeof s === "string" ? s.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "").replace(/^["']|["']$/g, "").trim().slice(0, 120) : "");
   return who.map((w, i) => clean(out?.lines?.[i]) || pick(w.isSubject ? LINES.subject : LINES[w.side]));
