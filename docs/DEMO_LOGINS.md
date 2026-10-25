@@ -9,7 +9,7 @@ Demo only: play money, sample data, nothing sensitive.
 
 | Who | Username | Password | What it is |
 | --- | --- | --- | --- |
-| Admin | `stakesadmin` | the | 'dxCIE76Vlg6CYW02Lvnu' | The only admin: sees the Solana Chain pages and which data is sample. |
+| Admin | `stakesadmin` | 'dxCIE76Vlg6CYW02Lvnu' | | | The only admin: sees the Solana Chain pages and which data is sample. |
 | Ilyas | `ilyas` | `demo1234` | Normal account, in all 10 sample chats. |
 | Aariz | `aariz` | `demo1234` | Normal account, member of the 6 group chats. |
 | Durukan | `durukan` | `demo1234` | Normal account, member of the 6 group chats. |
