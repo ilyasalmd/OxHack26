@@ -9,6 +9,8 @@
 - **The group remembers:** every settled stake is summarised and stored. New questions pull up similar past outcomes (per person, per category) to set the opening odds and show friends the record.
 - **Private by design, with one disclosed exception:** chats are end-to-end encrypted in the browser. The server never reads message text. The AI gets only a few filtered, anonymised snippets picked on the phone when a stake is priced, and the app says so before anyone creates or joins a chat.
 
+**Trying the demo:** the live link and the demo accounts are in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md).
+
 ## Run it
 
 ```bash
