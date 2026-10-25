@@ -7,7 +7,7 @@
 - **Invest in yourself:** you can go long on stocks about you, never short them, and you can't bet on short-term stakes about yourself.
 - **Nobody gets wiped out:** a single trade is capped at 25% of your balance and you can't go below a 50-coin floor. Everyone starts with **500** and gets **+50 every week**.
 - **The group remembers:** every settled stake is summarised and stored. New questions pull up similar past outcomes (per person, per category) to set the opening odds and show friends the record.
-- **Private by design:** chats are end-to-end encrypted in the browser. Neither the server nor the AI sees message text unless the group switches on "AI reads relevant chat", and then only a few filtered, anonymised snippets picked on the phone.
+- **Private by design, with one disclosed exception:** chats are end-to-end encrypted in the browser. The server never reads message text. The AI gets only a few filtered, anonymised snippets picked on the phone when a stake is priced, and the app says so before anyone creates or joins a chat.
 
 ## Run it
 
@@ -81,14 +81,14 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 - **Private chats** are two-person groups with their own key; nobody can be added to one or join it by link.
 - What the server does learn: who is typing or recording (kept in memory for 5 seconds), and how far each member has fetched and read (for the ticks). Market events (listings, trades, results) are plaintext because the server has to run the market.
 - Gemma runs on the app's own machine, so nothing goes to an outside AI company. It always receives the stake text, settled-history stats and the group's "AI context" (term dates, fixtures), plus the subject's answers to the optional sign-up questions if they gave any. Those answers are never shown to other members, and the stored pricing records blank them out. If a user ticks the box, it also gets one mood number per person, worked out on the device from the decrypted chat.
-- **AI reads relevant chat (opt-in per group, off by default).** Any member can switch it on or off in group settings, and the chat announces the change to everyone. While it's on, the phone of whoever lists a stake or re-marks stocks does the following with the chat it has already decrypted (`lib/chat-context.ts`):
+- **AI reads relevant chat (always on, disclosed up front).** There is no per-group switch. The notice in `lib/ai-disclosure.ts` is shown in the new-chat and join sheets, on invite links before the Join button, once at the top of a chat you were added to, in group info, in Settings → Privacy and on the privacy page, and the chat header says "AI reads chat". The phone of whoever lists a stake or re-marks stocks does the following with the chat it has already decrypted (`lib/chat-context.ts`):
   1. Keeps only messages about the subject or topic (mentions, same keywords or category, weighted towards recent ones). Max 20 per stake, 8 per stock.
   2. Replaces names with roles (`[SUBJECT]`, `Friend A`…) and removes emails, phone numbers, long numbers, links and @handles.
   3. Sends those snippets with the request. Gemma picks the ones that actually change the odds and says why, and ignores the rest.
   4. Shows the user every snippet that was sent and whether it was used, before they list. The market page keeps only the used snippets so everyone can see what moved the price.
 
-  The server drops any snippets it receives while the group setting is off.
-- **The tradeoff:** with the setting on, a handful of anonymised messages leave the end-to-end encryption for that request. They go to our server, where Gemma reads them locally, and the used ones are stored with the market. Redaction can't catch everything: a message that describes someone without naming them still gets through, and the text of a message can identify its author. That's why it's per group, off by default, announced to everyone, and fully shown. Leave it off for chats that should stay fully private.
+  The server caps the count again and never asks for more.
+- **The tradeoff:** a handful of anonymised messages leave the end-to-end encryption for that request. They go to our server, where Gemma reads them locally; the used ones are stored with the market for everyone in the chat to see, and every sent snippet is in the admin-only pricing record. Redaction can't catch everything: a message that describes someone without naming them still gets through, and the text of a message can identify its author. That's why it is said plainly before people join and fully shown afterwards. A chat that should stay fully private should not have stakes posted in it.
 - No analytics, trackers or third-party scripts; strict referrer and permissions headers.
 - **Prototype limits:** no forward secrecy or key rotation yet (Signal's Double Ratchet / Matrix's Megolm would add that), no safety-number verification, and new members can read history from before they joined. Solana wallets are custodial devnet keys encrypted with `APP_SECRET`.
 
@@ -98,7 +98,7 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 | --- | --- |
 | **Tiger Data (Tiger Cloud)** | The app's database. Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression, and the pricing records. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
 | **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every buy-in and payout, memos for market lifecycle carrying each opening price's record hash, and an admin Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
-| **Gemma** (open model, local) | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past stakes", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Runs through Ollama with no API key. |
+| **Gemma** (open model, local) | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past stakes", stock re-marks, and picking which anonymised chat snippets matter. Runs through Ollama with no API key. |
 | **Vultr** | `deploy/`: Docker Compose stack (app, TimescaleDB, Caddy HTTPS) and a setup script for a Vultr VM. |
 
 ## Structure

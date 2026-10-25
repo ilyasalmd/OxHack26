@@ -12,6 +12,7 @@ import { GroupMark, pendingChatNames } from "@/components/shell";
 import { cacheFor, decryptWith, prefetchChat, sortMsgs, warmChat, type ChatKey } from "@/components/chat/cache";
 import { Alert, Camera, Chart, Plus, Chat, Check, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
+import { AiChatBanner, AiChatNotice } from "@/components/ai-notice";
 import { NewSituation } from "@/components/new-situation";
 import { FriendBetCard, NewFriendBet, StakeChooser, type FriendBetLite } from "@/components/friend-bet";
 import { Board, Insights } from "@/components/group-stats";
@@ -97,7 +98,6 @@ export type Feed = {
     emoji: string;
     invite_code: string;
     ai_context: string;
-    ai_reads_chat: boolean;
     is_dm?: boolean;
     description_ct?: string | null;
     description_iv?: string | null;
@@ -346,10 +346,10 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     [messages, feed]
   );
 
-  /** Relevant, redacted snippets for one situation, picked on this device. Empty unless the group opted in. */
+  /** Relevant, redacted snippets for one situation, picked on this device (always on; see lib/ai-disclosure.ts). */
   const chatSnippets = useCallback(
     (subjectId: number | null, title: string): Snippet[] =>
-      feed?.group.ai_reads_chat
+      feed
         ? selectSnippets({
             messages: messages.filter((m) => m.kind === "chat" && m.text).map((m) => ({ text: m.text!, authorId: m.user_id, at: m.created_at })),
             members: feed.members,
@@ -361,7 +361,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     [messages, feed]
   );
   const stockSnippets = useCallback(() => {
-    if (!feed?.group.ai_reads_chat) return null;
+    if (!feed) return null;
     const out: Record<string, Snippet[]> = {};
     for (const m of feed.markets.filter((x) => x.kind === "stock" && x.status === "open")) {
       const s = chatSnippets(m.subject_id, m.title).slice(-8);
@@ -409,7 +409,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                 <>
                   <span className="truncate">{dm ? `@${peer?.username ?? ""}` : `${feed.members.length} members`}</span>
                   <span className="flex shrink-0 items-center gap-1"><Lock size={11} /> {dm ? "Private" : "Encrypted"}</span>
-                  {feed.group.ai_reads_chat && <span className="hidden items-center gap-1 lg:flex"><Sparkle size={11} /> AI reads relevant chat</span>}
+                  <span className="flex shrink-0 items-center gap-1" title="The AI reads relevant chat. Tap for exactly what it receives."><Sparkle size={11} /> <span className="lg:hidden">AI</span><span className="hidden lg:inline">AI reads chat</span></span>
                 </>
               )}
             </div>
@@ -463,6 +463,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           {identity && !feed.myKey && (
             <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> Waiting for a friend&apos;s app to share the chat key with you. Markets work in the meantime.</p>
           )}
+          <AiChatBanner groupId={id} />
           <div className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper, wallUrl === "error" ? null : wallUrl)}>
             <div className="mx-auto max-w-3xl px-3 py-3 lg:px-6 lg:py-5">
               {runs(messages).map((r, i, all) => {
@@ -532,7 +533,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           <div className="thin-scroll flex-1 overflow-y-auto">
             {panel === "Markets" && <MarketList markets={feed.markets} members={members} now={feed.now} />}
             {panel === "Board" && <Board groupId={id} ticker={c.ticker} meId={me.user.id} />}
-            {panel === "Insights" && <Insights groupId={id} moods={moods} stockSnippets={stockSnippets} aiReadsChat={feed.group.ai_reads_chat} onRepriced={poll} />}
+            {panel === "Insights" && <Insights groupId={id} moods={moods} stockSnippets={stockSnippets} withChat onRepriced={poll} />}
           </div>
           {panel === "Markets" && (
             <div className="border-t border-line p-3">
@@ -565,7 +566,6 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         meId={me.user.id}
         now={feed.now}
         aiContext={feed.group.ai_context}
-        aiReadsChat={feed.group.ai_reads_chat}
         chatSnippets={chatSnippets}
         moods={moods}
         onCreated={(mid) => {
@@ -1255,31 +1255,11 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
         </div>
         <div>
           <div className="mb-1 text-sm font-semibold">AI context</div>
-          <p className="mb-2 text-xs text-mute">Shared with the AI to price stakes: term dates, exam weeks, fixtures, deadlines. Chat messages are only shared if “AI reads relevant chat” below is on.</p>
+          <p className="mb-2 text-xs text-mute">Shared with the AI to price stakes: term dates, exam weeks, fixtures, deadlines. Relevant chat messages are shared too, as described below.</p>
           <textarea value={ctx} onChange={(e) => setCtx(e.target.value)} rows={4} placeholder="e.g. Autumn term ends 12 Dec. Exams 5–16 Jan. Results out 1 Jul." className="w-full rounded-xl border border-line bg-ink p-3 outline-none" />
           <Button variant="ghost" className="mt-2 w-full" onClick={saveCtx}>Save context</Button>
         </div>
-        <div className="rounded-xl border border-line p-3">
-          <label className="flex items-start gap-3">
-            <input
-              type="checkbox"
-              className="mt-1"
-              checked={feed.group.ai_reads_chat}
-              onChange={async (e) => {
-                await api(`/api/groups/${groupId}`, { method: "PATCH", body: { aiReadsChat: e.target.checked } });
-                onChange();
-              }}
-            />
-            <span>
-              <span className="text-sm font-semibold">AI reads relevant chat</span>
-              <span className="mt-1 block text-xs text-mute">
-                Off by default. When on, each phone picks up to 20 messages that match a stake, swaps names for roles (subject, Friend A…), strips emails,
-                numbers and links, and sends only those to the AI. You see exactly what was sent before listing. Everything else stays end-to-end encrypted.
-                Everyone in the chat is told when this changes.
-              </span>
-            </span>
-          </label>
-        </div>
+        <AiChatNotice />
         <div>
           <div className="mb-2 text-sm font-semibold">Members</div>
           {feed.members.map((m) => (

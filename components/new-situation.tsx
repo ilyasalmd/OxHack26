@@ -4,7 +4,7 @@ import { api } from "./api";
 import { Avatar, Badge, Button, Input, Sheet, pct } from "./ui";
 import { Book, Chat, Check, Hourglass, Sparkle, Timer, TrendUp } from "./icons";
 import type { Member } from "@/app/g/[id]/page";
-import type { Snippet } from "@/lib/chat-context";
+import { MAX_SNIPPETS, type Snippet } from "@/lib/chat-context";
 import { fmtLine, sides, typeLabel } from "@/lib/labels";
 
 type Analysis = {
@@ -45,7 +45,7 @@ function localInput(d: Date) {
   return z.toISOString().slice(0, 16);
 }
 
-export function NewSituation({ open, onClose, groupId, members, meId, now, aiContext, aiReadsChat, chatSnippets, moods, onCreated }: { open: boolean; onClose: () => void; groupId: number; members: Member[]; meId: number; now: string; aiContext: string; aiReadsChat: boolean; chatSnippets: (subjectId: number | null, title: string) => Snippet[]; moods: () => Record<string, number>; onCreated: (id: number) => void }) {
+export function NewSituation({ open, onClose, groupId, members, meId, now, aiContext, chatSnippets, moods, onCreated }: { open: boolean; onClose: () => void; groupId: number; members: Member[]; meId: number; now: string; aiContext: string; chatSnippets: (subjectId: number | null, title: string) => Snippet[]; moods: () => Record<string, number>; onCreated: (id: number) => void }) {
   const base = new Date(now);
   const presets: [string, Date][] = [
     ["Tonight", new Date(new Date(base).setHours(23, 0, 0, 0) <= base.getTime() ? base.getTime() + 3 * 3600e3 : new Date(base).setHours(23, 0, 0, 0))],
@@ -70,7 +70,7 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
   const payload = (o?: { answer: Answer; line: string }) => {
     const s = members.find((m) => m.username === subject);
     const mood = useMood && s ? (moods()[s.id] ?? 0) : null;
-    const snippets = aiReadsChat ? chatSnippets(s?.id ?? null, `${title} ${details}`) : [];
+    const snippets = chatSnippets(s?.id ?? null, `${title} ${details}`);
     const a = o?.answer ?? answer;
     const rawLine = o?.line ?? line;
     const l = Number(rawLine.replace(",", "."));
@@ -205,7 +205,7 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
                 </label>
               )}
               {!aiContext && <p className="text-xs text-mute">Tip: add term dates or fixtures in group settings so the AI can use them.</p>}
-              {aiReadsChat && <p className="flex items-start gap-1.5 text-xs text-mute"><Sparkle size={13} className="mt-px" /> This group lets the AI read relevant chat. You&apos;ll see exactly which messages were shared on the next screen.</p>}
+              <p className="flex items-start gap-1.5 text-xs text-mute"><Sparkle size={13} className="mt-px" /> The AI reads relevant chat: this phone picks up to {MAX_SNIPPETS} anonymised messages about this stake. You&apos;ll see exactly which ones were sent, and which the AI used, on the next screen.</p>
             </div>
           </details>
 

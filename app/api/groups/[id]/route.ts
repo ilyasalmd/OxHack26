@@ -18,7 +18,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
   // These reads don't depend on each other, so they go to the database together, not one after another.
   const [[group], members, [prefs], [myKey], former, messages, markets] = await Promise.all([
     db.query(
-      `SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by, is_dm, description_ct, description_iv, photo_id::int AS photo_id FROM groups WHERE id = $1`,
+      `SELECT id, name, emoji, invite_code, ai_context, created_by, is_dm, description_ct, description_iv, photo_id::int AS photo_id FROM groups WHERE id = $1`,
       [id]
     ),
     db.query(
@@ -111,7 +111,6 @@ export const PATCH = route<IdCtx>(async (req, user, ctx) => {
     req,
     z.object({
       aiContext: z.string().max(2000).optional(),
-      aiReadsChat: z.boolean().optional(),
       name: z.string().trim().min(1).max(40).optional(),
       // Encrypted with the group key in the browser, like a message. null clears it.
       description: z.object({ ciphertext: z.string().min(8).max(4000), iv: z.string().min(8).max(64) }).nullable().optional(),
@@ -142,16 +141,6 @@ export const PATCH = route<IdCtx>(async (req, user, ctx) => {
     }
     await db.query(`UPDATE groups SET photo_id = $2 WHERE id = $1`, [id, b.photoId]);
     await say(b.photoId ? "changed the group photo" : "removed the group photo");
-  }
-  if (b.aiReadsChat !== undefined) {
-    const changed = await db.query(`UPDATE groups SET ai_reads_chat = $2 WHERE id = $1 AND ai_reads_chat <> $2 RETURNING id`, [id, b.aiReadsChat]);
-    // Announced to everyone, because it changes what leaves their phones.
-    if (changed.length)
-      await say(
-        b.aiReadsChat
-          ? "turned ON “AI reads relevant chat”: when pricing, apps may share up to 20 matching messages with the AI, names and contact details removed"
-          : "turned OFF “AI reads relevant chat”: no chat text is shared with the AI"
-      );
   }
   return { ok: true };
 });

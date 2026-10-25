@@ -20,5 +20,5 @@ export function LegalPage({ title, updated, children }: { title: string; updated
   );
 }
 
-export const H = ({ children }: { children: React.ReactNode }) => <h2 className="!mt-8 text-lg font-semibold tracking-tight text-white">{children}</h2>;
+export const H = ({ id, children }: { id?: string; children: React.ReactNode }) => <h2 id={id} className="!mt-8 scroll-mt-6 text-lg font-semibold tracking-tight text-white">{children}</h2>;
 export const UL = ({ children }: { children: React.ReactNode }) => <ul className="list-disc space-y-1.5 pl-5 marker:text-mute">{children}</ul>;

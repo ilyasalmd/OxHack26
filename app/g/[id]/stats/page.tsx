@@ -29,7 +29,7 @@ export default function GroupStats({ params }: { params: Promise<{ id: string }>
         </div>
         {tab === "Leaderboard" && <Board groupId={id} ticker={me.config.currency.ticker} meId={me.user.id} />}
         {/* Mood scores and chat snippets come from the open chat; here the AI re-marks from time and context only. */}
-        {tab === "Insights" && <Insights groupId={id} moods={() => ({})} stockSnippets={() => null} aiReadsChat={false} onRepriced={() => {}} />}
+        {tab === "Insights" && <Insights groupId={id} moods={() => ({})} stockSnippets={() => null} withChat={false} onRepriced={() => {}} />}
       </div>
     </main>
   );
