@@ -3,9 +3,8 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
-import { PriceChart } from "@/components/chart";
-import { Badge, TopBar, fmt, pct } from "@/components/ui";
-import { ArrowUpRight, Check, Clock, Coin, Copy, Hourglass, Sparkle, Timer, TrendUp, Trophy, Wallet } from "@/components/icons";
+import { Avatar, Badge, TopBar, fmt, pct } from "@/components/ui";
+import { ArrowUpRight, Check, ChevronRight, Clock, Coin, Copy, Lock, Timer, TrendUp, Trophy, Wallet } from "@/components/icons";
 
 type P = {
   netWorth: { balance: number; positions: number; total: number };
@@ -14,16 +13,24 @@ type P = {
   ledger: { ts: string; delta: number; balance_after: number; reason: string }[];
   wallet: { address: string; url: string; mint: string | null; onChain: number | null; enabled: boolean; network: string | null } | null;
   chain: { id: number; kind: string; amount: number; status: string; url: string | null; error: string | null }[];
+  friendBets: number;
+  skill: Skill;
 };
+type Read = { id: number; username: string; display_name: string; color: string; stakes: number; calls: number; score: number };
+type Skill = { score: number | null; calls: number; settled: number; rightSide: number | null; minCalls: number; friendsScored: number; beat: number; friendsAvg: number | null; field: number[]; reads: Read[]; readsMin: number; readsPending: number };
+
+/** A skill score shown as points: 0 is a coin flip, 100 is perfect, negative is worse than guessing. */
+const pts = (s: number) => `${s >= 0 ? "+" : "−"}${Math.abs(Math.round(s * 100))}`;
 
 /**
- * The wallet: one card with your net worth, the curve underneath, then what that money is doing.
- * Cash and in-play money are drawn as one bar on the card, like a bank app, instead of two tiles.
+ * The wallet, in the order people ask about it: how much have I got, how much is free, am I any good at
+ * this, who do I read best, and what happened lately. Everything wears the theme; nothing is fixed green.
  */
 export default function Portfolio() {
   const { me } = useSession();
   const [p, setP] = useState<P | null>(null);
-  const [hover, setHover] = useState<{ t: number; v: number } | null>(null);
+  const [allActivity, setAllActivity] = useState(false);
+  const [allOpen, setAllOpen] = useState(false);
   const load = () => api<P>("/api/portfolio").then(setP);
   useEffect(() => {
     load();
@@ -32,55 +39,53 @@ export default function Portfolio() {
   }, []);
   if (!p || !me) return <main className="p-10 text-center text-mute">Loading…</main>;
   const c = me.config.currency;
-  const points = p.series.map((s) => ({ t: Date.parse(s.ts), v: s.net_worth }));
-  const first = points[0]?.v ?? p.netWorth.total;
-  const open = p.positions.filter((x) => x.status === "open");
+  const first = p.series[0]?.net_worth ?? p.netWorth.total;
   const gain = p.netWorth.total - first;
-  const gainPct = first > 0 ? gain / first : 0;
-  const inPlayPnl = open.reduce((a, x) => a + (x.value - x.spent), 0);
-  const cashShare = p.netWorth.total > 0 ? p.netWorth.balance / p.netWorth.total : 1;
+  const open = p.positions.filter((x) => x.status === "open");
   const nextAllowance = new Date(me.nextAllowanceAt);
 
-  const heroCard = (
-    <section className="relative overflow-hidden rounded-[28px] bg-brand p-5 text-black shadow-[0_24px_60px_-28px_rgba(0,0,0,.7)]" style={{ backgroundImage: "radial-gradient(120% 90% at 100% 0%, rgba(255,255,255,.5), transparent 60%), radial-gradient(90% 80% at 0% 100%, rgba(0,0,0,.16), transparent 60%)" }}>
-      <div className="flex items-center justify-between text-[13px] font-medium text-black/60">
-        <span className="flex items-center gap-1.5"><Wallet size={14} /> {hover ? new Date(hover.t).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "Net worth"}</span>
-        <span className="rounded-full bg-black/10 px-2 py-0.5 text-[11px] font-semibold tracking-wide">{c.ticker}</span>
+  const hero = (
+    <section className="pt-6 text-center lg:pt-2 lg:text-left">
+      <div className="text-[13px] font-medium text-mute">Total balance</div>
+      <div className="mt-1 flex items-baseline justify-center gap-2 lg:justify-start">
+        <span className="text-[52px] font-bold leading-none tracking-tight tabular lg:text-[60px]">{fmt(p.netWorth.total, 0)}</span>
+        <span className="text-[22px] font-bold tracking-tight text-brand">{c.ticker}</span>
       </div>
-      <div className="mt-5 text-[42px] font-semibold leading-none tracking-tight tabular lg:text-[52px]">{fmt(hover?.v ?? p.netWorth.total)}</div>
-      <div className="mt-2.5 flex items-center gap-2 text-[13px]">
-        <span className={`rounded-full px-2 py-0.5 font-semibold tabular ${gain >= 0 ? "bg-black/12 text-black/80" : "bg-[#7a1f23]/15 text-[#7a1f23]"}`}>
-          {gain >= 0 ? "▲" : "▼"} {fmt(Math.abs(gain))} · {Math.abs(gainPct * 100).toFixed(1)}%
-        </span>
-        <span className="text-black/55">all time</span>
-        <span className="ml-auto text-black/55">@{me.user.username}</span>
-      </div>
-
-      {/* Where the money is: cash you can stake now, and chips sitting in open positions. */}
-      <div className="mt-5">
-        <div className="flex h-2 overflow-hidden rounded-full bg-black/12">
-          <div className="h-full rounded-full bg-black/70 transition-[width] duration-500" style={{ width: `${Math.max(2, cashShare * 100)}%` }} />
-        </div>
-        <div className="mt-2 grid grid-cols-2 gap-3 text-[13px]">
-          <div>
-            <div className="flex items-center gap-1.5 text-black/55"><span className="h-2 w-2 rounded-full bg-black/70" /> Cash</div>
-            <div className="mt-0.5 text-[17px] font-semibold tabular">{fmt(p.netWorth.balance)}</div>
-          </div>
-          <div className="text-right">
-            <div className="flex items-center justify-end gap-1.5 text-black/55">In play <span className="h-2 w-2 rounded-full bg-black/15 ring-1 ring-black/20" /></div>
-            <div className="mt-0.5 text-[17px] font-semibold tabular">{fmt(p.netWorth.positions)}</div>
-          </div>
-        </div>
+      <div className="mt-2 flex items-center justify-center gap-2 text-[13px] text-mute lg:justify-start">
+        <span>Play credits</span>
+        <span className="h-0.5 w-0.5 rounded-full bg-mute" />
+        <span className={gain >= 0 ? "text-brand" : "text-down"}>{gain >= 0 ? "+" : "−"}{fmt(Math.abs(gain), 0)} since you joined</span>
       </div>
     </section>
   );
 
-  const facts = (
-    <div className="grid grid-cols-3 gap-2">
-      <Fact icon={<Hourglass size={14} />} label="In play" value={open.length === 1 ? "1 stake" : `${open.length} stakes`} sub={open.length ? <span className={inPlayPnl >= 0 ? "text-up" : "text-down"}>{inPlayPnl >= 0 ? "+" : "−"}{fmt(Math.abs(inPlayPnl))} unrealised</span> : "nothing yet"} />
-      <Fact icon={<Coin size={14} />} label="Allowance" value={`+${me.config.economy.weeklyAllowance}`} sub={`${nextAllowance.toLocaleDateString("en-GB", { weekday: "short" })} ${nextAllowance.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}`} />
-      <Fact icon={<Sparkle size={14} />} label="Max stake" value={fmt(me.maxStake, 0)} sub={`${Math.round(me.config.economy.maxStakeFraction * 100)}% of cash`} />
+  const split = (
+    <div className="grid grid-cols-2 gap-2">
+      <Box icon={<Wallet size={18} />} label="Available" value={fmt(p.netWorth.balance, 0)} sub={`Up to ${fmt(me.maxStake, 0)} a stake`} />
+      <Box icon={<Lock size={18} />} label="Committed" value={fmt(p.netWorth.positions, 0)} sub={`${open.length} stake${open.length === 1 ? "" : "s"}${p.friendBets > 0 ? ` · ${fmt(p.friendBets, 0)} in friend bets` : ""}`} />
     </div>
+  );
+
+  const shownOpen = allOpen ? open : open.slice(0, 3);
+  const inPlay = (
+    <>
+      <SectionHead title="In play" right={open.length > 3 ? <SeeAll on={allOpen} toggle={() => setAllOpen(!allOpen)} /> : null} />
+      {open.length ? (
+        <ul className="space-y-2">{shownOpen.map((x) => <Position key={x.market_id} x={x} />)}</ul>
+      ) : (
+        <Empty icon={<TrendUp size={18} />} text="Nothing in play." sub="Back something in a chat and it shows up here." />
+      )}
+    </>
+  );
+
+  const activity = (
+    <>
+      <SectionHead title="Recent activity" right={p.ledger.length > 5 ? <SeeAll on={allActivity} toggle={() => setAllActivity(!allActivity)} /> : null} />
+      <History ledger={allActivity ? p.ledger : p.ledger.slice(0, 5)} now={me.clock.now} grouped={allActivity} />
+      <p className="mt-3 px-1 text-xs text-mute">
+        +{me.config.economy.weeklyAllowance} {c.ticker} lands {nextAllowance.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "short" })}. Play credits only, no cash value.
+      </p>
+    </>
   );
 
   const walletCard = p.wallet && <ChainCard wallet={p.wallet} chain={p.chain} ticker={c.ticker} admin={me.account.isAdmin} />;
@@ -88,35 +93,140 @@ export default function Portfolio() {
   return (
     <main className="flex min-h-dvh flex-col lg:min-h-full">
       <TopBar title="Wallet" />
-      <div className="flex-1 px-4 pb-8 lg:mx-auto lg:grid lg:w-full lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_340px] lg:items-start lg:gap-10 lg:px-8 lg:pt-4">
+      <div className="flex-1 px-4 pb-10 lg:mx-auto lg:grid lg:w-full lg:max-w-6xl lg:grid-cols-[minmax(0,1fr)_380px] lg:items-start lg:gap-10 lg:px-8 lg:pt-6">
         <div className="min-w-0">
-          <div className="mt-4">{heroCard}</div>
-          <div className="mt-3 rounded-2xl bg-panel px-2 pb-1 pt-3">
-            <PriceChart points={points} now={Date.now() + me.clock.offsetMs} format={(v) => `${fmt(v)} ${c.ticker}`} onHover={setHover} />
-          </div>
-
-          <div className="mt-3 lg:hidden">{facts}</div>
-
-          <SectionHead title="In play" right={open.length ? <span className="tabular text-mute">{fmt(p.netWorth.positions)} {c.ticker}</span> : null} />
-          {open.length ? (
-            <ul className="space-y-2">
-              {open.map((x) => <Position key={x.market_id} x={x} />)}
-            </ul>
-          ) : (
-            <Empty icon={<TrendUp size={18} />} text="Nothing in play." sub="Back something in a chat and it shows up here." />
-          )}
-
+          {hero}
+          <div className="mt-6">{split}</div>
+          <div className="mt-3 lg:hidden"><SkillCard s={p.skill} /></div>
+          <div className="lg:hidden"><Reads s={p.skill} /></div>
+          {inPlay}
+          {activity}
           <div className="lg:hidden">{walletCard}</div>
-
-          <SectionHead title="History" />
-          <History ledger={p.ledger} now={me.clock.now} />
         </div>
-        <aside className="sticky top-20 mt-6 hidden space-y-3 lg:block">
-          {facts}
+        <aside className="sticky top-20 hidden space-y-3 lg:block">
+          <SkillCard s={p.skill} />
+          <Reads s={p.skill} />
           {walletCard}
         </aside>
       </div>
     </main>
+  );
+}
+
+function Box({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub: string }) {
+  return (
+    <div className="flex items-center gap-3 rounded-2xl bg-panel p-3.5">
+      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-brand/12 text-brand">{icon}</div>
+      <div className="min-w-0">
+        <div className="text-[12px] text-mute">{label}</div>
+        <div className="text-[22px] font-semibold leading-tight tracking-tight tabular">{value}</div>
+        <div className="truncate text-[11px] text-mute">{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+function SeeAll({ on, toggle }: { on: boolean; toggle: () => void }) {
+  return (
+    <button type="button" onClick={toggle} className="flex items-center gap-0.5 text-mute hover:text-white">
+      {on ? "Show less" : "See all"} <ChevronRight size={13} className={on ? "-rotate-90" : ""} />
+    </button>
+  );
+}
+
+/**
+ * "How well do you know your friends?": a skill score, not correct/total, so a confident right call counts
+ * for more than a timid one. Below it, where you sit among friends who also have a score.
+ */
+function SkillCard({ s }: { s: Skill }) {
+  const ready = s.score != null;
+  return (
+    <section className="rounded-2xl bg-panel p-4">
+      <h3 className="text-[15px] font-semibold">How well do you know your friends?</h3>
+      {ready ? (
+        <>
+          <div className="mt-2 flex items-baseline gap-2">
+            <span className="text-[44px] font-bold leading-none tracking-tight tabular text-brand">{pts(s.score!)}</span>
+            <span className="text-sm text-mute">skill score</span>
+          </div>
+          <p className="mt-1.5 text-sm">
+            {s.friendsScored > 0 ? <>Sharper than <span className="font-semibold tabular">{s.beat}</span> of your <span className="tabular">{s.friendsScored}</span> friends</> : <>No friends with a score yet</>}
+            <span className="text-mute"> · {s.settled} stakes settled</span>
+          </p>
+          {s.friendsScored > 0 && <Field field={s.field} me={s.score!} avg={s.friendsAvg} />}
+          <p className="mt-3 text-[11px] leading-relaxed text-mute">
+            0 is a coin flip, +100 is perfect. Confident calls that come true score most; confident misses cost most.
+            {s.rightSide != null && <> You were on the right side {Math.round(s.rightSide * 100)}% of the time.</>}
+          </p>
+        </>
+      ) : (
+        <>
+          <div className="mt-2 text-sm text-mute">Your score appears after {s.minCalls} settled calls.</div>
+          <div className="mt-3 flex gap-1">
+            {Array.from({ length: s.minCalls }, (_, i) => <span key={i} className={`h-1.5 flex-1 rounded-full ${i < s.calls ? "bg-brand" : "bg-white/[.08]"}`} />)}
+          </div>
+          <div className="mt-1.5 text-[11px] tabular text-mute">{s.calls} of {s.minCalls}</div>
+        </>
+      )}
+    </section>
+  );
+}
+
+/** Each friend with a score is a tick on one line; you're the accent dot. The scale runs worst to best. */
+function Field({ field, me, avg }: { field: number[]; me: number; avg: number | null }) {
+  const all = [...field, me, 0];
+  const lo = Math.min(...all);
+  const hi = Math.max(...all);
+  const x = (v: number) => `${((v - lo) / Math.max(1e-6, hi - lo)) * 100}%`;
+  return (
+    <div className="mt-4">
+      <div className="relative h-6">
+        <div className="absolute inset-x-0 top-1/2 h-px bg-line" />
+        <div className="absolute top-1/2 h-3 w-px -translate-y-1/2 bg-mute/60" style={{ left: x(0) }} title="Coin flip" />
+        {field.map((v, i) => <span key={i} className="absolute top-1/2 h-2 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/30" style={{ left: x(v) }} />)}
+        {avg != null && <span className="absolute top-1/2 h-4 w-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/60" style={{ left: x(avg) }} title="Friends' average" />}
+        <span className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-brand ring-4 ring-panel" style={{ left: x(me) }} title="You" />
+      </div>
+      <div className="mt-1 flex justify-between text-[10px] uppercase tracking-wider text-mute">
+        <span>Guessing</span>
+        <span>Friends avg {avg != null ? pts(avg) : "–"}</span>
+        <span>Sharp</span>
+      </div>
+    </div>
+  );
+}
+
+/** The friends you call best, once enough stakes about them have settled to mean something. */
+function Reads({ s }: { s: Skill }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? s.reads : s.reads.slice(0, 3);
+  return (
+    <section className="mt-3 rounded-2xl bg-panel px-4 pb-2 pt-4 lg:mt-0">
+      <div className="flex items-baseline justify-between">
+        <h3 className="text-[15px] font-semibold">Your strongest reads</h3>
+        {s.reads.length > 3 && <span className="text-xs"><SeeAll on={all} toggle={() => setAll(!all)} /></span>}
+      </div>
+      {shown.length ? (
+        <ul className="mt-1">
+          {shown.map((r, i) => (
+            <li key={r.id}>
+              <Link href={`/u/${r.username}`} className={`flex items-center gap-3 py-2.5 ${i ? "border-t border-white/[.05]" : ""}`}>
+                <Avatar id={r.id} name={r.display_name} color={r.color} size={40} />
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[15px] font-medium">{r.display_name}</div>
+                  <div className="text-[12px] text-mute">{r.stakes} stakes about them settled</div>
+                </div>
+                <span className="text-[17px] font-semibold tabular text-brand">{pts(r.score)}</span>
+                <ChevronRight size={15} className="text-mute" />
+              </Link>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="py-3 text-sm text-mute">A friend shows up here once {s.readsMin} stakes about them have settled with you in them.</p>
+      )}
+      {shown.length > 0 && s.readsPending > 0 && <p className="border-t border-white/[.05] py-2.5 text-[11px] text-mute">{s.readsPending} more friends need {s.readsMin} settled stakes before they count.</p>}
+    </section>
   );
 }
 
@@ -125,16 +235,6 @@ function SectionHead({ title, right }: { title: string; right?: React.ReactNode 
     <div className="mb-2 mt-7 flex items-baseline justify-between px-1">
       <h3 className="text-[15px] font-semibold">{title}</h3>
       {right && <div className="text-xs">{right}</div>}
-    </div>
-  );
-}
-
-function Fact({ icon, label, value, sub }: { icon: React.ReactNode; label: string; value: string; sub: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl bg-panel p-3">
-      <div className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-mute">{icon} {label}</div>
-      <div className="mt-1.5 text-[17px] font-semibold tracking-tight tabular">{value}</div>
-      <div className="mt-0.5 truncate text-[11px] text-mute">{sub}</div>
     </div>
   );
 }
@@ -167,14 +267,14 @@ function Position({ x }: { x: P["positions"][number] }) {
           <div className="truncate text-[15px] font-medium leading-snug">{x.title}</div>
           <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-mute">
             {sides.map((s) => (
-              <span key={s.side} className={`rounded-md px-1.5 py-px font-semibold uppercase tracking-wide ${s.side === "yes" ? "bg-up/15 text-up" : "bg-down/15 text-down"}`}>{stock ? (s.side === "yes" ? "long" : "short") : s.side} {fmt(s.n, 0)}</span>
+              <span key={s.side} className={`rounded-md px-1.5 py-px font-semibold uppercase tracking-wide ${s.side === "yes" ? "bg-brand/15 text-brand" : "bg-down/15 text-down"}`}>{stock ? (s.side === "yes" ? "long" : "short") : s.side} {fmt(s.n, 0)}</span>
             ))}
             <span className="truncate">{x.group} · now {stock ? fmt(x.price * 100, 1) : pct(x.price)}</span>
           </div>
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[15px] font-semibold tabular">{fmt(x.value)}</div>
-          <div className={`mt-0.5 inline-block rounded-md px-1.5 py-px text-[11px] font-semibold tabular ${up ? "bg-up/15 text-up" : "bg-down/15 text-down"}`}>{up ? "+" : "−"}{fmt(Math.abs(pnl))}</div>
+          <div className={`mt-0.5 inline-block rounded-md px-1.5 py-px text-[11px] font-semibold tabular ${up ? "bg-brand/15 text-brand" : "bg-down/15 text-down"}`}>{up ? "+" : "−"}{fmt(Math.abs(pnl))}</div>
         </div>
       </Link>
     </li>
@@ -207,11 +307,11 @@ const dayLabel = (t: string, now: string) => {
 };
 
 /** Every chip in and out, grouped by day, with the balance after each line. */
-function History({ ledger, now }: { ledger: P["ledger"]; now: string }) {
+function History({ ledger, now, grouped = true }: { ledger: P["ledger"]; now: string; grouped?: boolean }) {
   const days = useMemo(() => {
     const out: { label: string; rows: P["ledger"] }[] = [];
     for (const l of ledger) {
-      const label = dayLabel(l.ts, now);
+      const label = grouped ? dayLabel(l.ts, now) : "";
       const last = out[out.length - 1];
       if (last && last.label === label) last.rows.push(l);
       else out.push({ label, rows: [l] });
@@ -223,20 +323,20 @@ function History({ ledger, now }: { ledger: P["ledger"]; now: string }) {
     <div className="space-y-4">
       {days.map((d) => (
         <div key={d.label}>
-          <div className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wider text-mute">{d.label}</div>
+          {d.label && <div className="mb-1.5 px-1 text-[11px] font-medium uppercase tracking-wider text-mute">{d.label}</div>}
           <div className="rounded-2xl bg-panel px-3.5">
             {d.rows.map((l, i) => {
               const info = describe(l.reason);
-              const tone = { up: "bg-up/15 text-up", brand: "bg-brand/15 text-brand", mute: "bg-white/[.06] text-white/70" }[info.tone]!;
+              const tone = { up: "bg-brand/15 text-brand", brand: "bg-brand/15 text-brand", mute: "bg-white/[.06] text-white/70" }[info.tone]!;
               return (
                 <div key={i} className={`flex items-center gap-3 py-2.5 ${i ? "border-t border-white/[.05]" : ""}`}>
                   <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${tone}`}>{info.icon}</div>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[14px]">{info.about || info.label}</div>
-                    <div className="truncate text-[12px] text-mute">{info.about ? `${info.label} · ` : ""}{new Date(l.ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}</div>
+                    <div className="truncate text-[12px] text-mute">{info.about ? `${info.label} · ` : ""}{grouped ? new Date(l.ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) : `${dayLabel(l.ts, now)}, ${new Date(l.ts).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}`}</div>
                   </div>
                   <div className="shrink-0 text-right">
-                    <div className={`text-[14px] font-semibold tabular ${l.delta >= 0 ? "text-up" : "text-white/85"}`}>{l.delta >= 0 ? "+" : "−"}{fmt(Math.abs(l.delta))}</div>
+                    <div className={`text-[14px] font-semibold tabular ${l.delta >= 0 ? "text-brand" : "text-white/85"}`}>{l.delta >= 0 ? "+" : "−"}{fmt(Math.abs(l.delta))}</div>
                     <div className="text-[11px] tabular text-mute">{fmt(l.balance_after)}</div>
                   </div>
                 </div>

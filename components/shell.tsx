@@ -15,7 +15,7 @@ import { ChatMark, chatName } from "./chat/mark";
 /** The phone's four tabs. Each screen does one job; everything else is a page you go into and back out of. */
 const TABS = [
   { href: "/chats", label: "Chats", icon: Chat },
-  { href: "/markets", label: "Markets", icon: TrendUp },
+  { href: "/markets", label: "Stakes", icon: TrendUp },
   { href: "/portfolio", label: "Wallet", icon: Wallet },
   { href: "/settings", label: "You", icon: UserIcon },
 ];
@@ -128,7 +128,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   }
   // The chats are the home screen, like a messaging app; everything else is a small row at the bottom.
   const nav = [
-    { href: "/markets", label: "Markets", icon: TrendUp },
+    { href: "/markets", label: "Stakes", icon: TrendUp },
     { href: "/portfolio", label: "Wallet", icon: Wallet },
     ...(me.account?.isAdmin ? [{ href: "/chain", label: "Chain", icon: Blocks }] : []),
     { href: "/settings", label: "Settings", icon: Settings, dot: !me.account?.hasRecovery },

@@ -5,6 +5,8 @@ import { BALANCE_SERIES, chartPoints } from "@/lib/series";
 import { netWorth } from "@/lib/economy";
 import { priceYes } from "@/lib/lmsr";
 import { explorer, onChainBalance, solanaConfig } from "@/lib/solana";
+import { walletSkill } from "@/lib/skill";
+import { lockedInFriendBetsFor } from "@/lib/friend-bet";
 
 export const GET = route(async (_req, user) => {
   const db = await getDb();
@@ -25,6 +27,8 @@ export const GET = route(async (_req, user) => {
   const cfg = solanaConfig();
   return {
     netWorth: await netWorth(db, user.id),
+    friendBets: await lockedInFriendBetsFor(db, user.id),
+    skill: await walletSkill(db, user.id),
     series,
     positions: positions.map((p) => {
       const pr = p.status === "resolved" ? (p.outcome ? 1 : 0) : priceYes({ b: p.b, qYes: p.q_yes, qNo: p.q_no });
