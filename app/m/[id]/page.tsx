@@ -545,14 +545,14 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                 </div>
                 <p className="mt-2 text-xs text-mute">The line is {fmtLine(m.line!, m.unit)}. Over it pays {lbl.yes}, {fmtLine(m.line!, m.unit)} or under pays {lbl.no}.</p>
               </label>
-              <Input placeholder="Anything to add? (optional, saved to group memory)" value={note} onChange={(e) => setNote(e.target.value)} />
+              <Input placeholder={d.me.early ? "Where's it from? e.g. results email at 9am" : "Anything to add? (optional, saved to group memory)"} value={note} onChange={(e) => setNote(e.target.value)} />
               {(() => {
                 const v = Number(actual.replace(",", "."));
                 const over = Number.isFinite(v) && actual !== "" ? v > m.line! : null;
                 const allowed = over == null ? false : over ? d.me.canResolveYes : d.me.canResolveNo;
                 return (
                   <>
-                    <Button variant={over === false ? "down" : "up"} className="w-full" disabled={busy || over == null || !allowed} onClick={() => resolve(over!)}>
+                    <Button variant={over === false ? "down" : "up"} className="w-full" disabled={busy || over == null || !allowed || (d.me.early && note.trim().length < 10)} onClick={() => resolve(over!)}>
                       {over == null ? "Enter the number" : `Settle as ${over ? lbl.yes : lbl.no}`}
                     </Button>
                     {over != null && !allowed && <p className="text-xs text-mute">You&apos;d gain from that result, so a friend who wouldn&apos;t gain has to enter it.</p>}

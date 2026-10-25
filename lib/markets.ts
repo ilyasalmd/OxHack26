@@ -448,6 +448,8 @@ export async function proposeResult(user: User, marketId: number, result: boolea
     const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
     if (!m) throw new HttpError(404, "Market not found");
     assertOpen(m);
+    // What the proposer wrote themselves: only this counts as evidence, not the "Actual: …" line added below.
+    const said = note.trim();
     // A number question is settled by the number itself; "over the line" is the YES side.
     let outcome: boolean;
     if (typeof result === "boolean") {
@@ -465,7 +467,7 @@ export async function proposeResult(user: User, marketId: number, result: boolea
       if (!photo) throw new HttpError(400, "Upload the photo to this chat first");
     }
     const early = new Date(m.resolves_at) > now();
-    assertCanPropose(m, user, outcome, evidenceId != null || note.trim().length >= EVIDENCE_MIN_CHARS);
+    assertCanPropose(m, user, outcome, evidenceId != null || said.length >= EVIDENCE_MIN_CHARS);
     await assertMember(q, m.group_id, user.id);
     // Under the row lock, so nobody can buy a side and then call it their way.
     assertMayCall(await callableBy(q, m, user.id), outcome);
