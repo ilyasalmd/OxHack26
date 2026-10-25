@@ -38,12 +38,12 @@ export function Frame({ children }: { children: React.ReactNode }) {
   return (
     <div className="lg:flex lg:h-dvh lg:overflow-hidden">
       <Sidebar me={me} path={path} />
-      <div className={`mx-auto min-h-dvh w-full max-w-xl sm:border-x sm:border-line lg:mx-0 lg:h-dvh lg:min-h-0 lg:max-w-none lg:flex-1 lg:overflow-y-auto lg:border-0 thin-scroll ${tabs ? (me.config.demo && me.account?.isAdmin ? "pb-[calc(100px+env(safe-area-inset-bottom))]" : "pb-[calc(64px+env(safe-area-inset-bottom))]") + " lg:pb-0" : ""}`}>
+      <div className={`mx-auto min-h-dvh w-full max-w-xl sm:border-x sm:border-line lg:mx-0 lg:h-dvh lg:min-h-0 lg:max-w-none lg:flex-1 lg:overflow-y-auto lg:border-0 thin-scroll ${tabs ? (me.config.demo && me.account?.isAdmin ? "pb-[calc(max(12px,env(safe-area-inset-bottom))+124px)]" : "pb-[calc(max(12px,env(safe-area-inset-bottom))+84px)]") + " lg:pb-0" : ""}`}>
         {children}
       </div>
       {tabs && (
         <>
-          {me.config.demo && me.account?.isAdmin && <div className="fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-40 mx-auto max-w-xl bg-ink lg:hidden"><TimeMachine /></div>}
+          {me.config.demo && me.account?.isAdmin && <div className="glass-bar fixed inset-x-3 bottom-[calc(max(12px,env(safe-area-inset-bottom))+72px)] z-40 mx-auto max-w-md overflow-hidden rounded-2xl lg:hidden"><TimeMachine /></div>}
           <TabBar path={path} me={me} />
         </>
       )}
@@ -52,16 +52,19 @@ export function Frame({ children }: { children: React.ReactNode }) {
 }
 
 function TabBar({ path, me }: { path: string; me: Me }) {
+  const at = Math.max(0, TABS.findIndex((t) => t.href === path));
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-line bg-ink/92 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden" aria-label="Main">
-      <div className="mx-auto flex h-16 max-w-xl items-stretch">
+    <nav className="glass-bar fixed inset-x-3 bottom-[max(12px,env(safe-area-inset-bottom))] z-40 mx-auto max-w-md rounded-full p-1.5 lg:hidden" aria-label="Main">
+      <div className="relative flex h-[52px] items-stretch">
+        {/* The active tab's glass pill. It slides to the tapped tab rather than jumping. */}
+        <span aria-hidden className="glass-pill absolute inset-y-0 left-0 w-1/4 rounded-full" style={{ transform: `translateX(${at * 100}%)` }} />
         {TABS.map(({ href, label, icon: Icon }) => {
           const on = path === href;
           return (
-            <Link key={href} href={href} aria-current={on ? "page" : undefined} className={`relative flex flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium transition ${on ? "text-white" : "text-mute"}`}>
-              <Icon size={23} className={on ? "" : "opacity-80"} />
+            <Link key={href} href={href} aria-current={on ? "page" : undefined} className={`relative flex flex-1 flex-col items-center justify-center gap-0.5 rounded-full text-[10.5px] font-semibold transition-colors ${on ? "text-brand" : "text-mute active:text-white"}`}>
+              <Icon size={22} />
               {label}
-              {href === "/settings" && !me.account?.hasRecovery && <span className="absolute right-[calc(50%-16px)] top-3 h-1.5 w-1.5 rounded-full bg-brand" />}
+              {href === "/settings" && !me.account?.hasRecovery && <span className="absolute right-[calc(50%-16px)] top-2 h-1.5 w-1.5 rounded-full bg-brand" />}
             </Link>
           );
         })}
