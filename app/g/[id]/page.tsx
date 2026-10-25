@@ -796,6 +796,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         groupId={id}
         now={feed.now}
         ticker={c.ticker}
+        members={feed.members}
         onCreated={() => { setBetOpen(false); poll(); refresh(); }}
       />
       <NewSituation

@@ -16,6 +16,8 @@ export const POST = route<IdCtx>(async (req, user, ctx) => {
       side: z.enum(["yes", "no"]),
       stake: z.number().positive(),
       theirStake: z.number().positive(),
+      // One friend in the chat who alone can take it; left out, anyone can.
+      targetId: z.number().int().positive().nullish(),
     })
   );
   return createFriendBet(user, id, b);
