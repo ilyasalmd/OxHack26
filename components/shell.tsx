@@ -129,7 +129,7 @@ export function LastLine({ g }: { g: Me["groups"][number] }) {
   return (
     <>
       {who && <span className="text-white/70">{who}: </span>}
-      {p ? (p.a ? `${p.a.kind === "voice" ? `Voice note (${Math.max(1, Math.round(p.a.dur ?? 0))}s)` : "Photo"}${p.t ? `: ${p.t}` : ""}` : p.t) : "Encrypted message"}
+      {last.deleted ? <i>Message deleted</i> : p ? (p.a ? `${p.a.kind === "voice" ? `Voice note (${Math.max(1, Math.round(p.a.dur ?? 0))}s)` : "Photo"}${p.t ? `: ${p.t}` : ""}` : p.t) : "Encrypted message"}
     </>
   );
 }
