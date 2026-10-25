@@ -44,7 +44,7 @@ type RepriceRecord = {
   ms: number;
   prompt: string | null;
   rawOutput: string | null;
-  maths: { rule: string; applied: { id: number; title: string; from: number; to: number; reason: string }[] };
+  maths: { rule: string; applied: { id: number; title: string; from: number; to: number; reason: string }[]; skipped?: { id: number; title: string; from: number; to: number; reason: string; skipped: string }[] };
 };
 
 async function sha256Hex(text: string) {
@@ -349,13 +349,14 @@ function Steps({ r }: { r: OpenRecord }) {
 function Remark({ rec, marketId }: { rec: Rec; marketId: number }) {
   const r = JSON.parse(rec.record) as RepriceRecord;
   const mine = r.maths.applied.find((a) => a.id === marketId);
+  const held = r.maths.skipped?.find((a) => a.id === marketId);
   return (
     <div className="mt-4 rounded-2xl bg-panel p-4">
       <div className="flex items-center gap-2 text-sm">
         <span className="font-medium">{new Date(rec.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
         <Badge>{r.provider === "heuristic" ? "Stats model" : r.model}</Badge>
       </div>
-      <p className="mt-2 text-sm">{mine ? `${pct(mine.from)} to ${pct(mine.to)}: ${mine.reason}` : "Price left as it was."}</p>
+      <p className="mt-2 text-sm">{mine ? `${pct(mine.from)} to ${pct(mine.to)}: ${mine.reason}` : held ? `The AI said ${pct(held.from)} to ${pct(held.to)} (${held.reason}), but ${held.skipped}.` : "Price left as it was."}</p>
       <div className="mt-2 break-all font-mono text-xs text-mute">SHA-256 {rec.sha256}</div>
       {r.rawOutput && <Pre title="Raw reply" text={r.rawOutput} />}
       {r.prompt && <Pre title="Prompt" text={r.prompt} />}

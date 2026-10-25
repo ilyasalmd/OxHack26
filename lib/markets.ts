@@ -12,7 +12,7 @@ import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter
 import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import type { Snippet } from "./chat-context";
-import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, TOO_CLOSE_TO_CALL, topicProblem, votesNeeded } from "./safety";
+import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, topicProblem, votesNeeded } from "./safety";
 
 export type MarketRow = {
   id: number;
@@ -55,6 +55,8 @@ export type MarketRow = {
   resolves_at: Date;
   resolved_at: Date | null;
   last_decay_at: Date;
+  /** When the chat was told the deadline had arrived (null until then). */
+  matured_notified_at: Date | null;
   volume: number;
   chat_context: { shared: number; used: (Snippet & { why: string })[] } | null;
 };
@@ -663,9 +665,40 @@ export async function finaliseProposals(q: Q) {
 }
 
 /**
- * Every situation reaches an answer once it matures. If nobody has put a result forward within
- * MATURITY_FALLBACK_HOURS of the deadline, it settles the way the market leans; when the market is
- * too close to call, or nobody traded, it's called off and everyone is refunded. Called by the worker.
+ * The day a stake's deadline arrives, everyone in the chat is told once, so somebody can call the
+ * result (the message counts as unread for every member). Called by the worker.
+ */
+export async function announceMaturities(q: Q) {
+  const ahead = aheadOfRealTime();
+  const t = now();
+  const due = await q.query<MarketRow>(
+    `SELECT * FROM markets WHERE status = 'open' AND proposed_outcome IS NULL AND matured_notified_at IS NULL AND resolves_at <= $1
+       AND ($2::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $2)) ORDER BY resolves_at`,
+    [t, ahead?.userId ?? null]
+  );
+  const days = MATURITY_FALLBACK_HOURS / 24;
+  for (const m of due) {
+    // Claim it first so two sweeps running at once can't post the notice twice.
+    const [mine] = await q.query(`UPDATE markets SET matured_notified_at = $2 WHERE id = $1 AND matured_notified_at IS NULL RETURNING id`, [m.id, t]);
+    if (!mine) continue;
+    const [poster] = await q.query<{ display_name: string }>(`SELECT display_name FROM users WHERE id = $1`, [m.creator_id]);
+    await systemMessage(
+      q,
+      m.group_id,
+      "due",
+      `“${m.title}” has reached its deadline. What happened? ${poster?.display_name ?? "Whoever posted it"} can call the result now and anyone can from tomorrow. If nobody confirms it within ${days} days, it's called off and everyone is refunded.`,
+      m.id,
+      null
+    );
+  }
+}
+
+/**
+ * Every situation reaches an end once it matures. If nobody has put a result forward within
+ * MATURITY_FALLBACK_HOURS of the deadline, the stake is called off and everyone gets back what they
+ * put in. The market's price is never used as the answer: it says what people expected, not what
+ * happened, and an unverified outcome must never pay out or enter the history used for pricing.
+ * Called by the worker.
  */
 export async function settleUnclaimed(q: Q) {
   const ahead = aheadOfRealTime();
@@ -677,18 +710,12 @@ export async function settleUnclaimed(q: Q) {
   const days = MATURITY_FALLBACK_HOURS / 24;
   for (const m of due) {
     const p = priceYes(book(m));
-    const [{ n }] = await q.query<{ n: number }>(`SELECT count(*)::int AS n FROM trades WHERE market_id = $1`, [m.id]);
     try {
-      if (!n || Math.abs(p - 0.5) < TOO_CLOSE_TO_CALL)
-        await voidMarket(m.id, {
-          reason: "unclaimed",
-          actorId: null,
-          text: `nobody called “${m.title}” within ${days} days of the deadline and ${n ? `the market was too close to call (${Math.round(p * 100)}%)` : "nobody traded it"}, so it was called off and everyone was refunded`,
-        });
-      else
-        await settle(m, p > 0.5, "", null, {
-          suffix: `nobody called it within ${days} days of the deadline, so it went the way the market leaned, at ${Math.round(p * 100)}%`,
-        });
+      await voidMarket(m.id, {
+        reason: "unclaimed",
+        actorId: null,
+        text: `nobody confirmed what happened with “${m.title}” within ${days} days of the deadline, so it was called off and everyone was refunded. The market's ${Math.round(p * 100)}% was a prediction, not a result`,
+      });
     } catch (e) {
       if (!(e instanceof HttpError)) console.warn("[unclaimed]", (e as Error).message);
     }
@@ -739,28 +766,153 @@ async function rememberOutcome(m: MarketRow, outcome: boolean, crowd: number, pa
   );
 }
 
-/** Long-dated "by date X" stocks lose value as time passes with no news. */
+/**
+ * Time decay for one long-dated stock, from its last decay to `t`. Returns the book after decay (or
+ * unchanged when none was due). Called under the market's row lock by whoever is about to write the
+ * book, so decay and the write land together. Skips tiny intervals unless `force`.
+ */
+async function decayOne(q: Q, m: MarketRow, t: Date, force = false): Promise<Book> {
+  const bk0 = book(m);
+  if (m.decay !== "hazard" || m.status !== "open") return bk0;
+  const end = new Date(m.resolves_at).getTime();
+  const last = new Date(m.last_decay_at).getTime();
+  const before = end - last;
+  const after = end - t.getTime();
+  if (before <= 0 || t.getTime() <= last || (!force && t.getTime() - last < 60_000)) return bk0;
+  const p0 = priceYes(bk0);
+  const p1 = Math.max(0.005, hazardDecay(p0, before, after));
+  const bk = recenter(bk0, p1);
+  await q.query(`UPDATE markets SET q_yes = $2, last_decay_at = $3 WHERE id = $1`, [m.id, bk.qYes, t]);
+  if (Math.abs(p1 - p0) > 0.0005) await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'decay')`, [m.id, t, p1]);
+  return bk;
+}
+
+/** Long-dated "by date X" stocks lose value as time passes with no news. Also runs the maturity sweeps. */
 export async function runDecay(q: Q) {
+  await announceMaturities(q);
   await finaliseProposals(q);
   await settleUnclaimed(q);
   const ahead = aheadOfRealTime();
-  const rows = await q.query<MarketRow>(
-    `SELECT * FROM markets WHERE status = 'open' AND decay = 'hazard'
+  const rows = await q.query<{ id: number }>(
+    `SELECT id FROM markets WHERE status = 'open' AND decay = 'hazard'
        AND ($1::int IS NULL OR group_id IN (SELECT group_id FROM group_members WHERE user_id = $1))`,
     [ahead?.userId ?? null]
   );
   const t = now();
-  for (const m of rows) {
-    const end = new Date(m.resolves_at).getTime();
-    const before = end - new Date(m.last_decay_at).getTime();
-    const after = end - t.getTime();
-    if (before <= 0 || t.getTime() - new Date(m.last_decay_at).getTime() < 60_000) continue;
-    const p0 = priceYes(book(m));
-    const p1 = Math.max(0.005, hazardDecay(p0, before, after));
-    const bk = recenter(book(m), p1);
-    await q.query(`UPDATE markets SET q_yes = $2, last_decay_at = $3 WHERE id = $1`, [m.id, bk.qYes, t]);
-    if (Math.abs(p1 - p0) > 0.0005) await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'decay')`, [m.id, t, p1]);
+  const db = await getDb();
+  // Each stock is locked and re-read before its decay is written, so a trade that landed since the
+  // list above was read is never overwritten by a book computed from the old row.
+  for (const { id } of rows)
+    await db.tx(async (tq) => {
+      const [m] = await tq.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [id]);
+      if (m) await decayOne(tq, m, t);
+    });
+}
+
+/** The cap on any single AI move, so the house can't be gamed through the mood signal. */
+export const AI_MOVE_CAP = 0.15;
+
+export type RemarkSnapshot = { stocks: (MarketRow & { subject_name: string | null })[]; inputs: Parameters<typeof repriceStocks>[0]; at: Date };
+
+/**
+ * What the AI gets to see: every open stock in the group, as it stands right now. The snapshot
+ * remembers each stock's volume, which is how applyRemarks later tells whether anyone traded while
+ * the AI was thinking.
+ */
+export async function snapshotForRemark(q: Q, groupId: number, moods: Record<string, number> | null, chat: Record<string, Snippet[]> | null): Promise<RemarkSnapshot> {
+  const [grp] = await q.query<{ ai_context: string; ai_reads_chat: boolean }>(`SELECT ai_context, ai_reads_chat FROM groups WHERE id = $1`, [groupId]);
+  if (!grp?.ai_reads_chat) chat = null;
+  const at = now();
+  const stocks = await q.query<MarketRow & { subject_name: string | null }>(
+    `SELECT m.*, u.display_name AS subject_name FROM markets m LEFT JOIN users u ON u.id = m.subject_id
+     WHERE m.group_id = $1 AND m.kind = 'stock' AND m.status = 'open' AND m.proposed_outcome IS NULL AND m.resolves_at > $2`,
+    [groupId, at]
+  );
+  return {
+    at,
+    stocks,
+    inputs: {
+      today: at,
+      groupContext: grp?.ai_context ?? "",
+      stocks: stocks.map((m) => ({
+        id: m.id,
+        title: m.title,
+        category: m.category,
+        price: price(m),
+        daysLeft: (new Date(m.resolves_at).getTime() - at.getTime()) / 86400000,
+        subjectName: m.subject_name,
+        mood: m.subject_id && moods ? (moods[m.subject_id] ?? null) : null,
+        history: m.ai_rationale,
+        snippets: chat?.[m.id]?.slice(0, 8),
+      })),
+    },
+  };
+}
+
+export type Remark = { id: number; probability: number; reason: string; source?: string };
+export type RemarkOutcome =
+  | { id: number; title: string; from: number; to: number; reason: string; applied: true }
+  | { id: number; title: string; from: number; to: number; reason: string; applied: false; skipped: string };
+
+/**
+ * Writes the AI's re-marks, one short transaction per stock, after the AI has finished thinking
+ * (which can take a while, and must never hold a lock). Under each row lock the stock is read
+ * again: if anyone traded it since the snapshot, the trade carries fresher information than the
+ * price the AI priced from, so that re-mark is skipped rather than written over the trade. Time
+ * decay owed since the last sweep is applied under the same lock, so the write lands on a current
+ * book. A stock that has since closed, settled or had a result proposed is left alone.
+ */
+export async function applyRemarks(groupId: number, snap: RemarkSnapshot, updates: Remark[], trace: Trace) {
+  const db = await getDb();
+  const outcomes: RemarkOutcome[] = [];
+  for (const u of updates) {
+    const seen = snap.stocks.find((s) => s.id === u.id);
+    if (!seen || seen.group_id !== groupId) continue;
+    const from = price(seen);
+    const to = Math.min(from + AI_MOVE_CAP, Math.max(from - AI_MOVE_CAP, u.probability));
+    if (Math.abs(to - from) < 0.005) continue;
+    const base = { id: seen.id, title: seen.title, from, to, reason: u.reason };
+    const outcome = await db.tx(async (q): Promise<RemarkOutcome> => {
+      const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [u.id]);
+      if (!m || m.status !== "open" || m.proposed_outcome != null || new Date(m.resolves_at) <= now())
+        return { ...base, applied: false, skipped: "it closed while the AI was thinking" };
+      if (m.volume !== seen.volume) {
+        const nowPrice = priceYes(book(m));
+        return { ...base, applied: false, skipped: `trading moved it from ${(from * 100).toFixed(0)}% to ${(nowPrice * 100).toFixed(0)}% while the AI was thinking, so the trade stands` };
+      }
+      const t = now();
+      // Decay owed since the snapshot lands first, then the AI's move is applied to the current book.
+      const decayed = await decayOne(q, m, t, true);
+      const bk = recenter(decayed, to);
+      await q.query(`UPDATE markets SET q_yes = $2 WHERE id = $1`, [m.id, bk.qYes]);
+      await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'ai')`, [m.id, t, to]);
+      return { ...base, applied: true };
+    });
+    outcomes.push(outcome);
   }
+  const applied = outcomes.filter((o) => o.applied);
+  const skipped = outcomes.filter((o) => !o.applied);
+  if (snap.stocks.length)
+    await saveRecord(db, groupId, snap.stocks.map((m) => m.id), "reprice", {
+      ...traceFields(trace),
+      inputs: { groupContext: snap.inputs.groupContext, stocks: snap.inputs.stocks, snapshotAt: snap.at.toISOString() },
+      parsed: updates,
+      maths: {
+        rule: `Each stock moves to the AI's probability, capped at ${AI_MOVE_CAP * 100} points per re-mark; moves under half a point are skipped. The AI thinks with no lock held; each stock is then locked, re-read and decayed, and its re-mark is skipped if anyone traded it meanwhile`,
+        applied,
+        skipped,
+      },
+    }, now());
+  if (applied.length)
+    await systemMessage(
+      db,
+      groupId,
+      "system",
+      `AI re-marked ${applied.length} stock(s): ${applied.map((a) => `${a.title} ${(a.from * 100).toFixed(0)}→${(a.to * 100).toFixed(0)}% (${a.reason})`).join("; ")}`,
+      null,
+      null
+    );
+  return { applied, skipped };
 }
 
 /** AI re-marks every open stock in a group (term dates, mood, time left). */
@@ -778,58 +930,10 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
     throw new HttpError(429, `Stocks were re-marked recently. Try again in ${mins >= 60 ? `${Math.ceil(mins / 60)}h` : `${mins} min`}.`);
   }
   await runDecay(db);
-  const [grp] = await db.query<{ ai_context: string; ai_reads_chat: boolean }>(`SELECT ai_context, ai_reads_chat FROM groups WHERE id = $1`, [groupId]);
-  if (!grp?.ai_reads_chat) chat = null;
-  const stocks = await db.query<MarketRow & { subject_name: string | null }>(
-    `SELECT m.*, u.display_name AS subject_name FROM markets m LEFT JOIN users u ON u.id = m.subject_id
-     WHERE m.group_id = $1 AND m.kind = 'stock' AND m.status = 'open' AND m.proposed_outcome IS NULL AND m.resolves_at > $2`,
-    [groupId, now()]
-  );
+  const snap = await snapshotForRemark(db, groupId, moods, chat);
   const trace: Trace = { provider: "none", model: "", prompt: "", raw: null, ms: 0 };
-  const repriceInputs = {
-    today: now(),
-    groupContext: grp?.ai_context ?? "",
-    stocks: stocks.map((m) => ({
-      id: m.id,
-      title: m.title,
-      category: m.category,
-      price: price(m),
-      daysLeft: (new Date(m.resolves_at).getTime() - now().getTime()) / 86400000,
-      subjectName: m.subject_name,
-      mood: m.subject_id && moods ? (moods[m.subject_id] ?? null) : null,
-      history: m.ai_rationale,
-      snippets: chat?.[m.id]?.slice(0, 8),
-    })),
-  };
-  const updates = await repriceStocks(repriceInputs, trace);
-  const applied: { id: number; title: string; from: number; to: number; reason: string }[] = [];
-  for (const u of updates) {
-    const m = stocks.find((s) => s.id === u.id);
-    if (!m) continue;
-    const from = price(m);
-    // Cap any single AI move so the house can't be gamed through the mood signal.
-    const to = Math.min(from + 0.15, Math.max(from - 0.15, u.probability));
-    if (Math.abs(to - from) < 0.005) continue;
-    const bk = recenter(book(m), to);
-    await db.query(`UPDATE markets SET q_yes = $2 WHERE id = $1`, [m.id, bk.qYes]);
-    await db.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'ai')`, [m.id, now(), to]);
-    applied.push({ id: m.id, title: m.title, from, to, reason: u.reason });
-  }
-  if (stocks.length)
-    await saveRecord(db, groupId, stocks.map((m) => m.id), "reprice", {
-      ...traceFields(trace),
-      inputs: { groupContext: repriceInputs.groupContext, stocks: repriceInputs.stocks },
-      parsed: updates,
-      maths: { rule: "Each stock moves to the AI's probability, capped at 15 points per re-mark; moves under half a point are skipped", applied },
-    }, now());
-  if (applied.length)
-    await systemMessage(
-      db,
-      groupId,
-      "system",
-      `AI re-marked ${applied.length} stock(s): ${applied.map((a) => `${a.title} ${(a.from * 100).toFixed(0)}→${(a.to * 100).toFixed(0)}% (${a.reason})`).join("; ")}`,
-      null,
-      null
-    );
-  return { applied, source: updates[0]?.source ?? "none" };
+  // The slow part. No transaction is open and nothing is locked, so people keep trading meanwhile.
+  const updates = await repriceStocks(snap.inputs, trace);
+  const { applied, skipped } = await applyRemarks(groupId, snap, updates, trace);
+  return { applied, skipped, source: updates[0]?.source ?? "none" };
 }
