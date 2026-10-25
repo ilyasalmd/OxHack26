@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { addressScore, pickTurns, type TurnMember } from "../lib/bot-turns";
+import { addressScore, pickTurns as pick, type TurnMember } from "../lib/bot-turns";
+import { cannedReply, intentOf, quickReaction, voiceOf } from "../lib/bot-lines";
+
+// Who answers and why; which of them only react is checked separately.
+const pickTurns = (a: Parameters<typeof pick>[0]) => {
+  const { order, why } = pick(a);
+  return { order, why };
+};
 
 const family: TurnMember[] = [
   { id: 1, username: "ilyas", display_name: "Ilyas", bot: false },
@@ -47,12 +54,12 @@ test("greeting two people gets both, and nobody else", () => {
   assert.deepEqual([...t.order].sort(), [2, 3]);
 });
 
-test("nobody addressed: exactly one picks it up, others only sometimes", () => {
+test("nobody addressed: one picks it up, a second sometimes chips in", () => {
   const recent = [msg(3, "old news", 600), msg(1, "anyone up?")];
   assert.equal(pickTurns({ members: family, recent, senderId: 1, now: T, rand: never }).order.length, 1);
   let two = 0;
   for (let k = 0; k < 2000; k++) two += pickTurns({ members: family, recent, senderId: 1, now: T }).order.length === 2 ? 1 : 0;
-  assert.ok(two > 250 && two < 550, `chimed in ${two}/2000`);
+  assert.ok(two > 400 && two < 800, `chimed in ${two}/2000`);
 });
 
 test("a cold conversation isn't a reply to the last speaker", () => {
@@ -82,4 +89,64 @@ test("Friday Dinner Crew: replying to Jake gets Jake", () => {
   assert.deepEqual(pickTurns({ members: crew, recent, senderId: 1, now: T, rand: never }), { order: [11], why: "reply" });
   const r2 = [msg(11, "might be a bit late lads", 2), msg(1, "priya did you book for 6 or 7")];
   assert.deepEqual(pickTurns({ members: crew, recent: r2, senderId: 1, now: T, rand: never }).order, [10]);
+});
+
+test("nobody addressed: usually someone answers, sometimes nobody, and not always the same person", () => {
+  const recent = [msg(3, "old news", 600), msg(1, "anyone up?")];
+  const firsts = new Map<number, number>();
+  let quiet = 0;
+  for (let k = 0; k < 2000; k++) {
+    const t = pickTurns({ members: family, recent, senderId: 1, now: T });
+    if (!t.order.length) quiet++;
+    else firsts.set(t.order[0], (firsts.get(t.order[0]) ?? 0) + 1);
+  }
+  assert.ok(quiet > 150 && quiet < 450, `quiet ${quiet}/2000`);
+  assert.equal(firsts.size, 3);
+  // Dad spoke last, so the others pick it up more often.
+  assert.ok(firsts.get(3)! < firsts.get(2)!, JSON.stringify([...firsts]));
+});
+
+test("a bare 'lol' often gets no answer; a question to someone always does", () => {
+  const lol = [msg(3, "shed's done", 1), msg(1, "lol")];
+  let quiet = 0;
+  for (let k = 0; k < 1000; k++) quiet += pickTurns({ members: family, recent: lol, senderId: 1, now: T }).order.length ? 0 : 1;
+  assert.ok(quiet > 400 && quiet < 700, `quiet ${quiet}/1000`);
+  const q = [msg(3, "shed's done", 1), msg(1, "how long did it take?")];
+  for (let k = 0; k < 200; k++) assert.equal(pickTurns({ members: family, recent: q, senderId: 1, now: T }).order[0], 3);
+});
+
+test("a one-to-one chat always gets an answer", () => {
+  const pair: TurnMember[] = [family[0], { id: 7, username: "nadia", display_name: "Nadia", bot: true }];
+  for (let k = 0; k < 200; k++) assert.deepEqual(pickTurns({ members: pair, recent: [msg(1, "ok")], senderId: 1, now: T }).order, [7]);
+});
+
+test("whoever chips in mostly just reacts; the one addressed always answers properly", () => {
+  const recent = [msg(3, "hello son, you alright?", 1), msg(1, "im good how r u")];
+  let quick = 0, chimes = 0;
+  for (let k = 0; k < 2000; k++) {
+    const t = pick({ members: family, recent, senderId: 1, now: T });
+    assert.ok(!t.quick.includes(3));
+    if (t.order.length > 1) chimes++;
+    quick += t.quick.length;
+  }
+  assert.ok(chimes > 350 && chimes < 650, `chimes ${chimes}`);
+  assert.ok(quick > chimes * 0.45 && quick < chimes * 0.75, `quick ${quick}/${chimes}`);
+});
+
+test("without the AI, replies still fit the message and the person", () => {
+  assert.equal(intentOf("im good how r u"), "how-are-you");
+  assert.equal(intentOf("hiya"), "greeting");
+  assert.equal(intentOf("anyone fancy the pub later"), "plan");
+  assert.equal(intentOf("what time is dinner?"), "when");
+  assert.equal(intentOf("lmao"), "laugh");
+  assert.equal(intentOf("is the shed finished?"), "yes-no");
+  assert.equal(intentOf("I got the offer!"), "good-news");
+  assert.equal(intentOf("so tired today"), "bad-news");
+  assert.equal(voiceOf("mum"), "parent");
+  assert.equal(voiceOf("jake"), "friend");
+  const r = () => 0;
+  assert.match(cannedReply("dad", "im good how r u", { rand: r }), /\?|fine|good/);
+  assert.match(cannedReply("mum", "love you mum", { rand: r }), /love you/);
+  assert.notEqual(cannedReply("jake", "hey", { rand: r, avoid: ["yo"] }), "yo");
+  assert.ok(["100%", "lol", "facts", "true", "fr", "haha", "same"].includes(quickReaction("jake")));
 });

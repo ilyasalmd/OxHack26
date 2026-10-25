@@ -11,6 +11,7 @@ import { priceYes } from "./lmsr";
 import { maxStake } from "./economy";
 import { PEOPLE } from "../scripts/seed-content";
 import { BOT_CONTEXT, pickTurns, type Turns } from "./bot-turns";
+import { cannedReply, quickReaction } from "./bot-lines";
 import type { User } from "./auth";
 
 /**
@@ -127,16 +128,26 @@ async function reply(groupId: number, senderId: number) {
   const [g] = await db.query<{ name: string; ai_context: string | null }>(`SELECT name, ai_context FROM groups WHERE id = $1`, [groupId]);
   const sender = members.find((m) => m.id === senderId)?.display_name ?? "someone";
 
+  const said = [...recent].reverse().find((l) => l.userId === senderId)?.text ?? "";
   for (const [i, id] of turns.order.entries()) {
     const b = bots.find((x) => x.id === id);
     if (!b) continue;
-    if (i > 0) await sleep(3000 + Math.random() * 5000);
+    if (i > 0) await sleep(2500 + Math.random() * 5000);
     // Read again, so whoever chips in sees the reply before theirs.
     const lines = i === 0 ? recent : await recentChat(groupId, b);
+    const mine = lines.filter((l) => l.userId === b.id).map((l) => l.text);
     setTyping(groupId, b.id, "text");
-    const text = await writeReply({ b, chat: g?.name ?? "the chat", context: g?.ai_context ?? "", sender, lines, role: i === 0 ? turns.why : "chip-in" });
-    await sleep(800 + Math.random() * 1200);
-    await say(groupId, b, text || pick(i === 0 && HOW_ARE_YOU.test(recent.at(-1)?.text ?? "") ? ANSWERS : SMALL_TALK)).catch((e) => console.warn("[bots] chat", (e as Error).message));
+    let text: string;
+    if (turns.quick.includes(b.id)) {
+      // A quick "100%" or "lol" takes a second to type and needs no model.
+      text = quickReaction(b.username, { avoid: mine });
+      await sleep(700 + Math.random() * 800);
+    } else {
+      const role = i === 0 ? turns.why : "chip-in";
+      text = (await writeReply({ b, chat: g?.name ?? "the chat", context: g?.ai_context ?? "", sender, lines, role })) || cannedReply(b.username, said, { avoid: mine });
+      await sleep(800 + Math.random() * 1200);
+    }
+    await say(groupId, b, text).catch((e) => console.warn("[bots] chat", (e as Error).message));
     setTyping(groupId, b.id, null);
   }
 }
@@ -158,7 +169,7 @@ ${a.lines.map((l) => `${l.name}${l.name === me ? " (you)" : ""}: ${l.text}`).joi
 
 ${task}
 Speak only for yourself, ${me}, in first person, and stay consistent with what you've already said. Talk to ${a.sender} the way ${me} would, given who they are to you.
-Casual British English, lowercase is fine, under 18 words, no emoji, no hashtags.${person.boldness > 0.7 ? " You're a bit cocky." : ""}`;
+Text the way real friends and family do: casual British English, lowercase is fine, usually a few words and never more than 18, sometimes a question back. No emoji, no hashtags, no greeting unless they greeted you.${person.boldness > 0.7 ? " You're a bit cocky." : ""}`;
   // The chat goes in unredacted, so only Gemma on this machine may read it; with only the Gemini API the canned lines answer.
   const out = await askJson<{ reply: string }>(prompt, { type: "object", properties: { reply: { type: "string" } }, required: ["reply"] }, 15000, undefined, { localOnly: true });
   return (typeof out?.reply === "string" ? out.reply : "")
@@ -168,11 +179,6 @@ Casual British English, lowercase is fine, under 18 words, no emoji, no hashtags
     .trim()
     .slice(0, 160);
 }
-
-// Fallbacks when the model is off: something that answers a question, or a reaction.
-const HOW_ARE_YOU = /\bhow (r|are) (u|you|ya)\b|\bhow'?s it going\b|\b(you|u) (ok|okay|alright|good)\b/i;
-const ANSWERS = ["not bad thanks, you?", "all good here", "yeah good, been a long day", "fine thanks, what about you"];
-const SMALL_TALK = ["haha fair", "say less", "honestly same", "wait what", "no way", "classic", "I'm in", "100%", "big if true", "we'll see about that"];
 
 /** Starts the bots for a freshly posted stake. Returns at once; they act over the next minute. */
 export function startBots(marketId: number, posterId: number) {
