@@ -2,7 +2,7 @@ import { getDb } from "@/lib/db";
 import { route } from "@/lib/auth";
 import { maxStake, netWorth } from "@/lib/economy";
 import { clockOffset, now } from "@/lib/clock";
-import { CURRENCY, DEMO_MODE, ECONOMY, AI, isAdminUsername } from "@/lib/config";
+import { CURRENCY, DEMO_MODE, ECONOMY, MARKET, AI, isAdminUsername } from "@/lib/config";
 import { solanaConfig } from "@/lib/solana";
 import { ensureWorker } from "@/lib/worker";
 import { AVATAR_COLS } from "@/lib/chat";
@@ -94,6 +94,7 @@ export const GET = route(async (req, user) => {
     config: {
       currency: CURRENCY,
       economy: ECONOMY,
+      bookmaker: { vig: MARKET.vig },
       demo: DEMO_MODE,
       ai: AI.enabled,
       solana: admin && !!solanaConfig(),

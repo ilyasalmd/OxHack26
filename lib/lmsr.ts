@@ -51,6 +51,37 @@ export function proceedsForShares(book: Book, side: Side, shares: number) {
   return cost(book) - cost(applyShares(book, side, -shares));
 }
 
+// The AI bookmaker. The LMSR book is the AI's quote: it opens at the AI's probability, and
+// leans against whichever side people pile into. On top of it sits a margin (vig) on both
+// sides, so buying and cashing straight back out always loses a little.
+
+/** Shares you get for staking `amount`: the bookmaker keeps `vig` of it as its margin. */
+export function buyQuote(book: Book, side: Side, amount: number, vig: number) {
+  const shares = sharesForAmount(book, side, amount * (1 - vig));
+  return { shares, after: priceYes(applyShares(book, side, shares)) };
+}
+
+const sidePrice = (book: Book, side: Side) => (side === "yes" ? priceYes(book) : 1 - priceYes(book));
+/** What one more share costs right now (the bookmaker's ask). */
+export const askPrice = (book: Book, side: Side, vig: number) => Math.min(0.999, sidePrice(book, side) / (1 - vig));
+/** What the bookmaker pays per share if you cash out a small amount right now (its bid). */
+export const bidPrice = (book: Book, side: Side, vig: number) => sidePrice(book, side) * (1 - vig);
+
+/** Coins for cashing out `shares` on one side: the bookmaker's buy-back price less its margin. */
+export const cashOutQuote = (book: Book, side: Side, shares: number, vig: number) => proceedsForShares(book, side, shares) * (1 - vig);
+
+export type Holding = { yes_shares: number; no_shares: number };
+
+/** What a position is worth today: what you'd get cashing all of it out now. */
+export function holdingValue(book: Book, h: Holding, vig: number) {
+  const yes = h.yes_shares > 1e-6 ? cashOutQuote(book, "yes", h.yes_shares, vig) : 0;
+  const no = h.no_shares > 1e-6 ? cashOutQuote(book, "no", h.no_shares, vig) : 0;
+  return yes + no;
+}
+
+/** The most the bookmaker can lose on a market: the bigger side's payout minus every coin it took in. */
+export const houseWorstLoss = (yesShares: number, noShares: number, collected: number) => Math.max(yesShares, noShares) - collected;
+
 /** Probability a long-dated "by date X" event still happens, after time passes with no news.
  * Assumes a constant hazard: P(by T | none by t) = 1 - exp(-λ (T - t)). */
 export function hazardDecay(p: number, msLeftBefore: number, msLeftAfter: number) {

@@ -148,9 +148,16 @@ test("unclaimed with nobody trading, it's called off too, and stock fees come ba
   assert.equal(await status(quiet), "void");
   const id = await mk.createMarket(people.alice, chat, { title: "Cara finishes the dissertation draft", resolvesAt: new Date(Date.now() + 2 * DAY).toISOString(), kind: "stock" });
   const bob0 = await balance(people.bob);
-  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 10 });
-  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 10 });
-  await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 5 });
+  // The flat lister fee is off (the bookmaker's margin replaced it); switch it on to cover the refund path.
+  const economy = (await import("../lib/config")).ECONOMY;
+  economy.stockFee = 0.5;
+  try {
+    await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 10 });
+    await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 10 });
+    await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 5 });
+  } finally {
+    economy.stockFee = 0;
+  }
   assert.ok((await mk.getMarket(db, id)).fees_held > 0, "bob's second trade paid a fee");
   await ageDeadline(id, 73);
   await mk.settleUnclaimed(db);
@@ -465,4 +472,52 @@ test("the decay sweep decays from the price after the latest trade", async () =>
   assert.ok(mk.price(m) > t.after - 0.1, "from the post-trade price, not from the old one");
   const [pos] = await db.query<{ yes_shares: number }>(`SELECT yes_shares FROM positions WHERE market_id = $1 AND user_id = $2`, [id, people.cara.id]);
   assert.ok(pos.yes_shares > 0);
+});
+
+const netWorthOf = async (u: User) => (await (await import("../lib/economy")).netWorth(db, u.id)).total;
+const stock = (title: string) =>
+  mk.createMarket(people.alice, chat, { title, resolvesAt: new Date(Date.now() + 60 * DAY).toISOString(), kind: "stock" });
+
+test("bookmaker: buying doesn't make you look richer", async () => {
+  const id = await stock("Bob moves to London by summer");
+  const before = await netWorthOf(people.cara);
+  await mk.trade(people.cara, id, { side: "yes", action: "buy", amount: 40 });
+  assert.ok((await netWorthOf(people.cara)) < before, "net worth drops by the margin, never jumps");
+});
+
+test("bookmaker: buying and selling straight back loses the margin", async () => {
+  const id = await stock("Cara gets a dog this year");
+  const b0 = await balance(people.bob);
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 40 });
+  const [pos] = await db.query<{ yes_shares: number }>(`SELECT yes_shares FROM positions WHERE market_id = $1 AND user_id = $2`, [id, people.bob.id]);
+  await mk.trade(people.bob, id, { side: "yes", action: "sell", amount: pos.yes_shares });
+  const lost = b0 - (await balance(people.bob));
+  assert.ok(lost > 0 && lost < 4, `round trip cost ${lost}`);
+});
+
+test("bookmaker: it stops taking a side once its worst-case loss hits the limit", async () => {
+  const id = await stock("Alice runs a marathon by maturity");
+  const before = await mk.getMarket(db, id);
+  await db.query(`UPDATE users SET balance = 100000 WHERE id = ANY($1::int[])`, [[people.bob.id, people.cara.id]]);
+  // A plain book can only lose b·ln 2, so the limit matters when re-marks keep pulling the quote
+  // back down while people keep buying YES cheap.
+  const { recenter } = await import("../lib/lmsr");
+  let refused = "";
+  for (let i = 0; i < 40 && !refused; i++) {
+    const m = await mk.getMarket(db, id);
+    await db.query(`UPDATE markets SET q_yes = $2 WHERE id = $1`, [id, recenter(mk.book(m), 0.3).qYes]);
+    await mk.trade(people[i % 2 ? "bob" : "cara"], id, { side: "yes", action: "buy", amount: 60 }).catch((e: Error) => (refused = e.message));
+  }
+  assert.match(refused, /taken all it will/, "a limit kicks in");
+  const [h] = await db.query<{ yes: number; collected: number }>(`SELECT sum(yes_shares)::float8 AS yes, sum(spent)::float8 AS collected FROM positions WHERE market_id = $1`, [id]);
+  assert.ok(h.yes - h.collected <= before.b + 1e-6, "the house can't lose more than its limit");
+  await db.query(`UPDATE users SET balance = 500 WHERE id = ANY($1::int[])`, [[people.bob.id, people.cara.id]]);
+});
+
+test("bookmaker: nobody trades while the AI is re-marking the chat", async () => {
+  const id = await stock("Bob learns to cook by the end of term");
+  await db.query(`UPDATE groups SET repricing_until = now() + interval '1 minute' WHERE id = $1`, [chat]);
+  await rejects(mk.trade(people.cara, id, { side: "yes", action: "buy", amount: 10 }), /re-marking/);
+  await db.query(`UPDATE groups SET repricing_until = NULL WHERE id = $1`, [chat]);
+  await mk.trade(people.cara, id, { side: "yes", action: "buy", amount: 10 });
 });

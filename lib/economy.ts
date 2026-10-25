@@ -1,7 +1,7 @@
 import type { Q } from "./db";
-import { ECONOMY } from "./config";
+import { ECONOMY, MARKET } from "./config";
 import { now } from "./clock";
-import { priceYes } from "./lmsr";
+import { holdingValue } from "./lmsr";
 
 const round2 = (x: number) => Math.round(x * 100) / 100;
 
@@ -49,10 +49,9 @@ export async function netWorth(q: Q, userId: number) {
     // Coins in friend bets count at what was put in until the bet finishes.
     import("./friend-bet").then((f) => f.lockedInFriendBetsFor(q, userId)),
   ]);
-  const held = rows.reduce((s, r) => {
-    const p = priceYes({ b: r.b, qYes: r.q_yes, qNo: r.q_no });
-    return s + r.yes_shares * p + r.no_shares * (1 - p);
-  }, 0);
+  // Open positions count at what cashing out would pay now, never at the last price: your own
+  // buy can't make you look richer.
+  const held = rows.reduce((s, r) => s + holdingValue({ b: r.b, qYes: r.q_yes, qNo: r.q_no }, r, MARKET.vig), 0);
   return { balance: u.balance, positions: round2(held + bets), total: round2(u.balance + held + bets) };
 }
 

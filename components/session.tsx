@@ -28,6 +28,7 @@ export type Me = {
   config: {
     currency: { name: string; ticker: string };
     economy: { startingBalance: number; weeklyAllowance: number; maxStakeFraction: number; balanceFloor: number; stockFee: number; freeTrades: number };
+    bookmaker: { vig: number };
     demo: boolean;
     ai: boolean;
     solana: boolean;

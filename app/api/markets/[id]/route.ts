@@ -1,13 +1,14 @@
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
-import { PROPOSE_GRACE_MS, callableBy, getMarket, isClosed, price, voteState } from "@/lib/markets";
+import { PROPOSE_GRACE_MS, book, callableBy, getMarket, isClosed, price, voteState } from "@/lib/markets";
+import { askPrice, bidPrice, cashOutQuote } from "@/lib/lmsr";
 import { maxStake } from "@/lib/economy";
 import { tradeFee } from "@/lib/markets";
 import { findSimilar } from "@/lib/memory";
 import { now } from "@/lib/clock";
 import { SETTLE_WINDOW_MS } from "@/lib/safety";
-import { isAdminUsername } from "@/lib/config";
+import { isAdminUsername, MARKET } from "@/lib/config";
 import { PRICE_SERIES, chartPoints } from "@/lib/series";
 
 export const GET = route<IdCtx>(async (_req, user, ctx) => {
@@ -50,6 +51,14 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     [id, isAdminUsername(user.username)]
   );
   const [position] = await db.query(`SELECT yes_shares, no_shares, spent FROM positions WHERE market_id = $1 AND user_id = $2`, [id, user.id]);
+  // What the AI bookmaker pays to cash each side out right now.
+  const bk = book(m);
+  const cashOut = position
+    ? {
+        yes: position.yes_shares > 1e-6 ? cashOutQuote(bk, "yes", position.yes_shares, MARKET.vig) : null,
+        no: position.no_shares > 1e-6 ? cashOutQuote(bk, "no", position.no_shares, MARKET.vig) : null,
+      }
+    : null;
   const people = await db.query<{ id: number; display_name: string; username: string; color: string }>(
     `SELECT id, display_name, username, color FROM users WHERE id = ANY($1::int[])`,
     [[m.creator_id, m.subject_id, m.proposed_by].filter(Boolean)]
@@ -94,7 +103,9 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     ticks,
     candles,
     trades,
-    position: position ?? null,
+    position: position ? { ...position, cashOut } : null,
+    // The AI bookmaker's two-way quote: what a share costs to buy and what it pays to sell, per side.
+    quotes: { vig: MARKET.vig, ask: { yes: askPrice(bk, "yes", MARKET.vig), no: askPrice(bk, "no", MARKET.vig) }, bid: { yes: bidPrice(bk, "yes", MARKET.vig), no: bidPrice(bk, "no", MARKET.vig) } },
     similar: similar.filter((s) => s.market_id !== m.id).map(({ embedding: _e, ...s }) => s),
     me: {
       balance: u.balance,

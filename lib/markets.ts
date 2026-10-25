@@ -14,7 +14,7 @@ import { evidenceFor, type Similar } from "./memory";
 import { profileForPrompt, type ProfileAnswers } from "./profile-questions";
 import { openingMaths, profileCommitment, saveRecord, sha256, traceFields } from "./pricing-record";
 import type { Trace } from "./ai";
-import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount, type Book, type Side } from "./lmsr";
+import { applyShares, bookAt, buyQuote, cashOutQuote, hazardDecay, houseWorstLoss, priceYes, recenter, type Book, type Side } from "./lmsr";
 import { closeVault, credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import { MAX_SNIPPETS, type Snippet } from "./chat-context";
@@ -264,6 +264,8 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
     }
     // A bet is a bet: once placed it rides to the result. Stocks can be traded until maturity.
     if (m.kind === "bet" && input.action === "sell") throw new HttpError(400, "A bet is locked once placed. It pays out when the result is in.");
+    const [paused] = await q.query(`SELECT 1 FROM groups WHERE id = $1 AND repricing_until > now()`, [m.group_id]);
+    if (paused) throw new HttpError(409, "The AI is re-marking this chat's stocks. Try again in a moment.");
     const [u] = await q.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1 FOR UPDATE`, [user.id]);
     const fee = await tradeFee(q, m, user.id);
     const before = priceYes(book(m));
@@ -276,7 +278,17 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       if (coins > cap + 1e-9)
         throw new HttpError(400, `Max trade right now is ${cap.toFixed(2)} (${ECONOMY.maxStakeFraction * 100}% of balance, keeping ${ECONOMY.balanceFloor} safe)`);
       if (fee > 0 && u.balance - coins - fee < ECONOMY.balanceFloor - 1e-9) throw new HttpError(400, `That plus the ${fee} fee would take you under the ${ECONOMY.balanceFloor} safety floor`);
-      shares = sharesForAmount(bk, input.side, coins);
+      // The AI bookmaker keeps its margin: only the rest of the stake buys shares.
+      shares = buyQuote(bk, input.side, coins, MARKET.vig).shares;
+      // And it stops taking a side once it could lose more than its limit on this market.
+      const [house] = await q.query<{ yes: number; no: number; collected: number }>(
+        `SELECT coalesce(sum(yes_shares), 0)::float8 AS yes, coalesce(sum(no_shares), 0)::float8 AS no, coalesce(sum(spent), 0)::float8 AS collected
+         FROM positions WHERE market_id = $1`,
+        [marketId]
+      );
+      const worst = houseWorstLoss(house.yes + (input.side === "yes" ? shares : 0), house.no + (input.side === "no" ? shares : 0), house.collected + coins);
+      if (worst > MARKET.houseRisk * m.b + 1e-9)
+        throw new HttpError(400, `The AI bookmaker has taken all it will on ${input.side === "yes" ? sides(m).yes : sides(m).no} here. Try a smaller stake or the other side.`);
       bk = applyShares(bk, input.side, shares);
     } else {
       const [pos] = await q.query<{ yes_shares: number; no_shares: number }>(
@@ -286,7 +298,8 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       const held = pos ? (input.side === "yes" ? pos.yes_shares : pos.no_shares) : 0;
       shares = Math.min(input.amount, held);
       if (!(shares > 1e-6)) throw new HttpError(400, "No shares to sell");
-      coins = proceedsForShares(bk, input.side, shares);
+      // Cashing out pays the bookmaker's buy-back price less its margin.
+      coins = Math.floor(cashOutQuote(bk, input.side, shares, MARKET.vig) * 100) / 100;
       // Without this, tiny sells that return almost nothing still pay the fee and push you under the floor.
       if (fee > 0 && u.balance + coins - fee < ECONOMY.balanceFloor - 1e-9) throw new HttpError(400, `That sale doesn't cover the ${fee} fee without taking you under the ${ECONOMY.balanceFloor} safety floor`);
       bk = applyShares(bk, input.side, -shares);
@@ -941,6 +954,16 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
     const mins = Math.ceil((new Date(g.last_reprice_at).getTime() + MARKET.repriceCooldownMs - t.getTime()) / 60_000);
     throw new HttpError(429, `Stocks were re-marked recently. Try again in ${mins >= 60 ? `${Math.ceil(mins / 60)}h` : `${mins} min`}.`);
   }
+  // Nobody trades this chat's markets while the AI works out new quotes (the timeout covers a crash).
+  await db.query(`UPDATE groups SET repricing_until = now() + interval '2 minutes' WHERE id = $1`, [groupId]);
+  try {
+    return await remark(db, groupId, moods, chat);
+  } finally {
+    await db.query(`UPDATE groups SET repricing_until = NULL WHERE id = $1`, [groupId]);
+  }
+}
+
+async function remark(db: Awaited<ReturnType<typeof getDb>>, groupId: number, moods: Record<string, number> | null, chat: Record<string, Snippet[]> | null) {
   await runDecay(db);
   const snap = await snapshotForRemark(db, groupId, moods, chat);
   const trace: Trace = { provider: "none", model: "", prompt: "", raw: null, ms: 0 };

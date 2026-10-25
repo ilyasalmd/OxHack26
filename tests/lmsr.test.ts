@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyShares, bookAt, cost, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount } from "../lib/lmsr";
+import { applyShares, askPrice, bidPrice, bookAt, buyQuote, cashOutQuote, cost, hazardDecay, holdingValue, priceYes, proceedsForShares, recenter, sharesForAmount } from "../lib/lmsr";
 import { maxStake, mayCall } from "../lib/economy";
 
 const close = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} != ${b}`);
@@ -65,4 +65,24 @@ test("nobody can resolve a market the way that pays them", () => {
   // ...but if every friend is long too, someone has to be able to settle it.
   assert.equal(mayCall(true, long, [long, long], true), true);
   assert.equal(mayCall(true, long, [long, long], false), false);
+});
+
+test("bookmaker: buying and cashing straight out loses the margin, never gains", () => {
+  const b = bookAt(250, 0.5);
+  const { shares } = buyQuote(b, "yes", 100, 0.03);
+  const out = cashOutQuote(applyShares(b, "yes", shares), "yes", shares, 0.03);
+  assert.ok(out < 100 && out > 90, `cash-out ${out}`);
+});
+
+test("bookmaker: a position is valued at its cash-out, so buying never shows a profit", () => {
+  const b = bookAt(250, 0.5);
+  const { shares } = buyQuote(b, "yes", 100, 0.03);
+  const v = holdingValue(applyShares(b, "yes", shares), { yes_shares: shares, no_shares: 0 }, 0.03);
+  assert.ok(v < 100, `value ${v}`);
+});
+
+test("bookmaker: the ask is above the AI's probability and the bid below it", () => {
+  const b = bookAt(250, 0.62);
+  assert.ok(askPrice(b, "yes", 0.03) > 0.62 && bidPrice(b, "yes", 0.03) < 0.62);
+  assert.ok(askPrice(b, "no", 0.03) > 0.38 && bidPrice(b, "no", 0.03) < 0.38);
 });
