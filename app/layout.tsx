@@ -1,11 +1,13 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { DM_Sans, Geist_Mono, Unbounded } from "next/font/google";
 import "./globals.css";
 import { SessionProvider } from "@/components/session";
 import { Frame } from "@/components/shell";
 import { ACCENT_BOOT } from "@/lib/theme";
 
-const geist = Geist({ subsets: ["latin"], variable: "--font-geist" });
+const dmSans = DM_Sans({ subsets: ["latin"], axes: ["opsz"], variable: "--font-dm-sans" });
+// Only the wordmark uses Unbounded.
+const unbounded = Unbounded({ subsets: ["latin"], weight: "800", variable: "--font-unbounded" });
 const geistMono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
@@ -18,7 +20,7 @@ export const viewport: Viewport = { width: "device-width", initialScale: 1, view
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable}`} suppressHydrationWarning>
+    <html lang="en" className={`${dmSans.variable} ${unbounded.variable} ${geistMono.variable}`} suppressHydrationWarning>
       <body>
         <script dangerouslySetInnerHTML={{ __html: ACCENT_BOOT }} />
         <SessionProvider>

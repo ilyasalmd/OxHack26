@@ -16,7 +16,8 @@
      bg-white/[.06], text-black on a brand button and bg-black/60 backdrops all follow the theme. */
   --color-white: #f4f6ec;
   --color-black: #0d100a;
-  --font-sans: var(--font-geist), ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-sans: var(--font-dm-sans), ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-display: var(--font-unbounded), var(--font-dm-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 }
 
@@ -104,7 +105,7 @@ html[data-mode="light"] .group-mark { filter: brightness(.72) saturate(1.25); }
 
 html, body { background: var(--color-ink); color: var(--color-white); }
 html:not([data-mode="light"]) { color-scheme: dark; }
-body { -webkit-font-smoothing: antialiased; font-feature-settings: "ss01", "cv11"; }
+body { -webkit-font-smoothing: antialiased; }
 .tabular { font-variant-numeric: tabular-nums; }
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { scrollbar-width: none; }

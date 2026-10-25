@@ -89,7 +89,7 @@ export function PhoneAuth(p: AuthProps) {
         <DotField spacing={24} />
         <div className="relative flex flex-1 flex-col items-center justify-center py-10 text-center">
           <BrandMark size={104} />
-          <Wordmark className="mt-7 text-[46px]" />
+          <Wordmark className="mt-7 text-[38px]" />
           <p className={`${s.rise} mt-3 text-[19px] font-medium text-black/70`} style={{ animationDelay: ".25s" }}>{TAGLINE}</p>
         </div>
         <div className={`relative space-y-3 ${s.rise}`} style={{ animationDelay: ".4s" }}>
@@ -133,7 +133,7 @@ export function DeskAuth(p: AuthProps) {
       <DotField spacing={28} />
       <div className="relative flex w-full max-w-[400px] flex-col items-center">
         <BrandMark size={84} className="[@media(max-height:820px)]:![--s:60px]" />
-        <Wordmark className="mt-6 text-[54px] [@media(max-height:820px)]:mt-4 [@media(max-height:820px)]:text-[44px]" />
+        <Wordmark className="mt-6 text-[46px] [@media(max-height:820px)]:mt-4 [@media(max-height:820px)]:text-[37px]" />
         <p className={`${s.rise} mt-3 text-lg font-medium text-black/65 [@media(max-height:820px)]:mt-2`} style={{ animationDelay: ".25s" }}>{TAGLINE}</p>
 
         <div className={`${s.rise} mt-8 w-full [@media(max-height:820px)]:mt-5`} style={{ animationDelay: ".35s" }}>
