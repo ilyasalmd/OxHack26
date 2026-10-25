@@ -16,7 +16,7 @@ type Data = {
   anchor: { status: string; signature: string | null; memoHash: string | null; devnetUrl: string | null } | null;
   settlement: { status: string; signature: string | null; memo: string } | null;
 };
-type Similar = { title: string; outcome: boolean; similarity: number };
+type Similar = { title: string; outcome: boolean; similarity: number; flipped?: boolean };
 type OpenRecord = {
   provider: string;
   model: string | null;
@@ -44,7 +44,10 @@ type RepriceRecord = {
   ms: number;
   prompt: string | null;
   rawOutput: string | null;
-  maths: { rule: string; applied: { id: number; title: string; from: number; to: number; reason: string }[]; skipped?: { id: number; title: string; from: number; to: number; reason: string; skipped: string }[] };
+  maths: { rule: string; applied: { id: number; title: string; from: number; to: number; reason: string }[]; skipped?: { id: number; title: string; from: number; to: number; reason: string; skipped: string }[]; kept?: { id: number; at: number; reason: string } | null };
+  /** Set when a member disputed the odds and the AI looked again (one per stake). */
+  dispute?: { by: string; at: string };
+  parsed?: { probability: number; rationale: string; summary?: string };
 };
 
 async function sha256Hex(text: string) {
@@ -185,6 +188,7 @@ function Opening({ rec, anchor }: { rec: Rec; anchor: Data["anchor"] }) {
               <div key={i} className="flex items-center gap-3 rounded-xl bg-white/[.04] px-3 py-2 text-sm">
                 <span className={`w-8 font-semibold ${s.outcome ? "text-up" : "text-down"}`}>{s.outcome ? "YES" : "NO"}</span>
                 <span className="min-w-0 flex-1 truncate">{s.title}</span>
+                {s.flipped && <span className="shrink-0 text-xs text-mute" title="Worded the other way round to this stake, so it counts reversed">reversed</span>}
                 <span className="tabular text-xs text-mute">match {pct(s.similarity)}</span>
               </div>
             ))}
@@ -242,7 +246,8 @@ function Steps({ r }: { r: OpenRecord }) {
   const who = r.inputs.subject?.replace(/^@/, "") ?? null;
   const days = (new Date(r.inputs.resolvesAt).getTime() - new Date((r as unknown as { at: string }).at).getTime()) / 86400000;
   const aboutThem = h.similar.filter((s) => who && s.title.toLowerCase().includes(who.toLowerCase()));
-  const yes = h.similar.filter((s) => s.outcome).length;
+  // Counted the way this stake is worded: a past stake worded the other way round counts reversed.
+  const yes = h.similar.filter((s) => s.outcome !== !!s.flipped).length;
   const used = r.parsed.chatUsed ?? [];
   const shared = r.inputs.chatSnippets.length;
   const gap = h.baseRate == null ? null : Math.round((r.maths.aiProb - h.baseRate) * 100);
@@ -350,13 +355,16 @@ function Remark({ rec, marketId }: { rec: Rec; marketId: number }) {
   const r = JSON.parse(rec.record) as RepriceRecord;
   const mine = r.maths.applied.find((a) => a.id === marketId);
   const held = r.maths.skipped?.find((a) => a.id === marketId);
+  const kept = r.maths.kept?.id === marketId ? r.maths.kept : null;
   return (
     <div className="mt-4 rounded-2xl bg-panel p-4">
       <div className="flex items-center gap-2 text-sm">
         <span className="font-medium">{new Date(rec.createdAt).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}</span>
         <Badge>{r.provider === "heuristic" ? "Stats model" : r.model}</Badge>
+        {r.dispute && <Badge tone="brand">Disputed by {r.dispute.by}</Badge>}
       </div>
-      <p className="mt-2 text-sm">{mine ? `${pct(mine.from)} to ${pct(mine.to)}: ${mine.reason}` : held ? `The AI said ${pct(held.from)} to ${pct(held.to)} (${held.reason}), but ${held.skipped}.` : "Price left as it was."}</p>
+      <p className="mt-2 text-sm">{mine ? `${pct(mine.from)} to ${pct(mine.to)}: ${mine.reason}` : held ? `The AI said ${pct(held.from)} to ${pct(held.to)} (${held.reason}), but ${held.skipped}.` : kept ? `Kept at ${pct(kept.at)}: ${kept.reason}` : "Price left as it was."}</p>
+      {r.dispute && r.parsed && <p className="mt-1 text-sm text-mute">Gemma&apos;s full reasoning, second time round ({pct(r.parsed.probability)}): &ldquo;{r.parsed.rationale}&rdquo;</p>}
       <div className="mt-2 break-all font-mono text-xs text-mute">SHA-256 {rec.sha256}</div>
       {r.rawOutput && <Pre title="Raw reply" text={r.rawOutput} />}
       {r.prompt && <Pre title="Prompt" text={r.prompt} />}

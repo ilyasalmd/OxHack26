@@ -42,6 +42,8 @@ export type MarketRow = {
   base_rate_n: number;
   open_prob: number;
   ai_rationale: string;
+  /** The one-line reason everyone sees under the odds ('' on stakes from before it existed). */
+  ai_summary: string;
   ai_source: string;
   b: number;
   q_yes: number;
@@ -71,7 +73,13 @@ export type MarketRow = {
   /** The book as real trades alone left it (null: same as q_yes/q_no). See schema-93-trade-book.sql. */
   t_yes: number | null;
   t_no: number | null;
+  /** The one odds dispute a stake allows (schema-94-odds-dispute.sql): who, when, and what the AI said. */
+  odds_disputed_by: number | null;
+  odds_disputed_at: Date | null;
+  odds_dispute: OddsDispute | null;
 };
+
+export type OddsDispute = { from: number; to: number; changed: boolean; note: string; aiProb: number; source: string };
 
 export const book = (m: MarketRow): Book => ({ b: m.b, qYes: m.q_yes, qNo: m.q_no });
 /** The book only real trades have moved: what cash-outs are capped by (decay and AI re-marks never touch it). */
@@ -123,7 +131,7 @@ export type Preview = {
   /** What the AI had besides general knowledge, and how much of it (below 1 is a cold start). */
   signals: { profile: boolean; chat: number };
   evidence: number;
-  similar: Pick<Similar, "id" | "title" | "outcome" | "summary" | "similarity" | "ai_prob" | "crowd_prob" | "created_at">[];
+  similar: Pick<Similar, "id" | "title" | "outcome" | "summary" | "similarity" | "flipped" | "ai_prob" | "crowd_prob" | "created_at">[];
   subject: { id: number; display_name: string; username: string } | null;
   vector: number[] | null;
   /** Exactly what this request sent to the AI from the chat, as picked and redacted on the poster's phone. */
@@ -177,7 +185,7 @@ export async function previewSituation(groupId: number, input: SituationInput, c
     evidence,
     baseRate: history.baseRate,
     baseRateN: history.n,
-    similar: similar.map(({ id, title, outcome, summary, similarity, ai_prob, crowd_prob, created_at }) => ({ id, title, outcome, summary, similarity, ai_prob, crowd_prob, created_at })),
+    similar: similar.map(({ id, title, outcome, summary, similarity, flipped, ai_prob, crowd_prob, created_at }) => ({ id, title, outcome, summary, similarity, flipped, ai_prob, crowd_prob, created_at })),
     subject,
     vector,
     chatShared,
@@ -209,11 +217,11 @@ export async function createMarket(user: User, groupId: number, input: Situation
   const id = await db.tx(async (q) => {
     const [m] = await q.query<{ id: number }>(
       `INSERT INTO markets (group_id, creator_id, subject_id, kind, decay, title, description, category, resolution_rule,
-        ai_prob, base_rate, base_rate_n, open_prob, ai_rationale, ai_source, b, q_yes, q_no, created_at, resolves_at, last_decay_at, chat_context, answer, line, unit, evidence)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$19,$21,$22,$23,$24,$25) RETURNING id`,
+        ai_prob, base_rate, base_rate_n, open_prob, ai_rationale, ai_source, b, q_yes, q_no, created_at, resolves_at, last_decay_at, chat_context, answer, line, unit, evidence, ai_summary)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$19,$21,$22,$23,$24,$25,$26) RETURNING id`,
       [groupId, user.id, p.subject?.id ?? null, a.kind, a.decay, a.title, input.description ?? "", a.category, a.resolutionRule,
         a.probability, p.baseRate, p.baseRateN, p.openProb, a.rationale, a.source, b, bk.qYes, bk.qNo, ts, new Date(input.resolvesAt),
-        p.chatShared.length ? JSON.stringify({ shared: p.chatShared.length, used: a.chatUsed }) : null, a.answer, a.line, a.unit, p.evidence]
+        p.chatShared.length ? JSON.stringify({ shared: p.chatShared.length, used: a.chatUsed }) : null, a.answer, a.line, a.unit, p.evidence, a.summary]
     );
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'open')`, [m.id, ts, p.openProb]);
     const { trace: _trace, ...parsed } = a;
@@ -229,7 +237,7 @@ export async function createMarket(user: User, groupId: number, input: Situation
         groupContext: p.inputs.groupContext,
         chatMood: p.inputs.mood,
         chatSnippets: p.chatShared,
-        history: { baseRate: p.baseRate, effectiveSamples: p.baseRateN, subjectRecord: p.inputs.subjectRecord, similar: p.similar.map((x) => ({ title: x.title, outcome: x.outcome, similarity: +x.similarity.toFixed(3) })) },
+        history: { baseRate: p.baseRate, effectiveSamples: p.baseRateN, subjectRecord: p.inputs.subjectRecord, similar: p.similar.map((x) => ({ title: x.title, outcome: x.outcome, similarity: +x.similarity.toFixed(3), ...(x.flipped ? { flipped: true } : {}) })) },
         subjectProfile: p.inputs.profile,
       },
       parsed,
@@ -279,6 +287,12 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       const [held] = await q.query<{ yes_shares: number; no_shares: number }>(`SELECT yes_shares, no_shares FROM positions WHERE market_id = $1 AND user_id = $2`, [marketId, user.id]);
       const other = input.side === "yes" ? held?.no_shares : held?.yes_shares;
       if (other && other > 1e-6) throw new HttpError(400, `You're already on ${input.side === "yes" ? sides(m).no : sides(m).yes}. A bet is locked once placed, so you can't switch sides.`);
+    }
+    // Whoever disputed the odds waits a little before trading them, so a dispute can't be used to
+    // move the price and then trade straight into the move.
+    if (m.odds_disputed_by === user.id && m.odds_disputed_at && now().getTime() - new Date(m.odds_disputed_at).getTime() < ODDS_DISPUTE_TRADE_WAIT_MS) {
+      const from = new Date(new Date(m.odds_disputed_at).getTime() + ODDS_DISPUTE_TRADE_WAIT_MS);
+      throw new HttpError(400, `You disputed these odds, so you can trade this one from ${from.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" })}.`);
     }
     const [paused] = await q.query(`SELECT 1 FROM groups WHERE id = $1 AND repricing_until > now()`, [m.group_id]);
     if (paused) throw new HttpError(409, "The AI is re-marking this chat's stocks. Try again in a moment.");
@@ -1021,4 +1035,133 @@ async function remark(db: Awaited<ReturnType<typeof getDb>>, groupId: number, mo
   const updates = await repriceStocks(snap.inputs, trace);
   const { applied, skipped } = await applyRemarks(groupId, snap, updates, trace);
   return { applied, skipped, source: updates[0]?.source ?? "none" };
+}
+
+/** How long whoever disputed a stake's odds waits before they can trade it. */
+export const ODDS_DISPUTE_TRADE_WAIT_MS = 15 * 60_000;
+
+/** Who may dispute the odds right now, and if not, why not (shown on the stake page). */
+export async function oddsDisputeBlock(q: Q, m: MarketRow, userId: number): Promise<string | null> {
+  if (m.odds_disputed_at) return "These odds have already been disputed once";
+  if (m.status !== "open" || isClosed(m)) return "Trading has closed on this one";
+  const [held] = await q.query(`SELECT 1 FROM positions WHERE market_id = $1 AND user_id = $2 AND (yes_shares > 1e-6 OR no_shares > 1e-6)`, [m.id, userId]);
+  if (held) return "You have a stake in this one, so someone without one has to dispute it";
+  return null;
+}
+
+/**
+ * A member thinks the AI got the odds wrong: it looks at the evidence once more. Each stake gets one
+ * dispute in total, whatever the answer, so nobody can keep asking until they like the number.
+ *
+ * The same safeguards as an AI re-mark (applyRemarks): only members holding nothing on it may ask
+ * (nobody can talk up a price they own), nothing new from the caller's phone goes in (the AI sees
+ * the chat snippets it was priced from, and the history and profile from the server), the move is
+ * capped at AI_MOVE_CAP, and the AI thinks with no lock held: if anyone trades meanwhile, the trade
+ * stands and the dispute is handed back. The terms (title, rule, line) never change.
+ */
+export async function disputeOdds(user: User, marketId: number) {
+  const db = await getDb();
+  const m0 = await getMarket(db, marketId);
+  const [member] = await db.query(`SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2`, [m0.group_id, user.id]);
+  if (!member) throw new HttpError(403, "You're not in this group");
+  const blocked = await oddsDisputeBlock(db, m0, user.id);
+  if (blocked) throw new HttpError(400, blocked);
+  // Claim the stake's one dispute, re-checking under the same statement that nobody claimed it and
+  // that the caller still holds nothing.
+  const t0 = now();
+  const claimed = await db.query(
+    `UPDATE markets SET odds_disputed_by = $2, odds_disputed_at = $3 WHERE id = $1 AND odds_disputed_at IS NULL AND status = 'open'
+       AND NOT EXISTS (SELECT 1 FROM positions WHERE market_id = $1 AND user_id = $2 AND (yes_shares > 1e-6 OR no_shares > 1e-6)) RETURNING id`,
+    [marketId, user.id, t0]
+  );
+  if (!claimed.length) throw new HttpError(409, "Someone else just disputed these odds");
+  const release = () => db.query(`UPDATE markets SET odds_disputed_by = NULL, odds_disputed_at = NULL, odds_dispute = NULL WHERE id = $1`, [marketId]);
+  try {
+    await runDecay(db);
+    const seen = await getMarket(db, marketId);
+    const from = price(seen);
+    const [grp] = await db.query<{ ai_context: string }>(`SELECT ai_context FROM groups WHERE id = $1`, [seen.group_id]);
+    const [subject] = seen.subject_id ? await db.query<{ display_name: string }>(`SELECT display_name FROM users WHERE id = $1`, [seen.subject_id]) : [];
+    const [prof] = seen.subject_id ? await db.query<{ answers: ProfileAnswers }>(`SELECT answers FROM profiles WHERE user_id = $1`, [seen.subject_id]) : [];
+    const subjectProfile = profileForPrompt(prof?.answers);
+    // The chat it was priced from: what the poster's phone shared at opening, nothing new.
+    const [rec] = await db.query<{ record: string }>(`SELECT record FROM pricing_records WHERE $1 = ANY(market_ids) AND kind = 'open' ORDER BY id LIMIT 1`, [marketId]);
+    let snippets: Snippet[] = [];
+    try {
+      snippets = (rec ? (JSON.parse(rec.record).inputs?.chatSnippets as Snippet[]) : null) ?? [];
+    } catch {}
+    const { history, similar } = await evidenceFor(db, seen.group_id, seen.title, seen.subject_id);
+    const a = await analyzeSituation({
+      title: seen.title,
+      description: seen.description,
+      resolvesAt: new Date(seen.resolves_at),
+      now: now(),
+      subjectName: subject?.display_name ?? null,
+      subjectProfile,
+      groupContext: grp?.ai_context ?? "",
+      mood: null,
+      history,
+      snippets,
+      want: { kind: seen.kind, answer: seen.answer, line: seen.line ?? undefined },
+      dispute: { price: from, aiProb: seen.ai_prob, rationale: seen.ai_rationale },
+    });
+    const signals = { profile: !!subjectProfile, chat: snippets.length };
+    const maths = openingMaths(a.probability, history.baseRate, history.n, signals);
+    const to = Math.min(from + AI_MOVE_CAP, Math.max(from - AI_MOVE_CAP, maths.openProb));
+    const changed = Math.abs(to - from) >= 0.005;
+    const pctOf = (p: number) => `${Math.round(p * 100)}%`;
+    const result: OddsDispute = {
+      from,
+      to: changed ? to : from,
+      changed,
+      note: a.summary,
+      aiProb: a.probability,
+      source: a.source,
+    };
+    const t = now();
+    await db.tx(async (q) => {
+      const [m] = await q.query<MarketRow>(`SELECT * FROM markets WHERE id = $1 FOR UPDATE`, [marketId]);
+      if (!m || m.status !== "open" || isClosed(m)) throw new HttpError(409, "Trading closed while the AI was thinking, so the odds stay as they are.");
+      if (m.volume !== seen.volume) throw new HttpError(409, "Someone traded while the AI was thinking, so the trade stands. You can dispute the new odds.");
+      if (changed) {
+        const bk = recenter(await decayOne(q, m, t, true), to);
+        await q.query(`UPDATE markets SET t_yes = COALESCE(t_yes, q_yes), t_no = COALESCE(t_no, q_no), q_yes = $2 WHERE id = $1`, [m.id, bk.qYes]);
+        await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'ai')`, [m.id, t, to]);
+      }
+      await q.query(`UPDATE markets SET odds_dispute = $2 WHERE id = $1`, [m.id, JSON.stringify(result)]);
+      const { trace: _t, ...parsed } = a;
+      await saveRecord(q, m.group_id, [m.id], "reprice", {
+        ...traceFields(a.trace),
+        dispute: { by: `@${user.username}`, at: t0.toISOString() },
+        inputs: {
+          groupContext: grp?.ai_context ?? "",
+          chatSnippets: snippets,
+          history: { baseRate: history.baseRate, effectiveSamples: history.n, subjectRecord: history.subjectRecord ?? null, similar: similar.map((x) => ({ title: x.title, outcome: x.outcome, similarity: +x.similarity.toFixed(3), ...(x.flipped ? { flipped: true } : {}) })) },
+          subjectProfile: profileCommitment(subjectProfile),
+        },
+        parsed,
+        maths: {
+          rule: `A member disputed the odds, so the AI looked again with the same evidence. Its answer goes through the opening maths, then the move from the current price is capped at ${AI_MOVE_CAP * 100} points; moves under half a point are skipped. One dispute per stake.`,
+          opening: maths,
+          applied: changed ? [{ id: m.id, title: m.title, from, to, reason: a.summary }] : [],
+          kept: changed ? null : { id: m.id, title: m.title, at: from, reason: a.summary },
+        },
+      }, t);
+      await systemMessage(
+        q,
+        m.group_id,
+        "system",
+        changed
+          ? `disputed the odds on “${m.title}”. The AI looked again and moved them from ${pctOf(from)} to ${pctOf(to)}.`
+          : `disputed the odds on “${m.title}”. The AI looked again and kept them at ${pctOf(from)}.`,
+        m.id,
+        user.id
+      );
+    });
+    return result;
+  } catch (e) {
+    // Nothing changed, so the stake keeps its one dispute.
+    await release();
+    throw e;
+  }
 }

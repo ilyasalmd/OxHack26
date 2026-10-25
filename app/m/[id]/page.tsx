@@ -34,12 +34,13 @@ type Person = { id: number; display_name: string; username: string; color: strin
 type Detail = {
   market: {
     id: number; group_id: number; kind: "bet" | "stock"; answer: "yesno" | "number"; line: number | null; unit: string; actual: number | null; decay: string; title: string; description: string; category: string; resolution_rule: string;
-    ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string; evidence: number | null;
+    ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_summary: string; ai_source: string; evidence: number | null;
     chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
     b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | "unclaimed" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number; sample?: boolean;
   };
   creator: Person;
   subject: Person | null;
+  oddsDispute: { from: number; to: number; changed: boolean; note: string; by: Person | null } | null;
   proposal: { outcome: boolean; note: string; by: Person | null; at: string; early: boolean; evidenceId: number | null; settlesAt: string | null; votes: { needed: number; eligible: number; confirms: Person[]; rejects: Person[] } | null } | null;
   myKey: { wrapped_key: string; wrapper_public_key: string } | null;
   ticks: { ts: string; price: number; source: string }[];
@@ -47,8 +48,8 @@ type Detail = {
   trades: { id: number; side: string; action: string; shares: number; coins: number; price_after: number; created_at: string; display_name: string; color: string; bot?: boolean }[];
   position: { yes_shares: number; no_shares: number; spent: number; cashOut: { yes: number | null; no: number | null } | null } | null;
   quotes: { vig: number; buyVig: number; ask: { yes: number; no: number }; bid: { yes: number; no: number } };
-  similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; listerWaits: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; wouldLose: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number; flipped?: boolean }[];
+  me: { balance: number; maxStake: number; canTrade: boolean; listerWaits: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; wouldLose: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean; oddsDisputeBlock: string | null };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -79,6 +80,8 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [reportOpen, setReportOpen] = useState(false);
   // Calling a situation off and disputing a result both void it and refund everyone, so they ask first.
   const [confirming, setConfirming] = useState<"veto" | "dispute" | null>(null);
+  // Asking the AI to think again about the odds: once per stake, so it asks first.
+  const [oddsAsk, setOddsAsk] = useState<"idle" | "confirm" | "thinking">("idle");
   const wide = useWide();
 
   // The overview's Long and Short buttons land here with ?side= so the ticket opens ready.
@@ -174,6 +177,18 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       setConfirming(null);
     } finally {
       setBusy(false);
+    }
+  }
+  async function disputeOdds() {
+    setOddsAsk("thinking");
+    setErr("");
+    try {
+      await api(`/api/markets/${id}/odds-dispute`, { method: "POST", body: {} });
+      await load();
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setOddsAsk("idle");
     }
   }
   async function recap() {
@@ -311,6 +326,38 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             </div>
           )}
         </div>
+
+        {!voided && m.ai_rationale && (
+          <section className="mt-3 rounded-xl bg-white/[.04] px-3 py-2.5 text-[13px]" aria-label="Why these odds">
+            <p>
+              <span className="font-semibold text-white/90">Why it opened at {show(m.open_prob)}: </span>
+              <span className="text-mute">{m.ai_summary || m.ai_rationale}</span>
+            </p>
+            {d.oddsDispute ? (
+              <p className="mt-1.5">
+                <span className="font-semibold text-white/90">{d.oddsDispute.by?.display_name ?? "Someone"} disputed it. </span>
+                <span className="text-mute">
+                  {d.oddsDispute.changed ? `The AI looked again and moved it from ${show(d.oddsDispute.from)} to ${show(d.oddsDispute.to)}` : `The AI looked again and kept it at ${show(d.oddsDispute.from)}`}
+                  {d.oddsDispute.note && d.oddsDispute.note !== (m.ai_summary || m.ai_rationale) ? `: ${d.oddsDispute.note.replace(/\.$/, "")}.` : "."} Each stake can only be disputed once.
+                </span>
+              </p>
+            ) : !resolved && !d.me.oddsDisputeBlock ? (
+              oddsAsk === "idle" ? (
+                <button className="mt-1.5 text-white underline underline-offset-2 hover:text-white/80" onClick={() => setOddsAsk("confirm")}>Dispute these odds</button>
+              ) : (
+                <div className="mt-2 rounded-lg bg-ink p-2.5">
+                  <p className="text-mute">{oddsAsk === "thinking" ? "The AI is looking at the evidence again…" : "The AI will look at the evidence again and may change the odds, by up to 15 points. Each stake can only be disputed once, by anyone, so this is the only go."}</p>
+                  {oddsAsk === "confirm" && (
+                    <div className="mt-2 flex gap-2">
+                      <Button className="flex-1" onClick={disputeOdds}>Dispute</Button>
+                      <Button variant="ghost" className="flex-1" onClick={() => setOddsAsk("idle")}>Cancel</Button>
+                    </div>
+                  )}
+                </div>
+              )
+            ) : null}
+          </section>
+        )}
 
         <div className="mt-4">
           {isStock && candles.length >= 2 && (
@@ -494,6 +541,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                   <span className={s.outcome ? "text-up" : "text-down"}>{s.outcome ? "YES" : "NO"}</span>
                   <span className="flex-1 font-medium">{s.title}</span>
                 </div>
+                {s.flipped && <div className="mt-1 text-xs text-mute">Worded the other way round, so it counts as {s.outcome ? "NO" : "YES"} for this stake.</div>}
                 <div className="mt-1 text-mute">{s.summary}</div>
               </div>
             ))}

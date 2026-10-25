@@ -20,7 +20,8 @@ const OPEN: Record<string, Open[]> = {
   ],
   Nadia: [
     { by: "nadia", title: "Nadia passes the anatomy mock on Monday", subject: "nadia", days: 2, kind: "bet", trades: [["ilyas", "yes", 40]] },
-    { by: "nadia", title: "Ilyas cooks on Thursday like he promised", subject: "ilyas", days: 5, kind: "bet", trades: [["nadia", "no", 15]] },
+    // Nadia posted it and it's about Ilyas, so in a chat of two nobody can trade it first.
+    { by: "nadia", title: "Ilyas cooks on Thursday like he promised", subject: "ilyas", days: 5, kind: "bet", trades: [] },
     { by: "ilyas", title: "Paris gets booked before Sunday", days: 7, kind: "bet", trades: [["nadia", "yes", 30]] },
   ],
   Siblings: [

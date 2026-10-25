@@ -234,7 +234,8 @@ export type HistoryEvidence = {
   /** This group's record on this kind of stake, and the subject's own record on it. */
   categoryRecord?: string;
   subjectCategoryRecord?: string;
-  examples: { title: string; outcome: boolean; summary: string }[];
+  /** flipped: worded the opposite way round to the new question, so its YES counts as a NO there. */
+  examples: { title: string; outcome: boolean; summary: string; flipped?: boolean }[];
 };
 
 export type Analysis = {
@@ -248,6 +249,8 @@ export type Analysis = {
   category: string;
   probability: number;
   rationale: string;
+  /** One plain line for everyone in the chat: why these odds, with no chat quotes or private answers. */
+  summary: string;
   resolutionRule: string;
   /** Which AI answered: "ollama" (Gemma on this machine), "google" (Gemma on the Gemini API) or the stats model. */
   source: AiProvider | "heuristic";
@@ -273,6 +276,8 @@ export async function analyzeSituation(input: {
   snippets?: Snippet[];
   /** What the poster asked for; "auto" leaves it to the AI. */
   want?: { kind?: "auto" | "bet" | "stock"; answer?: "auto" | "yesno" | "number"; line?: number };
+  /** A member disputed the odds: think again, knowing the current price and the first answer. */
+  dispute?: { price: number; aiProb: number; rationale: string };
 }): Promise<Analysis> {
   const snippets = input.snippets ?? [];
   const want = input.want ?? {};
@@ -298,7 +303,7 @@ ${PROFILE_SLOT}Today: ${day(input.now)}; resolves on ${day(input.resolvesAt)} ($
 Group context the friends chose to share (term dates, fixtures, deadlines): ${input.groupContext || "(none)"}
 ${input.mood != null ? `Aggregate chat mood about the subject, computed on-device (-1 negative .. +1 positive): ${input.mood.toFixed(2)}` : ""}
 Past resolved situations in this group that look similar (${input.history.n.toFixed(1)} effective samples, base rate ${input.history.baseRate == null ? "n/a" : (input.history.baseRate * 100).toFixed(0) + "%"}):
-${input.history.examples.map((e) => `- "${e.title}" → ${e.outcome ? "YES" : "NO"}. ${e.summary}`).join("\n") || "- none yet"}
+${input.history.examples.map((e) => `- "${e.title}" → ${e.outcome ? "YES" : "NO"}${e.flipped ? ` (worded the opposite way round to this stake, so for this stake it counts as ${e.outcome ? "NO" : "YES"})` : ""}. ${e.summary}`).join("\n") || "- none yet"}
 ${input.history.subjectRecord ? `Subject's record: ${input.history.subjectRecord}` : ""}
 ${input.history.subjectCategoryRecord ? `Subject's record on ${pb.label.toLowerCase()} stakes: ${input.history.subjectCategoryRecord}` : ""}
 ${input.history.categoryRecord ? `This group's record on ${pb.label.toLowerCase()} stakes: ${input.history.categoryRecord}` : ""}
@@ -307,7 +312,10 @@ What matters for it: ${pb.weigh}
 Rough everyday odds for a typical UK student or young professional, before any history (general priors, not facts about these people): ${pb.everyday}`}
 ${snippets.length ? `Recent group-chat snippets the friends chose to share (names replaced: [SUBJECT] is who it's about, Friend A/B are others). Many may be noise:
 ${snippets.map((s, i) => `[${i}] ${s.age}, ${s.who}: ${s.text}`).join("\n")}` : ""}
-
+${input.dispute ? `
+SOMEONE IN THE CHAT DISPUTED THESE ODDS and asked you to think again. It trades at ${(input.dispute.price * 100).toFixed(0)}% now; your first answer was ${(input.dispute.aiProb * 100).toFixed(0)}% because: ${input.dispute.rationale || "(no reason given)"}
+Go through the evidence above again carefully, especially past stakes worded the other way round. Change the probability only if the evidence supports a different number; keeping it is fine. A complaint on its own is not evidence. Say in "summary" whether and why you changed it.
+` : ""}
 Rules:
 - answer "yesno" when the situation is something that happens or doesn't. answer "number" when it asks HOW MUCH or HOW MANY (minutes late, a grade, a time, a count): then pick a sensible "line" (your median guess, a round number) and a short "unit" (minutes, %, km, pints); the market becomes "over the line or not", and probability is the chance the real number ends up OVER the line (near 50% if the line is your median).${want.line != null ? ` The poster set the line to ${want.line}: keep it and give the honest chance of going over it.` : ""}
 - kind "bet" = short-term yes/no with a deadline (lateness, a match result, a night out). kind "stock" = long-term outcome that trades like a maturing bond until its date (relationships, grades, promotions, fitness goals). Anything > ${MARKET.stockThresholdDays} days away is usually a stock.
@@ -317,6 +325,7 @@ Rules:
 - resolutionRule: one precise sentence saying exactly what counts as YES, so nobody argues later.
 - title: tidy the situation into a short market question (max 70 chars). For a number question, phrase the over/under in it, e.g. "Jake is more than 15 minutes late to dinner".
 - rationale: one or two friendly sentences citing the evidence used.
+- summary: what everyone in the chat sees under the odds. One plain sentence of at most 18 words giving the main reason (their record on stakes like this, the deadline, the usual odds). Never quote or retell a chat message, never mention or hint at the private profile answers, no names except the subject's.
 - usefulSnippets: only the chat snippets that genuinely change the odds (plans, excuses, admissions, schedules, track record), each with a short reason. Ignore banter, jokes and anything off-topic. Empty if none.`;
   const prompt = template.replace(PROFILE_SLOT, profileBlock);
   const lines = input.subjectProfile ? input.subjectProfile.split("\n").length : 0;
@@ -340,21 +349,57 @@ Rules:
       category: { type: "string", enum: CATEGORIES },
       probability: { type: "number" },
       rationale: { type: "string" },
+      summary: { type: "string" },
       resolutionRule: { type: "string" },
       usefulSnippets: {
         type: "array",
         items: { type: "object", properties: { i: { type: "integer" }, why: { type: "string" } }, required: ["i", "why"] },
       },
     },
-    required: ["title", "kind", "answer", "line", "unit", "decay", "category", "probability", "rationale", "resolutionRule", "usefulSnippets"],
+    required: ["title", "kind", "answer", "line", "unit", "decay", "category", "probability", "rationale", "summary", "resolutionRule", "usefulSnippets"],
   }, undefined, trace);
   if (out && Number.isFinite(out.probability)) {
     const { usefulSnippets, ...rest } = out as typeof out & { usefulSnippets?: { i: number; why: string }[] };
     const chatUsed = (usefulSnippets ?? []).filter((u) => snippets[u.i]).slice(0, 8).map((u) => ({ ...snippets[u.i], why: u.why }));
-    return applyWants({ ...rest, probability: clampP(out.probability), source: trace.provider as AiProvider, chatUsed, trace }, want);
+    const probability = clampP(out.probability);
+    const summary = plainSummary(rest.summary, snippets, input.subjectProfile) ?? evidenceSummary(input.history, rest.category);
+    return applyWants({ ...rest, probability, summary, source: trace.provider as AiProvider, chatUsed, trace }, want);
   }
   const h = heuristicAnalysis(input.title, days, input.history);
   return applyWants({ ...(snippets.length ? applySnippetTilt(h, snippets) : h), trace }, want);
+}
+
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+
+/**
+ * The model's one-line reason, if it's safe to show the whole chat: one short sentence, no quotes,
+ * and nothing lifted from a chat snippet or the subject's private answers (four words in a row is
+ * enough to count). Null when it fails any of that, so the caller falls back to a line built from
+ * the numbers alone.
+ */
+export function plainSummary(raw: unknown, snippets: Snippet[], profile = ""): string | null {
+  if (typeof raw !== "string") return null;
+  const first = raw.trim().replace(/\s+/g, " ").match(/^.*?[.!?](?=\s|$)/)?.[0] ?? raw.trim();
+  if (first.length < 8 || first.length > 160 || /["“”«»]|\[(SUBJECT|someone|email|link|number)\]|Friend [A-Z]\b/.test(first)) return null;
+  const words = squash(first).split(" ");
+  const sources = [...snippets.map((s) => s.text), ...profile.split("\n")].map((t) => ` ${squash(t)} `);
+  for (let i = 0; i + 4 <= words.length; i++) {
+    const run = ` ${words.slice(i, i + 4).join(" ")} `;
+    if (sources.some((t) => t.includes(run))) return null;
+  }
+  return /[.!?]$/.test(first) ? first : `${first}.`;
+}
+
+/** The one-line reason from the numbers alone: used when the AI is off or its line can't be shown. */
+export function evidenceSummary(history: HistoryEvidence, category: string) {
+  const label = playbook(category).label.toLowerCase();
+  if (history.baseRate != null) {
+    const pctText = `${Math.round(history.baseRate * 100)}%`;
+    return history.n >= 1.5
+      ? `Similar stakes in this chat came true about ${pctText} of the time.`
+      : `One similar stake in this chat leans it towards ${pctText}.`;
+  }
+  return `Nothing like this has settled in this chat yet, so it starts near the usual odds for ${label} stakes.`;
 }
 
 /** The poster's choices win over the AI's, whatever the model answered. */
@@ -395,6 +440,7 @@ export function heuristicAnalysis(title: string, days: number, history: HistoryE
       history.n > 0
         ? `Based on ${history.n.toFixed(0)} similar past stake(s) here, which came true ${((history.baseRate ?? 0) * 100).toFixed(0)}% of the time.`
         : `No history yet, so this opens at the usual ${(prior * 100).toFixed(0)}% for ${playbook(category).label.toLowerCase()} stakes.`,
+    summary: evidenceSummary(history, category),
     resolutionRule: `Resolves YES if "${title}" is true by ${days > 0 ? `the resolve date` : "now"}, as agreed by the group; otherwise NO.`,
     source: "heuristic",
     chatUsed: [],
