@@ -34,7 +34,7 @@ Everything here is free; none of it needs a card.
 
   - **Public copy on devnet:** `npm run solana:devnet` republishes every transaction the local chain confirmed to public devnet (same amounts, memos and pricing hashes) with its own payer and token, so anyone can check them on explorer.solana.com. The first run prints the payer address to fund at faucet.solana.com. The Chain pages then link each transaction to its devnet copy.
 
-  Restart the app, and every buy-in (burn), payout or allowance (mint) shows up in each person's wallet on the Portfolio page, and on the admin's **Chain** page, which reads the transactions straight from the Solana RPC.
+  Restart the app, and every buy-in (into the stake's vault), payout (out of it) or allowance (mint) shows up in each person's wallet on the Portfolio page, and on the admin's **Chain** page, which reads the transactions straight from the Solana RPC.
 - **Gemma (the AI):** runs on your own machine through Ollama, so there is no API key and nothing leaves the machine. `brew install ollama`, then `ollama pull gemma4:12b` and `ollama pull embeddinggemma-2:270m`, and set `AI_PROVIDER=ollama` and `OLLAMA_MODEL=gemma4:12b` (or `gemma4:26b` on a bigger Mac). If Ollama isn't running, the app falls back to the statistical model.
 
 `npm test` runs the market-maths tests. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
@@ -65,7 +65,7 @@ Everything here is free; none of it needs a card.
 | `lib/pricing-record.ts` | Saves every AI pricing decision (inputs, prompt, raw reply, maths) as the exact JSON text that is hashed with SHA-256. The opening hash also goes in the market's Solana memo, and the admin can recheck it in the browser. |
 | `lib/memory.ts` | Search for similar stakes (EmbeddingGemma vectors + keyword overlap, boosted for the same person and category) and a similarity-weighted Beta(1,1) base rate. |
 | `lib/stats.ts` | Leaderboard (net worth, P&L in this group, Brier skill score) and AI vs crowd vs coin-flip calibration. |
-| `lib/solana.ts` | Outbox worker mirroring every balance change to an SPL token on devnet: buy-ins **burn**, payouts and allowances **mint**, market opens/resolutions are **memos**. |
+| `lib/solana.ts`, `lib/outbox.ts` | Every balance change goes on an SPL token. Each stake has its own **vault** token account on chain: buy-ins and fees move into it, sales, payouts and refunds come out of it, the house mints any shortfall and burns what's left, then the vault closes. Allowances and opening balances **mint**; opens and results are **memos** of hashes. The outbox saves each signed transaction before sending, checks a lost answer by its signature, rebuilds only after the blockhash has expired, and puts a one-off receipt account on chain per operation so it can never be applied twice. |
 | `lib/e2ee.ts` | WebCrypto E2EE (below). |
 | `lib/db.ts`, `lib/schema.sql` | Postgres. On Timescale/Tiger Cloud it creates hypertables, an hourly OHLC continuous aggregate and compression policies. |
 
@@ -97,7 +97,7 @@ One account can be in any number of group chats. **Your balance is one wallet ac
 | Service | Used for |
 | --- | --- |
 | **Tiger Data (Tiger Cloud)** | The app's database. Price and net-worth time series as hypertables, hourly candles as a continuous aggregate, compression, and the pricing records. Point `DATABASE_URL` at a Tiger Cloud service or `docker compose up -d`. |
-| **Solana** | In-game coin as an SPL token (devnet or a local validator) with mint/burn for every buy-in and payout, memos for market lifecycle carrying each opening price's record hash, and an admin Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
+| **Solana** | In-game coin as an SPL token (devnet or a local validator) with every open stake's coins held in its own on-chain vault (buy-ins in, payouts out, checkable against the app's ledger on the Chain page), exactly-once sending, memos for market lifecycle carrying each opening price's record hash, and an admin Chain page reading it all back from the RPC. `npm run solana:setup` creates the mint. |
 | **Gemma** (open model, local) | Odds, bet-vs-stock routing, resolution rules, outcome summaries, embeddings for "similar past stakes", stock re-marks, and (opt-in) picking which anonymised chat snippets matter. Runs through Ollama with no API key. |
 | **Vultr** | `deploy/`: Docker Compose stack (app, TimescaleDB, Caddy HTTPS) and a setup script for a Vultr VM. |
 

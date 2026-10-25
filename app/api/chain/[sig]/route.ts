@@ -23,7 +23,7 @@ export const GET = route<SigCtx>(async (_req, user, ctx) => {
   if (!tx) throw new HttpError(404, "No transaction with that signature on this chain.");
   const st = statuses.value[0];
   const mint = cfg.mint.toBase58();
-  const t = describeTx({ signature: sig, slot: tx.slot, blockTime: tx.blockTime ?? null, err: tx.meta?.err ?? null }, tx, mint, supply.value.decimals);
+  const t = describeTx({ signature: sig, slot: tx.slot, blockTime: tx.blockTime ?? null, err: tx.meta?.err ?? null }, tx, mint, supply.value.decimals, cfg.payer.publicKey.toBase58());
 
   const db = await getDb();
   const [op] = await db.query<{ kind: string; amount: number | null; memo: string | null; created_at: string; market_id: number | null; title: string | null; mkind: string | null; status: string | null; user_id: number | null; devnet_signature: string | null }>(

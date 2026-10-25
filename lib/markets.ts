@@ -9,7 +9,7 @@ import { profileForPrompt, type ProfileAnswers } from "./profile-questions";
 import { openingMaths, profileCommitment, saveRecord, sha256, traceFields } from "./pricing-record";
 import type { Trace } from "./ai";
 import { applyShares, bookAt, hazardDecay, priceYes, proceedsForShares, recenter, sharesForAmount, type Book, type Side } from "./lmsr";
-import { credit, maxStake, recordNetWorth, mayCall } from "./economy";
+import { closeVault, credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import type { Snippet } from "./chat-context";
 import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, TOO_CLOSE_TO_CALL, topicProblem, votesNeeded } from "./safety";
@@ -394,6 +394,7 @@ async function settle(m: MarketRow, outcome: boolean, note: string, actorId: num
     // Trading fees held on a stock go to whoever listed it, now that it has matured.
     const [held] = await q.query<{ fees_held: number }>(`UPDATE markets SET fees_held = 0 WHERE id = $1 AND fees_held > 0 RETURNING fees_held`, [marketId]);
     if (held && m.fees_held >= 0.01) await credit(q, m.creator_id, m.fees_held, `Listing fees · ${m.title}`, marketId);
+    await closeVault(q, marketId, `Stake settled · #${marketId}`);
     await q.query(`INSERT INTO price_ticks (market_id, ts, price, source) VALUES ($1,$2,$3,'resolve')`, [marketId, now(), outcome ? 1 : 0]);
     // The settlement goes on the chain as a hash of who called it, who confirmed it, how, and the evidence's encrypted bytes.
     const [proof] = m.proposed_evidence ? await q.query<{ data: Uint8Array }>(`SELECT data FROM attachments WHERE id = $1`, [m.proposed_evidence]) : [];
@@ -609,6 +610,7 @@ export async function voidMarket(marketId: number, opts: { reason: "veto" | "dis
     }
     await q.query(`UPDATE positions SET yes_shares = 0, no_shares = 0, spent = 0, fees_paid = 0 WHERE market_id = $1`, [marketId]);
     await q.query(`UPDATE markets SET fees_held = 0 WHERE id = $1`, [marketId]);
+    await closeVault(q, marketId, `Stake called off · #${marketId}`);
     await systemMessage(q, m.group_id, "system", opts.text, marketId, opts.actorId);
     const voided = await saveRecord(q, m.group_id, [marketId], "void", { market: marketId, reason: opts.reason, by: opts.actorId, refunded, terms: termsHash(m) }, ts);
     await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('memo', $1, $2, $3)`, [
