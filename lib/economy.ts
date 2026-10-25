@@ -18,8 +18,11 @@ export async function credit(q: Q, userId: number, delta: number, reason: string
     `INSERT INTO ledger (user_id, ts, delta, balance_after, reason, market_id) VALUES ($1,$2,$3,$4,$5,$6)`,
     [userId, ts, delta, u.balance, reason, marketId]
   );
+  // Coins for a stake go into that stake's vault on chain and come back out of it; coins outside
+  // any stake (allowance, friend bets) are minted or burned.
+  const kind = marketId != null ? (delta > 0 ? "payout" : "stake") : delta > 0 ? "mint" : "burn";
   await q.query(`INSERT INTO chain_ops (kind, user_id, market_id, amount, memo, created_at) VALUES ($1,$2,$3,$4,$5,$6)`, [
-    delta > 0 ? "mint" : "burn",
+    kind,
     userId,
     marketId,
     Math.abs(delta),
@@ -27,6 +30,11 @@ export async function credit(q: Q, userId: number, delta: number, reason: string
     ts,
   ]);
   await recordNetWorth(q, userId);
+}
+
+/** The stake is finished: after its payouts, the chain burns what is left in its vault (the house's share) and closes it. */
+export async function closeVault(q: Q, marketId: number, why: string) {
+  await q.query(`INSERT INTO chain_ops (kind, market_id, memo, created_at) VALUES ('close', $1, $2, $3)`, [marketId, why, now()]);
 }
 
 export async function netWorth(q: Q, userId: number) {

@@ -13,7 +13,7 @@ type Detail = {
   slot: number;
   time: string | null;
   ok: boolean;
-  kind: "mint" | "burn" | "create" | "other";
+  kind: "mint" | "burn" | "stake" | "payout" | "close" | "create" | "other";
   amount: number | null;
   memo: string | null;
   fee: number | null;
@@ -29,8 +29,11 @@ type Detail = {
 };
 
 const KIND: Record<Detail["kind"], { label: string; tone: string; sign: string; what: string }> = {
-  mint: { label: "Mint", tone: "text-up", sign: "+", what: "Coins created and sent to a wallet: a payout, an allowance, an opening balance or a refund." },
-  burn: { label: "Burn", tone: "text-down", sign: "−", what: "Coins taken out of a wallet and destroyed: a buy-in or a trading fee." },
+  mint: { label: "Mint", tone: "text-up", sign: "+", what: "New coins sent to a wallet: an allowance or an opening balance." },
+  burn: { label: "Burn", tone: "text-down", sign: "−", what: "Coins taken out of a wallet and destroyed: a friend bet, or what a finished stake's vault had left over." },
+  stake: { label: "Stake", tone: "text-down", sign: "−", what: "Coins moved from a wallet into a stake's vault: a buy-in or a trading fee." },
+  payout: { label: "Payout", tone: "text-up", sign: "+", what: "Coins paid from a stake's vault to a wallet: a sale, a win, a refund or listing fees. The house mints any shortfall into the vault first." },
+  close: { label: "Close", tone: "text-brand", sign: "", what: "A finished stake's vault: what was left in it burned, and the account closed." },
   create: { label: "Create", tone: "text-brand", sign: "", what: "The token itself being created." },
   other: { label: "Other", tone: "text-mute", sign: "", what: "A transaction that touched the token without minting or burning." },
 };

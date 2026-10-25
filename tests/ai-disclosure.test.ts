@@ -58,7 +58,7 @@ test("the full disclosure is in the Terms, and sign-up needs an explicit tick", 
 
 test("joining or opening a chat shows no AI notice", () => {
   const read = (p: string) => readFileSync(new URL(p, import.meta.url), "utf8");
-  for (const p of ["../app/join/[code]/page.tsx", "../components/shell.tsx", "../app/g/[id]/page.tsx"]) {
+  for (const p of ["../app/join/[code]/page.tsx", "../components/shell.tsx", "../app/g/[id]/page.tsx", "../app/settings/privacy/page.tsx"]) {
     const src = read(p);
     assert.ok(!/AiChat(Notice|Banner)|AI reads chat/.test(src), `${p} still shows a per-chat AI notice`);
   }

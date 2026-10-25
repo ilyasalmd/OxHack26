@@ -10,7 +10,8 @@ import { credit } from "@/lib/economy";
 import { newWallet } from "@/lib/solana";
 import { clientIp, limit } from "@/lib/ratelimit";
 import { cleanUsername, usernameProblem } from "@/lib/accounts";
-import { startSession } from "@/lib/sessions";
+import { deviceHash, startSession } from "@/lib/sessions";
+import { REF_COOKIE, attachReferral } from "@/lib/referrals";
 import { joinSampleGroups } from "@/lib/demo";
 import { DEMO_DATA_FOR_ALL } from "@/lib/config";
 
@@ -27,6 +28,8 @@ const Schema = z.object({
   recoveryAuthKey: z.string().length(64).optional(),
   recoverySalt: z.string().min(8).optional(),
   encPrivateKeyRecovery: z.string().min(20).optional(),
+  // A friend's invite code, when the invite link's cookie didn't make it.
+  ref: z.string().max(32).optional(),
   // The Terms include the AI reading relevant chat (lib/ai-disclosure.ts), so they must be ticked, not implied.
   acceptedTerms: z.literal(true, { error: "Tick the box to agree to the Terms and Privacy notice" }),
 });
@@ -54,6 +57,8 @@ export const POST = route(
       await credit(q, u.id, ECONOMY.startingBalance, "Welcome bonus");
       // Unanswered "about you" questions, offered once after sign-up.
       await q.query(`INSERT INTO profiles (user_id, answers, done, updated_at) VALUES ($1, '{}'::jsonb, false, $2) ON CONFLICT DO NOTHING`, [u.id, now()]);
+      // Signed up with a friend's invite link: it counts towards their reward once this account gets going.
+      await attachReferral(q, u.id, req.cookies.get(REF_COOKIE)?.value ?? b.ref, deviceHash(req));
       return u.id;
     }).catch((e) => {
       // Two sign-ups racing for one name: the unique index catches the loser.
@@ -64,6 +69,7 @@ export const POST = route(
     if (DEMO_DATA_FOR_ALL) await joinSampleGroups(id).catch((e) => console.warn("[demo] joining sample chats failed:", (e as Error).message));
     const res = NextResponse.json({ id, username });
     await startSession(req, res, id);
+    res.cookies.delete(REF_COOKIE);
     return res;
   },
   { auth: false }
