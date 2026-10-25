@@ -79,26 +79,22 @@ html[data-accent="daylight"] {
   --color-brand: #2457e6; --color-mine: #d6e2ff;
   --color-ink: #f2f4f8; --color-panel: #ffffff; --color-raised: #f7f8fb; --color-line: #dde2ec;
   --color-mute: #5f6878; --color-white: #141822; --color-black: #ffffff;
-  --color-up: #16794a; --color-down: #c8323a; --wall: #e7ebf2; --brand-soft: #a9c2ff;
+  --color-up: #16794a; --color-down: #c8323a; --wall: #e7ebf2;
 }
 html[data-accent="paper"] {
   --color-brand: #a6461f; --color-mine: #f6d8c6;
   --color-ink: #f5efe4; --color-panel: #fffaf2; --color-raised: #fbf4ea; --color-line: #e5dacb;
   --color-mute: #73685a; --color-white: #231c14; --color-black: #fffaf2;
-  --color-up: #2f7a3b; --color-down: #b8322e; --wall: #ece3d4; --brand-soft: #f5bd8a;
+  --color-up: #2f7a3b; --color-down: #b8322e; --wall: #ece3d4;
 }
 html[data-accent="blossom"] {
   --color-brand: #b8236b; --color-mine: #f8d3e4;
   --color-ink: #fbf1f5; --color-panel: #ffffff; --color-raised: #fdf6f9; --color-line: #efd9e3;
   --color-mute: #7a5d6b; --color-white: #2a1520; --color-black: #ffffff;
-  --color-up: #1e7a4c; --color-down: #c0303a; --wall: #f3e2ea; --brand-soft: #f4b4d0;
+  --color-up: #1e7a4c; --color-down: #c0303a; --wall: #f3e2ea;
 }
 
 html[data-mode="light"] { color-scheme: light; }
-
-/* The sign-in screens are the brand's own lime-and-white world. On a light theme they keep white cards
-   and dark text, and wear a soft version of the theme's accent. */
-html[data-mode="light"] .brand-scope { --color-white: #ffffff; --color-black: #0d100a; --color-brand: var(--brand-soft); }
 
 /* Group initials on light themes: the bright tints darken a little so they stay readable. */
 html[data-mode="light"] .group-mark { filter: brightness(.72) saturate(1.25); }

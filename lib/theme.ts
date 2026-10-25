@@ -26,6 +26,9 @@ export const ACCENTS: { k: Accent; label: string; mode: Mode; blurb: string; bra
   { k: "blossom", label: "Blossom", mode: "light", blurb: "Soft pink with a berry accent.", brand: "#b8236b", ink: "#fbf1f5", panel: "#ffffff" },
 ];
 const KEY = "accent";
+/** The sign-in screens are the brand's own page: they always wear the original Lime, whatever theme is saved. */
+export const PLAIN_THEME_PATHS = ["/", "/recover", "/welcome"];
+export const themeFor = (path: string): Accent => (PLAIN_THEME_PATHS.includes(path) ? "lime" : readAccent());
 const EVENT = "accent";
 
 export function readAccent(): Accent {
@@ -70,5 +73,5 @@ export function useAccent(): [Accent, (a: Accent) => void] {
   return [a, writeAccent];
 }
 
-/** Runs before paint so the saved theme never flashes lime first. */
-export const ACCENT_BOOT = `try{var a=localStorage.getItem("${KEY}"),k=${JSON.stringify(Object.fromEntries(ACCENTS.map((x) => [x.k, [x.ink, x.mode]])))},t=a&&k[a],d=document.documentElement;if(t){if(a!=="lime")d.dataset.accent=a;if(t[1]==="light")d.dataset.mode="light";var m=document.querySelector('meta[name="theme-color"]');if(m)m.content=t[0]}}catch(e){}`;
+/** Runs before paint so the saved theme never flashes lime first (and the sign-in screens never flash it). */
+export const ACCENT_BOOT = `try{var a=${JSON.stringify(PLAIN_THEME_PATHS)}.indexOf(location.pathname)<0&&localStorage.getItem("${KEY}"),k=${JSON.stringify(Object.fromEntries(ACCENTS.map((x) => [x.k, [x.ink, x.mode]])))},t=a&&k[a],d=document.documentElement;if(t){if(a!=="lime")d.dataset.accent=a;if(t[1]==="light")d.dataset.mode="light";var m=document.querySelector('meta[name="theme-color"]');if(m)m.content=t[0]}}catch(e){}`;
