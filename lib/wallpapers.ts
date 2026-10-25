@@ -1,5 +1,6 @@
-// Chat backgrounds: dark, quiet tones so bubbles stay readable. Each person picks one per chat.
-const DOTS = "radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px)";
+// Chat backgrounds: quiet tones so bubbles stay readable. Each person picks one per chat. The colours live in
+// app/globals.css as --wp-<id>, with a dark and a light version, so a background follows a light theme too.
+const DOTS = "radial-gradient(var(--wall-dot) 1px, transparent 1px)";
 
 export const WALLPAPERS = [
   { id: "graphite", label: "Graphite", base: "#131417" },
@@ -26,10 +27,10 @@ export function wallpaperStyle(id: string | null | undefined, photoUrl?: string 
   if (photo) {
     const shade = `linear-gradient(rgba(0, 0, 0, ${photo.dim / 100}), rgba(0, 0, 0, ${photo.dim / 100}))`;
     return photoUrl
-      ? { backgroundColor: "#131417", backgroundImage: `${shade}, url("${photoUrl}")`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "scroll" }
-      : { backgroundColor: "#131417", backgroundImage: "none" };
+      ? { backgroundColor: "var(--color-ink)", backgroundImage: `${shade}, url("${photoUrl}")`, backgroundSize: "cover", backgroundPosition: "center", backgroundAttachment: "scroll" }
+      : { backgroundColor: "var(--color-ink)", backgroundImage: "none" };
   }
   const w = WALLPAPERS.find((x) => x.id === id);
   if (!w) return undefined;
-  return { backgroundImage: `${DOTS}, ${w.base.startsWith("#") ? `linear-gradient(${w.base}, ${w.base})` : w.base}`, backgroundSize: "22px 22px, cover", backgroundAttachment: "local, scroll" };
+  return { backgroundImage: `${DOTS}, var(--wp-${w.id})`, backgroundSize: "22px 22px, cover", backgroundAttachment: "local, scroll" };
 }
