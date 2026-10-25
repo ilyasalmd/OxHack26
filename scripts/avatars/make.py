@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import random
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter
@@ -336,6 +337,34 @@ def snowy_peak():  # zayn: the Peak District in snow, clear sky
     return img
 
 
+def harbour_night():  # aariz: a harbour at night, lights on the water
+    rng = random.Random(19)
+    img = gradient([(0, (15, 20, 50)), (0.5, (40, 50, 110)), (0.58, (90, 70, 120)), (1, (10, 15, 35))])
+    img = ridge(img, int(S * 0.56), 18, (20, 22, 40), rng, roughness=3)
+    img = bokeh(img, rng, 70, [(255, 210, 140), (140, 200, 255), (255, 160, 120)], 3, 8, 1.0, (0.42, 0.56))
+    img = reflection(img, int(S * 0.58))
+    return img
+
+
+def autumn_park():  # durukan: autumn trees, low sun
+    rng = random.Random(20)
+    img = gradient([(0, (250, 200, 140)), (0.45, (240, 150, 80)), (0.7, (170, 80, 40)), (1, (70, 35, 20))])
+    img = glow(img, (S * 0.3, S * 0.4), S * 0.35, (255, 220, 150), 0.8)
+    img = bokeh(img, rng, 120, [(230, 120, 40), (200, 70, 30), (250, 180, 60)], 6, 18, 2.0, (0.05, 0.75))
+    return img
+
+
+def green_pitch():  # barkin: a floodlit football pitch at dusk
+    rng = random.Random(21)
+    img = gradient([(0, (30, 40, 80)), (0.45, (90, 110, 160)), (0.55, (60, 140, 70)), (1, (25, 90, 40))])
+    img = glow(img, (S * 0.15, S * 0.25), S * 0.25, (255, 255, 220), 0.9)
+    img = glow(img, (S * 0.85, S * 0.25), S * 0.25, (255, 255, 220), 0.9)
+    d = ImageDraw.Draw(img)
+    d.line([(0, S * 0.75), (S, S * 0.75)], fill=(220, 240, 220), width=4)
+    d.ellipse([S * 0.35, S * 0.68, S * 0.65, S * 0.82], outline=(220, 240, 220), width=4)
+    return img
+
+
 PICTURES = {
     "ilyas": golden_hour_sea,
     "jake": city_lights,
@@ -354,8 +383,14 @@ PICTURES = {
     "yasmin": dog_beach,
     "nadia": rooftop_dusk,
     "zayn": snowy_peak,
+    "aariz": harbour_night,
+    "durukan": autumn_park,
+    "barkin": green_pitch,
 }
 
 if __name__ == "__main__":
+    only = set(sys.argv[1:])
     for name, draw in PICTURES.items():
+        if only and name not in only:
+            continue
         finish(draw(), name)
