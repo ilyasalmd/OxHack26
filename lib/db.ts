@@ -27,7 +27,7 @@ async function connect(): Promise<Db> {
       // verify-full), so drop it and keep the TLS setting in one place.
       connectionString: tls ? url.replace(/([?&])sslmode=[^&]*&?/, "$1").replace(/[?&]$/, "") : url,
       ssl: tls ? { rejectUnauthorized: false } : undefined,
-      max: 8,
+      max: 16,
     });
     return {
       driver: "postgres",
