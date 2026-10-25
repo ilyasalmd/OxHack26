@@ -46,6 +46,13 @@ before(async () => {
 const open = (title: string, subject: string | null = null, days = 2) =>
   mk.createMarket(people.alice, chat, { title, resolvesAt: new Date(Date.now() + days * DAY).toISOString(), subjectUsername: subject });
 
+test("an early number result needs the proposer's own evidence, not just the number", async () => {
+  const id = await mk.createMarket(people.alice, chat, { title: "Bob's exam mark", resolvesAt: new Date(Date.now() + 2 * DAY).toISOString(), kind: "stock", answer: "number", line: 65 });
+  await rejects(mk.proposeResult(people.cara, id, { value: 70 }), /evidence/);
+  await mk.proposeResult(people.cara, id, { value: 70 }, PROOF);
+  assert.equal((await mk.getMarket(db, id)).proposed_outcome, true);
+});
+
 test("nobody settles alone: the proposer can't confirm, someone else can", async () => {
   const id = await open("It snows in Oxford this week");
   await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 40 });

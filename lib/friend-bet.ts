@@ -141,7 +141,7 @@ export async function actOnFriendBet(
       }
       case "cancel": {
         if (user.id !== b.creator_id) throw new HttpError(403, "Only whoever posted the bet can cancel it");
-        if (b.status !== "open") throw new HttpError(400, "Someone already took it, so it can't be cancelled");
+        if (b.status !== "open") throw new HttpError(400, b.taker_id ? "Someone already took it, so it can't be cancelled" : "This bet is already over");
         await credit(q, b.creator_id, b.stake, `Bet cancelled · ${b.title}`);
         await q.query(`UPDATE friend_bets SET status = 'cancelled', settled_at = $2 WHERE id = $1`, [b.id, now()]);
         await q.query(`UPDATE friend_bet_counters SET status = 'closed' WHERE bet_id = $1 AND status = 'open'`, [b.id]);
