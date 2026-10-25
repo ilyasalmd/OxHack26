@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { categoryLabel } from "@/lib/categories";
 import { use, useCallback, useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
@@ -35,7 +36,7 @@ type Detail = {
     id: number; group_id: number; kind: "bet" | "stock"; answer: "yesno" | "number"; line: number | null; unit: string; actual: number | null; decay: string; title: string; description: string; category: string; resolution_rule: string;
     ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string; evidence: number | null;
     chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
-    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | "unclaimed" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number;
+    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | "unclaimed" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number; sample?: boolean;
   };
   creator: Person;
   subject: Person | null;
@@ -245,7 +246,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <TopBar
         back={`/g/${m.group_id}`}
         backOnDesktop
-        title={<span className="text-sm text-mute">{typeLabel(m)} · {m.category}</span>}
+        title={<span className="text-sm text-mute">{typeLabel(m)} · {categoryLabel(m.category)}{m.sample && <span className="ml-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-mute" title="Admin only: seeded demo history">Sample</span>}</span>}
         right={
           <>
             <button onClick={recap} disabled={speaking} className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50" title="Hear a recap">

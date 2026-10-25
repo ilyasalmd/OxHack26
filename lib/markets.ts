@@ -50,6 +50,8 @@ export type MarketRow = {
   proposed_early: boolean;
   /** A photo attached as evidence (encrypted with the chat's key). */
   proposed_evidence: number | null;
+  /** Seeded demo history (scripts/seed-rich.ts); shown to the admin only. */
+  sample: boolean;
   void_reason: "veto" | "dispute" | "reports" | "unclaimed" | null;
   created_at: Date;
   resolves_at: Date;

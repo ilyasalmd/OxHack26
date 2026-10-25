@@ -54,6 +54,9 @@ export const PEOPLE: Person[] = [
   { username: "mum", name: "Mum", color: "#f2c6a0", skill: 0.6, boldness: 0.2 },
   { username: "dad", name: "Dad", color: "#a3c4a0", skill: 0.45, boldness: 0.35 },
   { username: "yasmin", name: "Yasmin", color: "#4db6ac", skill: 0.5, boldness: 0.6 },
+  // Added by scripts/seed-chats.ts (the couples and siblings chats); `npm run seed` makes them too.
+  { username: "nadia", name: "Nadia", color: "#ff8a80", skill: 0.75, boldness: 0.45 },
+  { username: "zayn", name: "Zayn", color: "#80cbc4", skill: 0.5, boldness: 0.65 },
 ];
 
 export const PASSWORD = "demo1234";

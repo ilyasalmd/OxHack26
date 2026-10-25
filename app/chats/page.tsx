@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { categoryLabel } from "@/lib/categories";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session";
@@ -16,8 +17,7 @@ type Call = { id: number; side: string; action: string; coins: number; price_aft
 type Leader = { id: number; display_name: string; username: string; color: string; net_worth: number; me: boolean };
 type Feed = { markets: Situation[]; calls: Call[]; leaders: Leader[] };
 
-const CATEGORY: Record<string, string> = { punctuality: "Punctuality", fitness: "Fitness", football: "Sport", sport: "Sport", uni: "Uni", work: "Work", relationships: "Social", social: "Social", other: "Other" };
-const label = (c: string) => CATEGORY[c] ?? c.charAt(0).toUpperCase() + c.slice(1);
+const label = categoryLabel;
 
 export default function Chats() {
   const { me, loading, identity } = useSession();
