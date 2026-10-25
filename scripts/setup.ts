@@ -70,7 +70,9 @@ function main() {
 
   const dir = process.env.PGLITE_DIR ?? path.join(ROOT, ".data", "pglite");
   if (fresh) fs.rmSync(dir, { recursive: true, force: true });
-  const empty = remote ? !run("setup-count").out.match(/users=[1-9]/) : !fs.existsSync(dir) || !run("setup-count").out.match(/users=[1-9]/);
+  const count = run("setup-count").out;
+  if (!/users=\d/.test(count)) throw new Error(`Couldn't read the database, so nothing was changed: ${count}`);
+  const empty = /users=0\b/.test(count);
   if (empty) {
     console.log("Empty database: writing three months of sample history (a few minutes)...");
     const r = run("seed");
