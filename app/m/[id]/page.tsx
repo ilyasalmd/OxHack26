@@ -48,7 +48,7 @@ type Detail = {
   position: { yes_shares: number; no_shares: number; spent: number; cashOut: { yes: number | null; no: number | null } | null } | null;
   quotes: { vig: number; buyVig: number; ask: { yes: number; no: number }; bid: { yes: number; no: number } };
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; wouldLose: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; sideMax: { yes: number; no: number }; canTrade: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; wouldLose: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -522,7 +522,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
        <aside className="sticky top-20 mt-6 hidden space-y-4 lg:block">
         {!resolved && !voided && d.me.canTrade && !m.closed && (
           <section className="rounded-2xl border border-line bg-panel p-4">
-            <BetSlip market={m} book={book} side={side} onSide={setSide} canLong={d.me.canLong} canShort={d.me.canShort} lockedSide={d.me.lockedSide} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+            <BetSlip market={m} book={book} side={side} onSide={setSide} canLong={d.me.canLong} canShort={d.me.canShort} lockedSide={d.me.lockedSide} balance={d.me.balance} maxStake={d.me.maxStake} sideMax={d.me.sideMax} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
           </section>
         )}
         {positionCard}
@@ -532,7 +532,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <div className="lg:hidden"><TimeMachine onJump={load} /></div>
 
       <Sheet open={slipOpen && !wide} onClose={() => setSlipOpen(false)} title={isStock ? "Trade" : "Bet slip"}>
-        <BetSlip market={m} book={book} side={side} onSide={setSide} canLong={d.me.canLong} canShort={d.me.canShort} lockedSide={d.me.lockedSide} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+        <BetSlip market={m} book={book} side={side} onSide={setSide} canLong={d.me.canLong} canShort={d.me.canShort} lockedSide={d.me.lockedSide} balance={d.me.balance} maxStake={d.me.maxStake} sideMax={d.me.sideMax} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
       </Sheet>
 
       <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Propose the result">

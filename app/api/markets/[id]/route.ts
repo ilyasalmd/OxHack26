@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
 import { book, getMarket, isClosed, price, voteState } from "@/lib/markets";
-import { askPrice, bidPrice, cashOutQuote } from "@/lib/lmsr";
+import { askPrice, bidPrice, cashOutQuote, houseLimit, houseRoom } from "@/lib/lmsr";
 import { maxStake } from "@/lib/economy";
 import { tradeFee, tradeMargin } from "@/lib/markets";
 import { findSimilar } from "@/lib/memory";
@@ -71,6 +71,10 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [user.id]);
   const closed = isClosed(m);
   const buyVig = await tradeMargin(db, m, user.id);
+  const [house] = await db.query<{ yes: number; no: number; collected: number }>(
+    `SELECT coalesce(sum(yes_shares), 0)::float8 AS yes, coalesce(sum(no_shares), 0)::float8 AS no, coalesce(sum(spent), 0)::float8 AS collected FROM positions WHERE market_id = $1`,
+    [id]
+  );
   const vote = m.status === "open" && m.proposed_outcome != null ? await voteState(db, m) : null;
   const voters = vote ? await db.query<{ id: number; display_name: string; color: string }>(`SELECT id, display_name, color FROM users WHERE id = ANY($1::int[])`, [[...vote.confirms, ...vote.rejects]]) : [];
   const named = (ids: number[]) => ids.map((i) => voters.find((v) => v.id === i)).filter(Boolean);
@@ -116,6 +120,11 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     me: {
       balance: u.balance,
       maxStake: maxStake(u.balance),
+      // The most the AI bookmaker takes on each side right now, so the slip never offers a stake it refuses.
+      sideMax: {
+        yes: houseRoom(bk, "yes", buyVig, house, houseLimit(m.b, m.open_prob, "yes", MARKET.houseRisk), maxStake(u.balance)),
+        no: houseRoom(bk, "no", buyVig, house, houseLimit(m.b, m.open_prob, "no", MARKET.houseRisk), maxStake(u.balance)),
+      },
       canTrade: !closed && !(isSubject && m.kind === "bet"),
       // Bets are locked once placed, so you can add to your side but never switch or sell;
       // stocks can be bought and sold, with the margin after the first free trade.

@@ -36,8 +36,9 @@ export const MARKET = {
   stockThresholdDays: 21,
   // The AI bookmaker's margin on each side: buys keep this share of the stake, cash-outs pay this much less.
   vig: 0.03,
-  // Per market, the bookmaker stops taking a side once its worst-case loss would pass this many
-  // times the book's liquidity b (b·ln 2 ≈ 0.69 b is the most a plain book can lose).
+  // Per market, the bookmaker stops taking a side once its worst-case loss would pass the most a
+  // plain book opened at that side's price is built to lose, b·ln(1/p), and never less than this
+  // many times b. An even bet gets b; a 5% long shot gets about 3b, so it can still be backed.
   houseRisk: 1,
   // How much weight the history base rate gets against the AI when we have data.
   historyWeight: 0.3,

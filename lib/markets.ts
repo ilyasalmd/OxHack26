@@ -14,7 +14,7 @@ import { evidenceFor, type Similar } from "./memory";
 import { profileForPrompt, type ProfileAnswers } from "./profile-questions";
 import { openingMaths, profileCommitment, saveRecord, sha256, traceFields } from "./pricing-record";
 import type { Trace } from "./ai";
-import { applyShares, bookAt, buyQuote, cashOutQuote, hazardDecay, houseWorstLoss, marginFor, priceYes, recenter, type Book, type Side } from "./lmsr";
+import { applyShares, bookAt, buyQuote, cashOutQuote, hazardDecay, houseLimit, houseWorstLoss, marginFor, priceYes, recenter, type Book, type Side } from "./lmsr";
 import { closeVault, credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import { MAX_SNIPPETS, type Snippet } from "./chat-context";
@@ -293,7 +293,7 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
         [marketId]
       );
       const worst = houseWorstLoss(house.yes + (input.side === "yes" ? shares : 0), house.no + (input.side === "no" ? shares : 0), house.collected + coins);
-      if (worst > MARKET.houseRisk * m.b + 1e-9)
+      if (worst > houseLimit(m.b, m.open_prob, input.side, MARKET.houseRisk) + 1e-9)
         throw new HttpError(400, `The AI bookmaker has taken all it will on ${input.side === "yes" ? sides(m).yes : sides(m).no} here. Try a smaller stake or the other side.`);
       bk = applyShares(bk, input.side, shares);
     } else {
