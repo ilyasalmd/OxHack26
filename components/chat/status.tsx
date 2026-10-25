@@ -1,34 +1,40 @@
 "use client";
-import { Alert, Check, Mic, TrendUp } from "../icons";
+import { Alert, Mic } from "../icons";
 import { Avatar } from "../ui";
 
 export type Delivery = "sending" | "failed" | "sent" | "delivered" | "read";
 
-/** The app's mark, small: a message that at least one friend has read. */
-export function ReadMark({ size = 13 }: { size?: number }) {
+// One tick that bends into the app's mark (the market line with its arrow) once someone reads it.
+// Both shapes use the same four points, so the line can glide from one into the other.
+const TICK = "M4 12.5 L9 17.5 L9 17.5 L20 6.5";
+const KINK = "M3 17 L9 11 L13 15 L21 7";
+
+/** A single tick, or the app's kinked tick once read. Animates between the two. */
+export function TickMark({ read, size = 15 }: { read: boolean; size?: number }) {
+  const d = read ? KINK : TICK;
   return (
-    <span className="inline-flex items-center justify-center rounded-[4px] bg-brand text-black" style={{ width: size, height: size }} aria-hidden>
-      <TrendUp size={size * 0.7} strokeWidth={3} />
-    </span>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={read ? 2.6 : 2.2} strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 transition-[color,stroke-width] duration-300 ${read ? "text-brand" : ""}`} aria-hidden>
+      {/* The `d` style lets browsers that can animate paths morph the line; the others simply swap it. */}
+      <path d={d} style={{ d: `path("${d}")`, transition: "d .35s cubic-bezier(.2,.8,.2,1)" } as React.CSSProperties} />
+      <path d="M15 7h6v6" className="transition-opacity duration-300" style={{ opacity: read ? 1 : 0, transitionDelay: read ? ".15s" : "0s" }} />
+    </svg>
   );
 }
 
 /**
  * The mark on your own messages: a spinner while it sends, one tick once the server has it,
- * the app's mark once at least one other person has read it. The tooltip says who.
+ * and that tick turns into the app's mark once at least one other person has read it.
  */
 export function DeliveryMark({ state, title }: { state: Delivery; title?: string }) {
   const label = { sending: "Sending", failed: "Not sent", sent: "Sent", delivered: "Delivered", read: "Read" }[state];
   return (
-    <span className={`inline-flex translate-y-[3px] items-center ${state === "failed" ? "text-down" : "text-white/70"}`} title={title ?? label} aria-label={label} role="img">
+    <span className={`inline-flex h-[15px] w-[15px] items-center justify-center ${state === "failed" ? "text-down" : "text-white/75"}`} title={title ?? label} aria-label={label} role="img">
       {state === "sending" ? (
         <span className="inline-block h-[11px] w-[11px] animate-spin rounded-full border-[1.5px] border-current border-t-transparent" />
       ) : state === "failed" ? (
         <Alert size={13} />
-      ) : state === "read" ? (
-        <ReadMark />
       ) : (
-        <Check size={14} />
+        <TickMark read={state === "read"} />
       )}
     </span>
   );

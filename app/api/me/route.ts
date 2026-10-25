@@ -7,8 +7,9 @@ import { solanaConfig } from "@/lib/solana";
 import { ensureWorker } from "@/lib/worker";
 import { AVATAR_COLS } from "@/lib/chat";
 import { settleReferralsAround } from "@/lib/referrals";
+import { fingerprint } from "@/lib/live";
 
-export const GET = route(async (_req, user) => {
+export const GET = route(async (req, user) => {
   ensureWorker();
   const db = await getDb();
   // Invite rewards are paid lazily, like the weekly allowance, on whichever side shows up first.
@@ -66,7 +67,7 @@ export const GET = route(async (_req, user) => {
     : [];
   // Wallet addresses and anything else about the chain are for the admin only.
   const admin = isAdminUsername(user.username);
-  return {
+  const body = {
     user: admin ? user : { ...user, wallet_pubkey: null },
     netWorth: await netWorth(db, user.id),
     maxStake: maxStake(user.balance),
@@ -86,4 +87,10 @@ export const GET = route(async (_req, user) => {
       db: db.driver,
     },
   };
+  // The app refreshes this every few seconds. When it already has exactly this (same etag), it gets
+  // a few bytes back instead of the whole list again. The clock moves every time, so it isn't counted.
+  const { clock: _clock, ...rest } = body;
+  const etag = fingerprint(rest);
+  if (req.nextUrl.searchParams.get("etag") === etag) return { unchanged: true, etag, clock: body.clock };
+  return { ...body, etag };
 });

@@ -3,6 +3,7 @@ import { now } from "./clock";
 import { DEMO_BOTS, ECONOMY } from "./config";
 import { askJson } from "./ai";
 import { setTyping } from "./chat";
+import { notifyChat } from "./live";
 import { creatorKey, SAMPLE_GROUPS } from "./demo";
 import { encryptMessage, importGroupKey, unwrapGroupKey } from "./e2ee";
 import { book, getMarket, trade, voteOnResult, voteState } from "./markets";
@@ -132,6 +133,8 @@ async function say(groupId: number, b: Bot, text: string) {
   const raw = await unwrapGroupKey(b.wrapped_key, priv, b.wrapper_public_key);
   const e = await encryptMessage(await importGroupKey(raw), text);
   await (await getDb()).query(`INSERT INTO messages (group_id, user_id, kind, ciphertext, iv, created_at, bot) VALUES ($1,$2,'chat',$3,$4,$5,true)`, [groupId, b.id, e.ciphertext, e.iv, now()]);
+  // Open chats show it straight away rather than on their next re-check.
+  notifyChat(groupId);
 }
 
 /** One short line per bot from Gemma, in the group-chat voice; canned lines if the model is off or slow. */

@@ -21,6 +21,8 @@ export type Me = {
   /** Your profile photo, your profile key wrapped for you, and people who still need it wrapped for them. */
   photo?: { avatarId: number | null; key: string | null; missing: { id: number; public_key: string }[] };
   clock: { now: string; offsetMs: number };
+  /** Fingerprint of everything else here, sent back so an unchanged list costs a few bytes. */
+  etag?: string;
   pendingKeys: { group_id: number; wrapped_key: string; wrapper_public_key: string; members: { id: number; public_key: string; has_key: boolean }[] }[];
   account: { hasRecovery: boolean; isAdmin: boolean; profilePending: boolean };
   config: {
@@ -53,10 +55,27 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   // The server's answer always wins over anything drawn from the device cache.
   const fresh = useRef(false);
 
+  const meRef = useRef<Me | null>(null);
+  meRef.current = me;
+
   const refresh = useCallback(async () => {
     try {
-      const m = await api<Me>("/api/me");
+      // Send what we already have; the server answers "unchanged" (a few bytes) when nothing moved.
+      const have = meRef.current?.etag;
+      const r = await api<Me | { unchanged: true; etag: string; clock: Me["clock"] }>(`/api/me${have ? `?etag=${encodeURIComponent(have)}` : ""}`);
       fresh.current = true;
+      if ("unchanged" in r) {
+        const cur = meRef.current;
+        if (cur) {
+          // Only the clock moved: keep everything else as it is, so nothing redraws for no reason.
+          const next = { ...cur, clock: r.clock };
+          meRef.current = next;
+          setMe(next);
+          return next;
+        }
+        return null;
+      }
+      const m = r;
       setMe(m);
       if (loadedFor.current !== m.user.id) {
         // Someone else's cache must not be shown to this account.
