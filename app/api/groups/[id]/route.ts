@@ -6,8 +6,10 @@ import { price, isClosed, voteState, type MarketRow, type VoteState } from "@/li
 import { now } from "@/lib/clock";
 import { AVATAR_COLS, whoIsTyping } from "@/lib/chat";
 import { friendBetsForChat } from "@/lib/friend-bet";
+import { answerWhenChanged, fingerprint, notifyChat } from "@/lib/live";
 
-// One poll endpoint for the chat screen: new messages, live prices, members and key handshakes.
+// The chat screen's live feed: new messages, live prices, members and key handshakes. With
+// `etag` and `wait=1` the server answers only once something changes (see lib/live.ts).
 export const GET = route<IdCtx>(async (req, user, ctx) => {
   const id = await idParam(ctx);
   await requireMember(id, user.id);
@@ -15,6 +17,22 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
   // `read`: the newest message this app has on screen with the chat in view (anything above the
   // newest message means all of it).
   const read = Number(req.nextUrl.searchParams.get("read") ?? 0) || 0;
+  return answerWhenChanged(
+    req,
+    async () => {
+      const body = await chatFeed(id, user.id, after, read);
+      // New messages always count as a change. Otherwise the fingerprint covers everything else
+      // on screen, leaving out the clock and your own read position (which this request moves).
+      const { messages, now: _now, ...rest } = body;
+      const members = rest.members.map((m) => (m.id === user.id ? { ...m, delivered_upto: 0, read_upto: 0 } : m));
+      return { body, tag: fingerprint({ ...rest, members }), fresh: messages.length > 0 };
+    },
+    [`g:${id}`]
+  );
+});
+
+async function chatFeed(id: number, userId: number, after: number, read: number) {
+  const user = { id: userId };
   const db = await getDb();
   // These reads don't depend on each other, so they go to the database together, not one after another.
   const [[group], members, [prefs], [myKey], former, messages, markets, friendBets] = await Promise.all([
@@ -22,7 +40,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
       `SELECT id, name, emoji, invite_code, ai_context, created_by, is_dm, description_ct, description_iv, photo_id::int AS photo_id FROM groups WHERE id = $1`,
       [id]
     ),
-    db.query(
+    db.query<{ id: number; delivered_upto: number; read_upto: number }>(
       `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, u.subject_policy, (k.user_id IS NOT NULL) AS has_key,
          ${AVATAR_COLS("u", "$2")}, gm.delivered_upto::int AS delivered_upto, gm.read_upto::int AS read_upto
        FROM group_members gm JOIN users u ON u.id = gm.user_id
@@ -60,9 +78,13 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
       `UPDATE group_members gm SET delivered_upto = GREATEST(gm.delivered_upto, LEAST(GREATEST($3::bigint, $4::bigint), x.top)), read_upto = GREATEST(gm.read_upto, LEAST($4::bigint, x.top))
        FROM (SELECT coalesce(max(id), 0) AS top FROM messages WHERE group_id = $1) x
        WHERE gm.group_id = $1 AND gm.user_id = $2
-         AND (gm.read_upto < LEAST($4::bigint, x.top) OR gm.delivered_upto < LEAST(GREATEST($3::bigint, $4::bigint), x.top))`,
+         AND (gm.read_upto < LEAST($4::bigint, x.top) OR gm.delivered_upto < LEAST(GREATEST($3::bigint, $4::bigint), x.top))
+       RETURNING gm.user_id`,
       [id, user.id, newest, read]
-    )
+    ).then((moved) => {
+      // Someone's ticks moved: the sender's waiting app hears about it now, not on its next re-check.
+      if (moved.length) notifyChat(id);
+    })
     : Promise.resolve();
   // The vote on each proposed result, for the card in the chat.
   const proposed = markets.filter((m) => m.status === "open" && m.proposed_outcome != null);
@@ -106,7 +128,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
     })),
     now: now(),
   };
-});
+}
 
 export const PATCH = route<IdCtx>(async (req, user, ctx) => {
   const id = await idParam(ctx);

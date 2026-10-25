@@ -13,7 +13,8 @@ export const metadata: Metadata = {
   description: "Group chats where friends hold each other accountable with prediction markets.",
 };
 
-export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#0d100a" };
+// resizes-content: on Android the keyboard shrinks the page, so the message bar sits on top of it.
+export const viewport: Viewport = { width: "device-width", initialScale: 1, viewportFit: "cover", themeColor: "#0d100a", interactiveWidget: "resizes-content" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

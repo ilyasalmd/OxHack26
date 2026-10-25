@@ -5,6 +5,7 @@ import { body, idParam, type IdCtx } from "@/lib/http";
 import { now } from "@/lib/clock";
 import { limit } from "@/lib/ratelimit";
 import { setTyping } from "@/lib/chat";
+import { notifyChat } from "@/lib/live";
 
 // The server only ever receives AES-GCM ciphertext for chat messages.
 export const POST = route<IdCtx>(async (req, user, ctx) => {
@@ -18,6 +19,8 @@ export const POST = route<IdCtx>(async (req, user, ctx) => {
     [id, user.id, b.ciphertext, b.iv, now()]
   );
   setTyping(id, user.id, null);
+  // Wake everyone waiting on this chat now, typing or not.
+  notifyChat(id);
   // Your own message is delivered to and read by you.
   await db.query(`UPDATE group_members SET delivered_upto = GREATEST(delivered_upto, $3::bigint), read_upto = GREATEST(read_upto, $3::bigint) WHERE group_id = $1 AND user_id = $2`, [id, user.id, m.id]);
   return m;

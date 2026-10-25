@@ -1,5 +1,6 @@
 import { HttpError } from "./auth";
 import type { Q } from "./db";
+import { notifyChat } from "./live";
 
 // Encrypted file sizes the server accepts. The browser shrinks photos and caps voice notes well
 // under these, so they only stop abuse.
@@ -23,9 +24,12 @@ const typing = (g.__fsTyping ??= new Map());
 
 export function setTyping(groupId: number, userId: number, mode: TypingMode | null) {
   const m = typing.get(groupId) ?? new Map();
+  const was = m.get(userId)?.mode ?? null;
   if (mode) m.set(userId, { until: Date.now() + TYPING_MS, mode });
   else m.delete(userId);
   typing.set(groupId, m);
+  // Everyone else's open chat hears it straight away (a refresh of the same state stays quiet).
+  if (was !== mode) notifyChat(groupId);
 }
 
 /** Everyone else in the chat who is typing or recording a voice note right now. */

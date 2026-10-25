@@ -152,12 +152,13 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [err, setErr] = useState("");
   const [keyFailed, setKeyFailed] = useState(false);
   const lastId = useRef(cached?.lastId ?? 0);
-  const polling = useRef(false);
+  // The live feed: one request at a time that the server answers when something changes.
+  // `kick` asks for an immediate fetch (after you act), `waiters` are the callers awaiting it.
+  const feedLive = useRef<{ ctrl: AbortController | null; kick: boolean; waiters: (() => void)[]; running: boolean; etag: string | null }>({ ctrl: null, kick: false, waiters: [], running: false, etag: null });
   const markedRead = useRef(false);
   const msgsRef = useRef<Msg[]>([]);
   msgsRef.current = messages;
   const keyRef = useRef<ChatKey | null>(cached?.key ?? null);
-  const bottom = useRef<HTMLDivElement>(null);
   // The server's clock minus ours (the admin's demo clock runs ahead), so a new bubble gets the right time.
   const skew = useRef(0);
   const retries = useRef(new Map<string, () => void>());
@@ -222,13 +223,28 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, id, identity]);
 
-  const poll = useCallback(async () => {
-    if (polling.current) return;
-    polling.current = true;
-    try {
+  /**
+   * One fetch of the live feed. With `wait`, the server holds it until something changes (up to
+   * ~20s) and the phone downloads nothing in between; otherwise it answers at once, with a few
+   * bytes when nothing changed.
+   */
+  const fetchOnce = useCallback(async (wait: boolean, signal: AbortSignal) => {
+    {
       // With the chat on screen, everything in it counts as read, including what this fetch brings.
       const visible = document.visibilityState === "visible";
-      const f = await api<Feed>(`/api/groups/${id}?after=${lastId.current}&read=${visible ? Number.MAX_SAFE_INTEGER : 0}`);
+      const etag = feedLive.current.etag;
+      const r = await api<(Feed & { etag?: string }) | { unchanged: true; etag: string; now: string }>(
+        `/api/groups/${id}?after=${lastId.current}&read=${visible ? Number.MAX_SAFE_INTEGER : 0}${etag ? `&etag=${encodeURIComponent(etag)}${wait ? "&wait=1" : ""}` : ""}`,
+        { signal }
+      );
+      if ("unchanged" in r) {
+        // Nothing new: only the clock moves (for "2h left" and the like).
+        skew.current = Date.parse(r.now) - Date.now();
+        setFeed((cur) => (cur ? { ...cur, now: r.now } : cur));
+        return;
+      }
+      const f = r;
+      feedLive.current.etag = f.etag ?? null;
       // Clear this chat's unread badge in the chat list straight away rather than on the next refresh.
       if (visible && !markedRead.current) {
         markedRead.current = true;
@@ -275,27 +291,86 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           return sortMsgs(out);
         });
       }
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      polling.current = false;
     }
   }, [id, identity, decryptAll, setIdentity, refresh]);
 
+  /** Fetch now (after you send, vote, trade…) instead of waiting for the server's next answer. */
+  const poll = useCallback(() => {
+    const L = feedLive.current;
+    if (!L.running) return Promise.resolve();
+    return new Promise<void>((res) => {
+      L.waiters.push(res);
+      L.kick = true;
+      L.ctrl?.abort();
+    });
+  }, []);
+
+  // The live loop. While the chat is on screen, one request is always waiting at the server and
+  // comes back the moment something changes. In the background it checks every 15s instead, so a
+  // hidden tab holds no connection open.
   useEffect(() => {
-    if (!me || !ready) return;
-    poll();
-    const t = setInterval(poll, 1500);
-    // Back from another app or a locked phone: catch up now, not on the next tick.
-    const wake = () => document.visibilityState === "visible" && poll();
+    if (!userId || !ready) return;
+    const L = feedLive.current;
+    let stop = false;
+    L.running = true;
+    const pause = (ms: number) =>
+      new Promise<void>((res) => {
+        const ctrl = new AbortController();
+        L.ctrl = ctrl;
+        const t = setTimeout(res, ms);
+        ctrl.signal.addEventListener("abort", () => {
+          clearTimeout(t);
+          res();
+        });
+      });
+    (async () => {
+      let first = true;
+      let fails = 0;
+      while (!stop) {
+        const kicked = L.kick;
+        L.kick = false;
+        const waiters = L.waiters.splice(0);
+        const hidden = document.visibilityState !== "visible";
+        if (hidden && !first && !kicked) {
+          await pause(15_000);
+          if (stop) break;
+        }
+        const ctrl = new AbortController();
+        L.ctrl = ctrl;
+        try {
+          await fetchOnce(!first && !kicked && !hidden, ctrl.signal);
+          fails = 0;
+          setErr("");
+        } catch (e) {
+          if (!ctrl.signal.aborted) {
+            setErr((e as Error).message);
+            // No signal or a server hiccup: back off (1s, 2s, 4s… up to 15s) rather than hammer it.
+            fails++;
+            await pause(Math.min(15_000, 1000 * 2 ** (fails - 1)));
+          }
+        } finally {
+          if (L.ctrl === ctrl) L.ctrl = null;
+          waiters.forEach((w) => w());
+        }
+        first = false;
+      }
+    })();
+    // Back from another app or a locked phone (or leaving it): re-ask at once with the right "read".
+    const wake = () => {
+      L.kick = true;
+      L.ctrl?.abort();
+    };
     document.addEventListener("visibilitychange", wake);
     window.addEventListener("focus", wake);
     return () => {
-      clearInterval(t);
+      stop = true;
+      L.running = false;
+      L.ctrl?.abort();
+      L.waiters.splice(0).forEach((w) => w());
       document.removeEventListener("visibilitychange", wake);
       window.removeEventListener("focus", wake);
     };
-  }, [me, ready, poll]);
+  }, [userId, ready, fetchOnce]);
 
   // Scrolling up to the top of what's drawn reveals the next page of earlier messages, keeping your place.
   const sent = messages.filter((m) => !m.pending);
@@ -317,19 +392,46 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     anchor.current = null;
     el.scrollTop = a.top + (el.scrollHeight - a.height);
   }, [floor]);
+  // Whether you're reading the newest messages (then new ones scroll into view) or scrolled up
+  // through history (then they don't pull you down, unless they're your own).
+  const atBottom = useRef(true);
   const onWallScroll = () => {
     const el = wall.current;
-    if (el && el.scrollTop < 240 && hidden) revealEarlier();
+    if (!el) return;
+    atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    if (el.scrollTop < 240 && hidden) revealEarlier();
   };
 
   const typingCount = feed?.typing?.length ?? 0;
-  // Open at the newest message straight away, then glide down as new ones arrive.
+  // Open at the newest message straight away, then glide down as new ones arrive. Only the
+  // message list scrolls (scrollIntoView would also move the page itself on a phone), and it goes
+  // all the way down, so the newest bubble sits clear of the message bar rather than under its edge.
   const landed = useRef(false);
+  const newest = messages[messages.length - 1];
+  const mineLast = !!newest && (!!newest.pending || newest.user_id === me?.user.id);
   useEffect(() => {
-    if (!messages.length || anchor.current) return;
-    bottom.current?.scrollIntoView({ behavior: landed.current ? "smooth" : "auto", block: "end" });
+    const el = wall.current;
+    if (!messages.length || anchor.current || !el) return;
+    if (landed.current && !atBottom.current && !mineLast) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: landed.current ? "smooth" : "auto" });
+    atBottom.current = true;
     landed.current = true;
-  }, [messages.length, typingCount]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, typingCount, !!feed]);
+  // The phone keyboard opening (or the window resizing) keeps the newest message in view.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    const keep = () => {
+      const el = wall.current;
+      if (el && atBottom.current) el.scrollTo({ top: el.scrollHeight });
+    };
+    vv?.addEventListener("resize", keep);
+    window.addEventListener("resize", keep);
+    return () => {
+      vv?.removeEventListener("resize", keep);
+      window.removeEventListener("resize", keep);
+    };
+  }, []);
 
   const members = useMemo(
     () =>
@@ -546,7 +648,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           )}
           <AiChatBanner groupId={id} />
           <div ref={wall} onScroll={onWallScroll} className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper, wallUrl === "error" ? null : wallUrl)}>
-            <div className="mx-auto max-w-3xl px-3 py-3 lg:px-6 lg:py-5">
+            <div className="mx-auto max-w-3xl px-3 pb-5 pt-3 lg:px-6 lg:py-5">
               {hidden > 0 && (
                 <button onClick={revealEarlier} className="mx-auto mb-2 flex items-center gap-1 rounded-full bg-white/5 px-3 py-1 text-xs text-mute hover:text-white">
                   <ChevronLeft size={12} className="rotate-90" /> {hidden} earlier
@@ -593,7 +695,6 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                 );
               })}
               {typers.map((t) => <TypingBubble key={t.id} who={t.who!} mode={t.mode} />)}
-              <div ref={bottom} />
             </div>
           </div>
           <Composer
@@ -630,6 +731,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         </aside>
       </div>
       <div className="lg:hidden"><TimeMachine onJump={poll} /></div>
+      {/* On an iPhone the home bar sits over the bottom of the screen: keep the message bar above it. */}
+      <div className="shrink-0 bg-ink pb-[env(safe-area-inset-bottom)] lg:hidden" />
 
       <StakeChooser
         open={chooseOpen}
