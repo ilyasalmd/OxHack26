@@ -9,14 +9,14 @@ import { warmChat } from "./chat/cache";
 import { clearCache } from "./chat/store";
 import { TimeMachine } from "./timemachine";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
-import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, User as UserIcon, Wallet, Users } from "./icons";
+import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, Trophy, User as UserIcon, Wallet, Users } from "./icons";
 import { decryptPayload, forgetIdentities, type Payload } from "@/lib/e2ee";
 import { ChatMark, chatName } from "./chat/mark";
 
 /** The phone's four tabs. Each screen does one job; everything else is a page you go into and back out of. */
 const TABS = [
   { href: "/chats", label: "Chats", icon: Chat },
-  { href: "/markets", label: "Stakes", icon: TrendUp },
+  { href: "/ranks", label: "Ranks", icon: Trophy },
   { href: "/portfolio", label: "Wallet", icon: Wallet },
   { href: "/settings", label: "You", icon: UserIcon },
 ];
@@ -134,7 +134,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   }
   // The chats are the home screen, like a messaging app; everything else is a small row at the bottom.
   const nav = [
-    { href: "/markets", label: "Stakes", icon: TrendUp },
+    { href: "/ranks", label: "Ranks", icon: Trophy },
     { href: "/portfolio", label: "Wallet", icon: Wallet },
     ...(me.account?.isAdmin ? [{ href: "/chain", label: "Chain", icon: Blocks }] : []),
     { href: "/settings", label: "Settings", icon: Settings, dot: !me.account?.hasRecovery },
