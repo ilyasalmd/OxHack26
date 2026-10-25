@@ -10,6 +10,7 @@ import { book, getMarket, trade, voteOnResult, voteState } from "./markets";
 import { priceYes } from "./lmsr";
 import { maxStake } from "./economy";
 import { PEOPLE } from "../scripts/seed-content";
+import { BOT_CONTEXT, pickTurns, type Turns } from "./bot-turns";
 import type { User } from "./auth";
 
 /**
@@ -38,7 +39,9 @@ const LINES = {
 /**
  * Demo only: when a real person writes in a sample chat, one of the sample people in it reads it
  * within a second or so (so the sender's tick turns into the logo), and once the chat goes quiet
- * for a few seconds one of them answers, in character, from the last few messages.
+ * for a few seconds the person they were talking to answers, in character, from the recent chat.
+ * Who answers is pickTurns() in lib/bot-turns.ts: whoever was named or replied to, else one person;
+ * anyone else only chips in now and then.
  */
 const replying = new Map<number, { timer: NodeJS.Timeout; last: number }>();
 export function startBotReply(groupId: number, senderId: number) {
@@ -83,37 +86,91 @@ async function readSoon(groupId: number, senderId: number) {
   }
 }
 
-async function reply(groupId: number, senderId: number) {
-  const bots = await chatBots(groupId, senderId);
-  const b = bots[0];
-  if (!b) return;
+type Said = { userId: number; name: string; text: string; at: number };
+
+/** The last few chat messages, decrypted with a sample person's copy of the chat key, oldest first. */
+async function recentChat(groupId: number, b: Bot, count = BOT_CONTEXT): Promise<Said[]> {
   const priv = await creatorKey(b);
-  if (!priv) return;
+  if (!priv) return [];
   const key = await importGroupKey(await unwrapGroupKey(b.wrapped_key, priv, b.wrapper_public_key));
-  const db = await getDb();
-  const recent = await db.query<{ ciphertext: string; iv: string; display_name: string }>(
-    `SELECT m.ciphertext, m.iv, u.display_name FROM messages m JOIN users u ON u.id = m.user_id
-      WHERE m.group_id = $1 AND m.kind = 'chat' AND m.ciphertext IS NOT NULL ORDER BY m.id DESC LIMIT 8`,
-    [groupId]
+  const rows = await (await getDb()).query<{ user_id: number; ciphertext: string; iv: string; display_name: string; created_at: Date }>(
+    `SELECT m.user_id, m.ciphertext, m.iv, u.display_name, m.created_at FROM messages m JOIN users u ON u.id = m.user_id
+      WHERE m.group_id = $1 AND m.kind = 'chat' AND m.ciphertext IS NOT NULL ORDER BY m.id DESC LIMIT $2`,
+    [groupId, count]
   );
-  const lines: string[] = [];
-  for (const r of recent.reverse()) {
+  const out: Said[] = [];
+  for (const r of rows.reverse()) {
     const p = await decryptPayload(key, r.iv, r.ciphertext).catch(() => null);
-    if (p?.t) lines.push(`${r.display_name}: ${p.t.slice(0, 200)}`);
+    if (!p) continue;
+    const media = p.a ? (p.a.kind === "voice" ? "[voice note]" : "[photo]") : "";
+    const text = [media, p.t.slice(0, 240)].filter(Boolean).join(" ");
+    if (text) out.push({ userId: r.user_id, name: r.display_name, text, at: new Date(r.created_at).getTime() });
   }
-  const [g] = await db.query<{ name: string }>(`SELECT name FROM groups WHERE id = $1`, [groupId]);
-  const person = BOTS.get(b.username)!;
-  setTyping(groupId, b.id, "text");
-  const prompt = `You are ${b.display_name}, texting in a group chat called "${g?.name ?? "the chat"}" with friends. The latest messages:
-${lines.join("\n")}
-Write ${b.display_name}'s next message: reply to the last one naturally, casual British English, lowercase is fine, under 15 words, no emoji, no hashtags.${person.boldness > 0.7 ? " You're a bit cocky." : ""}`;
-  const out = await askJson<{ reply: string }>(prompt, { type: "object", properties: { reply: { type: "string" } }, required: ["reply"] }, 15000);
-  const text = (typeof out?.reply === "string" ? out.reply : "").replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "").replace(/^["']|["']$/g, "").replace(new RegExp(`^${b.display_name}:\\s*`, "i"), "").trim().slice(0, 140);
-  await sleep(800 + Math.random() * 1200);
-  await say(groupId, b, text || pick(SMALL_TALK)).catch((e) => console.warn("[bots] chat", (e as Error).message));
-  setTyping(groupId, b.id, null);
+  return out;
 }
 
+async function reply(groupId: number, senderId: number) {
+  const bots = await chatBots(groupId, senderId);
+  if (!bots.length) return;
+  const db = await getDb();
+  const members = await db.query<{ id: number; username: string; display_name: string }>(
+    `SELECT u.id, u.username, u.display_name FROM group_members gm JOIN users u ON u.id = gm.user_id AND u.deleted_at IS NULL WHERE gm.group_id = $1`,
+    [groupId]
+  );
+  const recent = await recentChat(groupId, bots[0]);
+  const turns = pickTurns({
+    members: members.map((m) => ({ ...m, bot: BOTS.has(m.username) && bots.some((b) => b.id === m.id) })),
+    recent,
+    senderId,
+    now: now().getTime(),
+  });
+  const [g] = await db.query<{ name: string; ai_context: string | null }>(`SELECT name, ai_context FROM groups WHERE id = $1`, [groupId]);
+  const sender = members.find((m) => m.id === senderId)?.display_name ?? "someone";
+
+  for (const [i, id] of turns.order.entries()) {
+    const b = bots.find((x) => x.id === id);
+    if (!b) continue;
+    if (i > 0) await sleep(3000 + Math.random() * 5000);
+    // Read again, so whoever chips in sees the reply before theirs.
+    const lines = i === 0 ? recent : await recentChat(groupId, b);
+    setTyping(groupId, b.id, "text");
+    const text = await writeReply({ b, chat: g?.name ?? "the chat", context: g?.ai_context ?? "", sender, lines, role: i === 0 ? turns.why : "chip-in" });
+    await sleep(800 + Math.random() * 1200);
+    await say(groupId, b, text || pick(i === 0 && HOW_ARE_YOU.test(recent.at(-1)?.text ?? "") ? ANSWERS : SMALL_TALK)).catch((e) => console.warn("[bots] chat", (e as Error).message));
+    setTyping(groupId, b.id, null);
+  }
+}
+
+/** One message from a sample person, written by the model from the recent chat; null if the model is off. */
+async function writeReply(a: { b: Bot; chat: string; context: string; sender: string; lines: Said[]; role: Turns["why"] | "chip-in" }) {
+  const me = a.b.display_name;
+  const person = BOTS.get(a.b.username)!;
+  const task = {
+    named: `${a.sender} is talking to you. Answer what ${a.sender} just said or asked you, as ${me}.`,
+    reply: `${a.sender} is replying to you. Answer what ${a.sender} just said or asked you, as ${me}.`,
+    open: `${a.sender} said that to the whole chat and you're the one who picks it up.`,
+    "someone-else": `${a.sender} was talking to someone else; add a short aside without answering for them.`,
+    "chip-in": `Someone has already answered ${a.sender}. Chip in briefly with your own take; don't repeat them or answer for them.`,
+  }[a.role];
+  const prompt = `You are ${me}, texting in a group chat called "${a.chat}".${a.context ? `\nAbout this chat: ${a.context}` : ""}
+The latest messages, oldest first (your own are marked "(you)"):
+${a.lines.map((l) => `${l.name}${l.name === me ? " (you)" : ""}: ${l.text}`).join("\n")}
+
+${task}
+Speak only for yourself, ${me}, in first person, and stay consistent with what you've already said. Talk to ${a.sender} the way ${me} would, given who they are to you.
+Casual British English, lowercase is fine, under 18 words, no emoji, no hashtags.${person.boldness > 0.7 ? " You're a bit cocky." : ""}`;
+  const out = await askJson<{ reply: string }>(prompt, { type: "object", properties: { reply: { type: "string" } }, required: ["reply"] }, 15000);
+  return (typeof out?.reply === "string" ? out.reply : "")
+    .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "")
+    .replace(/^["']|["']$/g, "")
+    .replace(new RegExp(`^${me}( \\(you\\))?:\\s*`, "i"), "")
+    .trim()
+    .slice(0, 160);
+}
+
+// Fallbacks when the model is off: something that answers a question, or a reaction.
+const HOW_ARE_YOU = /\bhow (r|are) (u|you|ya)\b|\bhow'?s it going\b|\b(you|u) (ok|okay|alright|good)\b/i;
+const ANSWERS = ["not bad thanks, you?", "all good here", "yeah good, been a long day", "fine thanks, what about you"];
 const SMALL_TALK = ["haha fair", "say less", "honestly same", "wait what", "no way", "classic", "I'm in", "100%", "big if true", "we'll see about that"];
 
 /** Starts the bots for a freshly posted stake. Returns at once; they act over the next minute. */
