@@ -40,9 +40,13 @@ const STEPS: [script: string, why: string][] = [
 const DONE = /already|Already seeded|Every account is already/;
 
 function readEnv() {
+  // A server image has neither file (its settings come from the environment): start an empty one.
   if (!fs.existsSync(ENV)) {
-    fs.copyFileSync(path.join(ROOT, ".env.example"), ENV);
-    console.log("Made .env.local from .env.example");
+    const example = path.join(ROOT, ".env.example");
+    if (fs.existsSync(example)) {
+      fs.copyFileSync(example, ENV);
+      console.log("Made .env.local from .env.example");
+    } else fs.writeFileSync(ENV, "");
   }
   return fs.readFileSync(ENV, "utf8");
 }

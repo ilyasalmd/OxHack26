@@ -2,8 +2,11 @@
 
 Demo only: play money, sample data, nothing sensitive.
 
-**Live app:** https://adjust-conference-preparing-merchant.trycloudflare.com
-(runs on Ilyas's Mac through a Cloudflare tunnel, so the link changes if the Mac or the tunnel restarts)
+**Hosted app (always on):** https://192.248.147.140.sslip.io
+(a Vultr server that follows `main`; see [DEPLOY.md](DEPLOY.md))
+
+**Team link:** https://adjust-conference-preparing-merchant.trycloudflare.com
+(runs on Ilyas's Mac through a Cloudflare tunnel, so the link changes if the Mac or the tunnel restarts. It has its own database, separate from the hosted app)
 
 ## Accounts to use
 
