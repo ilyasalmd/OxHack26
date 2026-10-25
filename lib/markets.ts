@@ -14,7 +14,7 @@ import { evidenceFor, type Similar } from "./memory";
 import { profileForPrompt, type ProfileAnswers } from "./profile-questions";
 import { openingMaths, profileCommitment, saveRecord, sha256, traceFields } from "./pricing-record";
 import type { Trace } from "./ai";
-import { applyShares, bookAt, buyQuote, cashOutQuote, hazardDecay, houseWorstLoss, priceYes, recenter, type Book, type Side } from "./lmsr";
+import { applyShares, bookAt, buyQuote, cashOutQuote, hazardDecay, houseWorstLoss, marginFor, priceYes, recenter, type Book, type Side } from "./lmsr";
 import { closeVault, credit, maxStake, recordNetWorth, mayCall } from "./economy";
 import { HttpError, type User } from "./auth";
 import { MAX_SNIPPETS, type Snippet } from "./chat-context";
@@ -268,6 +268,7 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
     if (paused) throw new HttpError(409, "The AI is re-marking this chat's stocks. Try again in a moment.");
     const [u] = await q.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1 FOR UPDATE`, [user.id]);
     const fee = await tradeFee(q, m, user.id);
+    const vig = await tradeMargin(q, m, user.id);
     const before = priceYes(book(m));
     let bk = book(m);
     let shares: number, coins: number;
@@ -279,7 +280,7 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
         throw new HttpError(400, `Max trade right now is ${cap.toFixed(2)} (${ECONOMY.maxStakeFraction * 100}% of balance, keeping ${ECONOMY.balanceFloor} safe)`);
       if (fee > 0 && u.balance - coins - fee < ECONOMY.balanceFloor - 1e-9) throw new HttpError(400, `That plus the ${fee} fee would take you under the ${ECONOMY.balanceFloor} safety floor`);
       // The AI bookmaker keeps its margin: only the rest of the stake buys shares.
-      shares = buyQuote(bk, input.side, coins, MARKET.vig).shares;
+      shares = buyQuote(bk, input.side, coins, vig).shares;
       // And it stops taking a side once it could lose more than its limit on this market.
       const [house] = await q.query<{ yes: number; no: number; collected: number }>(
         `SELECT coalesce(sum(yes_shares), 0)::float8 AS yes, coalesce(sum(no_shares), 0)::float8 AS no, coalesce(sum(spent), 0)::float8 AS collected
@@ -299,7 +300,7 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
       shares = Math.min(input.amount, held);
       if (!(shares > 1e-6)) throw new HttpError(400, "No shares to sell");
       // Cashing out pays the bookmaker's buy-back price less its margin.
-      coins = Math.floor(cashOutQuote(bk, input.side, shares, MARKET.vig) * 100) / 100;
+      coins = Math.floor(cashOutQuote(bk, input.side, shares, vig) * 100) / 100;
       // Without this, tiny sells that return almost nothing still pay the fee and push you under the floor.
       if (fee > 0 && u.balance + coins - fee < ECONOMY.balanceFloor - 1e-9) throw new HttpError(400, `That sale doesn't cover the ${fee} fee without taking you under the ${ECONOMY.balanceFloor} safety floor`);
       bk = applyShares(bk, input.side, -shares);
@@ -327,9 +328,15 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
     }
     const verb = input.action === "buy" ? (input.side === "yes" ? "went long" : "went short") : `sold ${input.side === "yes" ? "long" : "short"}`;
     await systemMessage(q, m.group_id, "trade", `${verb} ${coins.toFixed(0)} · ${(before * 100).toFixed(0)}% → ${(after * 100).toFixed(0)}%`, marketId, user.id);
-    return { shares, coins, before, after, fee };
+    return { shares, coins, before, after, fee, vig };
   });
   return result;
+}
+
+/** The bookmaker's margin on this trader's next trade: none on their first trade on a stock, MARKET.vig after that and on bets. */
+export async function tradeMargin(q: Q, m: MarketRow, userId: number) {
+  const [{ n }] = await q.query<{ n: number }>(`SELECT count(*)::int AS n FROM trades WHERE market_id = $1 AND user_id = $2`, [m.id, userId]);
+  return marginFor(m.kind, n, MARKET.vig, ECONOMY.freeTrades);
 }
 
 /** The fee this trader's next trade on the market pays: nothing on bets, nothing for the lister, nothing for the first free trades. */

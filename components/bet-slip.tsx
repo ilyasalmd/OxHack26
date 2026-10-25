@@ -114,7 +114,7 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
       <Button variant={side === "yes" ? "up" : "down"} className="w-full !py-3.5 text-[17px]" disabled={busy || !ok} onClick={() => onPlace(side, amount)}>
         {busy ? "Placing…" : stock && !number ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount + fee, fee ? 1 : 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
       </Button>
-      <p className="text-center text-[11px] text-mute">{stock && !number ? `Each share pays 1 ${ticker} if it happens, nothing if not. Buy price ${show(price)} now, set by the AI bookmaker with a ${Math.round(vig * 100)}% margin.` : `Odds ${formatOdds(price, f)} from the AI bookmaker (${Math.round(vig * 100)}% margin): 1 coin returns ${decimalOdds(price)} if you're right.`}</p>
+      <p className="text-center text-[11px] text-mute">{stock && !number ? `Each share pays 1 ${ticker} if it happens, nothing if not. Buy price ${show(price)} now, set by the AI bookmaker${vig > 0 ? ` with a ${Math.round(vig * 100)}% margin` : ", with no margin on your first trade"}.` : `Odds ${formatOdds(price, f)} from the AI bookmaker (${Math.round(vig * 100)}% margin): 1 coin returns ${decimalOdds(price)} if you're right.`}</p>
     </div>
   );
 }

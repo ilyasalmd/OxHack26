@@ -4,7 +4,7 @@ import { idParam, type IdCtx } from "@/lib/http";
 import { PROPOSE_GRACE_MS, book, callableBy, getMarket, isClosed, price, voteState } from "@/lib/markets";
 import { askPrice, bidPrice, cashOutQuote } from "@/lib/lmsr";
 import { maxStake } from "@/lib/economy";
-import { tradeFee } from "@/lib/markets";
+import { tradeFee, tradeMargin } from "@/lib/markets";
 import { findSimilar } from "@/lib/memory";
 import { now } from "@/lib/clock";
 import { SETTLE_WINDOW_MS } from "@/lib/safety";
@@ -66,6 +66,7 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const { similar } = await findSimilar(db, m.group_id, m.title, m.subject_id);
   const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [user.id]);
   const closed = isClosed(m);
+  const buyVig = await tradeMargin(db, m, user.id);
   const callable = await callableBy(db, m, user.id);
   const vote = m.status === "open" && m.proposed_outcome != null ? await voteState(db, m) : null;
   const voters = vote ? await db.query<{ id: number; display_name: string; color: string }>(`SELECT id, display_name, color FROM users WHERE id = ANY($1::int[])`, [[...vote.confirms, ...vote.rejects]]) : [];
@@ -105,7 +106,8 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     trades,
     position: position ? { ...position, cashOut } : null,
     // The AI bookmaker's two-way quote: what a share costs to buy and what it pays to sell, per side.
-    quotes: { vig: MARKET.vig, ask: { yes: askPrice(bk, "yes", MARKET.vig), no: askPrice(bk, "no", MARKET.vig) }, bid: { yes: bidPrice(bk, "yes", MARKET.vig), no: bidPrice(bk, "no", MARKET.vig) } },
+    // buyVig is this person's margin on their next buy: nothing on their first trade on a stock.
+    quotes: { vig: MARKET.vig, buyVig, ask: { yes: askPrice(bk, "yes", buyVig), no: askPrice(bk, "no", buyVig) }, bid: { yes: bidPrice(bk, "yes", MARKET.vig), no: bidPrice(bk, "no", MARKET.vig) } },
     similar: similar.filter((s) => s.market_id !== m.id).map(({ embedding: _e, ...s }) => s),
     me: {
       balance: u.balance,

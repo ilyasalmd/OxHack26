@@ -55,6 +55,9 @@ export function proceedsForShares(book: Book, side: Side, shares: number) {
 // leans against whichever side people pile into. On top of it sits a margin (vig) on both
 // sides, so buying and cashing straight back out always loses a little.
 
+/** The margin on someone's next trade: a stock's first trade (each person's, the lister's too) is free, then every trade pays `vig`. Bets always pay it. */
+export const marginFor = (kind: "bet" | "stock", priorTrades: number, vig: number, freeTrades: number) => (kind === "stock" && priorTrades < freeTrades ? 0 : vig);
+
 /** Shares you get for staking `amount`: the bookmaker keeps `vig` of it as its margin. */
 export function buyQuote(book: Book, side: Side, amount: number, vig: number) {
   const shares = sharesForAmount(book, side, amount * (1 - vig));
