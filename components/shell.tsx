@@ -153,7 +153,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   return (
     <aside className="hidden w-[320px] shrink-0 flex-col border-r border-line bg-panel lg:flex">
       <div className="flex items-center gap-2.5 px-5 pb-2 pt-5">
-        <Link href="/chats" title="FriendStakes" className="-m-1 rounded-lg p-1 transition hover:bg-white/[.06]"><Logo size={26} /></Link>
+        <Logo size={26} />
         <Link href="/portfolio" title="Wallet" className="ml-auto rounded-full bg-white/[.06] px-2.5 py-1 text-xs font-medium tabular text-mute hover:text-white">
           <Coins value={me.netWorth.total} ticker={c.ticker} />
         </Link>

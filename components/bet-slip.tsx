@@ -14,6 +14,9 @@ type Props = {
   side: Side;
   onSide: (s: Side) => void;
   canShort: boolean;
+  /** A bet you're already on: you can add to that side but not switch. */
+  canLong?: boolean;
+  lockedSide?: "yes" | "no" | null;
   balance: number;
   maxStake: number;
   floor: number;
@@ -32,7 +35,7 @@ type Props = {
  * One slip for every trade. A bet reads like a bookmaker's: pick Yes or No, type a stake, see what
  * it returns, one tap. A stock reads like a broker's: Buy or Short, the price, what the shares pay.
  */
-export function BetSlip({ market, book, side, onSide, canShort, balance, maxStake, floor, ticker, fee = 0, lister, vig, busy, err, onPlace }: Props) {
+export function BetSlip({ market, book, side, onSide, canShort, canLong = true, lockedSide = null, balance, maxStake, floor, ticker, fee = 0, lister, vig, busy, err, onPlace }: Props) {
   const [f] = useOddsFormat();
   const [amount, setAmount] = useState(Math.min(10, Math.max(1, Math.floor(maxStake))));
   const [raw, setRaw] = useState(String(Math.min(10, Math.max(1, Math.floor(maxStake)))));
@@ -63,8 +66,8 @@ export function BetSlip({ market, book, side, onSide, canShort, balance, maxStak
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2">
-        <Pick on={side === "yes"} tone="up" onClick={() => onSide("yes")} label={yesLabel} value={stock && !number ? show(ask.yes) : formatOdds(ask.yes, f)} sub={stock && !number ? "buy price" : `AI: ${pct(pYes)} chance`} />
-        <Pick on={side === "no"} tone="down" disabled={!canShort} onClick={() => canShort && onSide("no")} label={noLabel} value={stock && !number ? show(ask.no) : formatOdds(ask.no, f)} sub={!canShort ? "not for you" : stock && !number ? "short price" : `AI: ${pct(1 - pYes)} chance`} />
+        <Pick on={side === "yes"} tone="up" disabled={!canLong} onClick={() => canLong && onSide("yes")} label={yesLabel} value={stock && !number ? show(ask.yes) : formatOdds(ask.yes, f)} sub={!canLong ? "you're locked in on the other side" : stock && !number ? "buy price" : `AI: ${pct(pYes)} chance`} />
+        <Pick on={side === "no"} tone="down" disabled={!canShort} onClick={() => canShort && onSide("no")} label={noLabel} value={stock && !number ? show(ask.no) : formatOdds(ask.no, f)} sub={lockedSide === "yes" ? "you're locked in on the other side" : !canShort ? "not for you" : stock && !number ? "short price" : `AI: ${pct(1 - pYes)} chance`} />
       </div>
 
       <div className="rounded-2xl border border-line bg-ink p-4">

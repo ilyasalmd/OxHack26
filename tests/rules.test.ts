@@ -165,16 +165,18 @@ test("unclaimed with nobody trading, it's called off too, and stock fees come ba
   assert.ok(Math.abs((await balance(people.bob)) - bob0) < 0.01, "stake and fee both come back");
 });
 
-test("an early claim nobody confirmed by the deadline settles a day after it, like any proposal", async () => {
+test("an early claim nobody confirmed lapses a day after the deadline, as if nobody had called it", async () => {
   const id = await open("Alice hands in the form");
   await mk.proposeResult(people.bob, id, true, PROOF);
   await db.query(`UPDATE markets SET proposed_at = now() - interval '2 days' WHERE id = $1`, [id]);
   await ageDeadline(id, 23);
   await mk.finaliseProposals(db);
-  assert.equal(await status(id), "open");
+  assert.notEqual((await mk.getMarket(db, id)).proposed_outcome, null, "still inside the window");
   await ageDeadline(id, 25);
   await mk.finaliseProposals(db);
-  assert.equal(await status(id), "resolved");
+  const m = await mk.getMarket(db, id);
+  assert.equal(m.status, "open");
+  assert.equal(m.proposed_outcome, null, "no approval, so the claim is gone");
 });
 
 test("the person it's about can propose a result about themselves, and confirm one", async () => {
@@ -227,7 +229,7 @@ test("everyone backed the same side: calling it that way needs evidence, even af
   assert.deepEqual((await mk.voteState(db, await mk.getMarket(db, id))).eligible, [people.cara.id], "only cara, who didn't bet, checks it");
 });
 
-test("the losing side staying quiet can't block a result: it settles when the window ends", async () => {
+test("a claim nobody approves lapses when the window ends; one from the side it costs settles it", async () => {
   const id = await open("Alice finishes the crossword");
   await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 25 });
   await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 25 });
@@ -237,7 +239,12 @@ test("the losing side staying quiet can't block a result: it settles when the wi
   assert.equal(await status(id), "open", "still inside the window");
   await db.query(`UPDATE markets SET proposed_at = now() - interval '25 hours', resolves_at = now() - interval '26 hours' WHERE id = $1`, [id]);
   await mk.finaliseProposals(db);
-  assert.equal(await status(id), "resolved");
+  const lapsed = await mk.getMarket(db, id);
+  assert.equal(lapsed.status, "open");
+  assert.equal(lapsed.proposed_outcome, null, "silence is not approval");
+  await mk.proposeResult(people.bob, id, true);
+  await mk.confirmResult(people.cara, id);
+  assert.equal(await status(id), "resolved", "cara, who it costs, confirming settles it");
 });
 
 test("in a bigger chat, one confirm from someone the result costs settles it without waiting for a majority", async () => {
@@ -431,7 +438,7 @@ test("cheating: the proposer can't vote, and friends on the winning side don't c
   assert.equal((await mk.getMarket(db, id)).proposed_outcome, null, "and their rejection drops it");
 });
 
-test("the vote running out: an unopposed claim stands, a rejected one is dropped", async () => {
+test("the vote running out: an approved claim stands, an unapproved or rejected one lapses", async () => {
   const late = async () => {
     const c = await chatOf(5);
     await db.query(`UPDATE markets SET resolves_at = now() - interval '2 hours' WHERE id = $1`, [c.id]);
@@ -442,7 +449,15 @@ test("the vote running out: an unopposed claim stands, a rejected one is dropped
   const quiet = await late();
   await db.query(`UPDATE markets SET resolves_at = now() - interval '26 hours' WHERE id = $1`, [quiet.id]);
   await mk.finaliseProposals(db);
-  assert.equal(await status(quiet.id), "resolved");
+  assert.equal(await status(quiet.id), "open");
+  assert.equal((await mk.getMarket(db, quiet.id)).proposed_outcome, null, "nobody approved it");
+
+  const approved = await late();
+  await mk.confirmResult(approved.users[1], approved.id);
+  assert.equal(await status(approved.id), "open", "one confirm isn't a majority of four");
+  await db.query(`UPDATE markets SET proposed_at = now() - interval '25 hours', resolves_at = now() - interval '26 hours' WHERE id = $1`, [approved.id]);
+  await mk.finaliseProposals(db);
+  assert.equal(await status(approved.id), "resolved", "approved 1-0 when time ran out");
 
   const opposed = await late();
   await db.query(`UPDATE markets SET resolves_at = now() - interval '3 hours' WHERE id = $1`, [opposed.id]);

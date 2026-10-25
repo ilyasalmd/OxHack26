@@ -19,7 +19,7 @@ import { closeVault, credit, maxStake, recordNetWorth, mayCall } from "./economy
 import { HttpError, type User } from "./auth";
 import { MAX_SNIPPETS, type Snippet } from "./chat-context";
 import { STOCK_SNIPPETS } from "./ai-disclosure";
-import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_MS, topicProblem, votesNeeded } from "./safety";
+import { MATURITY_FALLBACK_HOURS, MATURITY_FALLBACK_MS, SETTLE_WINDOW_HOURS, SETTLE_WINDOW_MS, topicProblem, votesNeeded } from "./safety";
 
 export type MarketRow = {
   id: number;
@@ -264,6 +264,11 @@ export async function trade(user: User, marketId: number, input: { side: Side; a
     }
     // A bet is a bet: once placed it rides to the result. Stocks can be traded until maturity.
     if (m.kind === "bet" && input.action === "sell") throw new HttpError(400, "A bet is locked once placed. It pays out when the result is in.");
+    if (m.kind === "bet") {
+      const [held] = await q.query<{ yes_shares: number; no_shares: number }>(`SELECT yes_shares, no_shares FROM positions WHERE market_id = $1 AND user_id = $2`, [marketId, user.id]);
+      const other = input.side === "yes" ? held?.no_shares : held?.yes_shares;
+      if (other && other > 1e-6) throw new HttpError(400, `You're already on ${input.side === "yes" ? sides(m).no : sides(m).yes}. A bet is locked once placed, so you can't switch sides.`);
+    }
     const [paused] = await q.query(`SELECT 1 FROM groups WHERE id = $1 AND repricing_until > now()`, [m.group_id]);
     if (paused) throw new HttpError(409, "The AI is re-marking this chat's stocks. Try again in a moment.");
     const [u] = await q.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1 FOR UPDATE`, [user.id]);
@@ -502,7 +507,7 @@ export async function proposeResult(user: User, marketId: number, result: boolea
       "system",
       early
         ? `says “${m.title}” already happened${evidenceId != null ? " and added a photo" : ""}. It settles once most of the group checks the evidence and confirms it`
-        : `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. Anyone it doesn't pay can confirm or dispute it; with no objection it settles in 24 hours`,
+        : `proposed ${(outcome ? sides(m).yes : sides(m).no).toUpperCase()} for “${m.title}”. Anyone it doesn't pay can confirm or dispute it; it needs a confirmation within 24 hours, or it lapses as if nobody called it`,
       marketId,
       user.id
     );
@@ -568,8 +573,8 @@ const tally = (v: VoteState) => ({ confirm: v.confirms.length, reject: v.rejects
 /**
  * One member's vote on the proposed result. It settles at once if someone it costs confirms it (the
  * strongest proof there is), or once most of the voters do; once most reject it, the claim is
- * dropped (and trading opens again if the deadline hasn't passed). Silence lets it settle when the
- * window ends (finaliseProposals). A member can change their vote until it's decided.
+ * dropped (and trading opens again if the deadline hasn't passed). With no confirmation by the time the
+ * window ends, the claim lapses as if nobody called it (finaliseProposals). A member can change their vote until it's decided.
  */
 export async function voteOnResult(user: User, marketId: number, confirm: boolean) {
   const db = await getDb();
@@ -675,7 +680,7 @@ export async function callOffSituationsAbout(userId: number, displayName: string
   return open.length;
 }
 
-/** A proposal nobody reviewed for 24 hours (app clock) settles as proposed. Called by the worker.
+/** When the 24-hour window (app clock) ends undecided, a proposal settles only if it was approved. Called by the worker.
  * An early "it happened" can't settle this way before the deadline: until then it needs another
  * member to confirm it. If it's still waiting at the deadline, it's an ordinary proposal from then. */
 export async function finaliseProposals(q: Q) {
@@ -688,13 +693,17 @@ export async function finaliseProposals(q: Q) {
   );
   for (const m of due) {
     try {
-      // The vote ran out of time: the proposer's word stands unless more people rejected it than confirmed it.
+      // The vote ran out of time. A result needs approval: with at least one confirmation and more
+      // confirmations than rejections it stands; otherwise it lapses as if nobody had called it.
       const v = await voteState(q, m);
-      if (v.rejects.length > v.confirms.length) {
-        await clearProposal(q, m, `The vote on “${m.title}” ran out with more rejections than confirmations (${v.rejects.length} to ${v.confirms.length}), so the claim was dropped`, null);
+      if (!v.confirms.length || v.rejects.length >= v.confirms.length) {
+        const why = v.confirms.length || v.rejects.length
+          ? `ran out ${v.confirms.length}-${v.rejects.length} without enough approval`
+          : `got no confirmations in ${SETTLE_WINDOW_HOURS} hours`;
+        await clearProposal(q, m, `The claim on “${m.title}” ${why}, so it lapsed as if nobody had called it. Anyone can call it again`, null);
         continue;
       }
-      await settle(m, m.proposed_outcome!, m.proposed_note, m.proposed_by, { suffix: v.confirms.length || v.rejects.length ? `vote ran out ${v.confirms.length}-${v.rejects.length}, so it stands` : "no objections in 24h", votes: v });
+      await settle(m, m.proposed_outcome!, m.proposed_note, m.proposed_by, { suffix: `vote ran out ${v.confirms.length}-${v.rejects.length}, so it stands`, votes: v });
     } catch (e) {
       // Someone else (a confirm, a veto) got there first.
       if (!(e instanceof HttpError)) console.warn("[finalise]", (e as Error).message);

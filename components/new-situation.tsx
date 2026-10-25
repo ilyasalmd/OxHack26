@@ -28,6 +28,8 @@ type Preview = {
   baseRate: number | null;
   baseRateN: number;
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number; created_at: string }[];
+  /** The admin sees the AI's full reasoning, its working and the past results; everyone else a one-line reason. */
+  full: boolean;
 };
 
 /** How the poster wants it settled. "auto" leaves the choice to the AI, which is the default. */
@@ -349,11 +351,15 @@ function PreviewPane({ preview, busy, err, who, whenLabel, chosen, onType, onLin
         )}
       </div>
 
-      <div className="grid grid-cols-3 gap-2 text-center">
-        <Stat label="Opens at" value={show(preview.openProb)} />
-        <Stat label={a.source === "ollama" ? "Gemma" : "Stats model"} value={show(a.probability)} />
-        <Stat label={`History (n≈${preview.baseRateN.toFixed(0)})`} value={preview.baseRate == null ? "–" : show(preview.baseRate)} />
-      </div>
+      {preview.full ? (
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <Stat label="Opens at" value={show(preview.openProb)} />
+          <Stat label={a.source === "ollama" ? "Gemma" : "Stats model"} value={show(a.probability)} />
+          <Stat label={`History (n≈${preview.baseRateN.toFixed(0)})`} value={preview.baseRate == null ? "–" : show(preview.baseRate)} />
+        </div>
+      ) : (
+        <div className="text-center"><Stat label="Opens at" value={show(preview.openProb)} /></div>
+      )}
       <p className="text-sm text-mute">{a.rationale}</p>
       <div className="rounded-2xl border border-line p-3 text-sm">
         <div className="mb-1 text-xs font-semibold uppercase tracking-wider text-mute">How it&apos;s settled</div>
