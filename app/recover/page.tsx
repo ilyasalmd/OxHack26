@@ -70,7 +70,7 @@ export default function Recover() {
           <>
             <h1 className="text-2xl font-semibold tracking-tight">You&apos;re signed in</h1>
             <p className="mb-6 mt-1 text-sm text-mute">You&apos;re signed in as @{me.user.username}. To change your password, use Settings.</p>
-            <Link href="/settings"><Button className="w-full">Open settings</Button></Link>
+            <Link href="/settings/account"><Button className="w-full">Open settings</Button></Link>
           </>
         ) : (
           <>

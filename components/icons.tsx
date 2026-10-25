@@ -52,3 +52,4 @@ export const Clock = (p: P) => <Svg {...p}><circle cx="12" cy="12" r="8.5" /><pa
 export const Ticks = (p: P) => <Svg {...p}><path d="M2.5 12.5l4.5 4.5L16.5 7.5M12 16l1 1 9.5-9.5" /></Svg>;
 export const Alert = (p: P) => <Svg {...p}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5v5.5M12 16.2v.3" /></Svg>;
 export const Pencil = (p: P) => <Svg {...p}><path d="M4 20l1-4.5L15.5 5a2.1 2.1 0 0 1 3 3L8 18.5zM13.5 7l3 3" /></Svg>;
+export const Palette = (p: P) => <Svg {...p}><path d="M12 3a9 9 0 1 0 0 18 2 2 0 0 0 1.5-3.3 2 2 0 0 1 1.5-3.3h2.4A4.6 4.6 0 0 0 21 9.8C21 6 17 3 12 3z" /><circle cx="7.5" cy="11.5" r="1" /><circle cx="10" cy="7.5" r="1" /><circle cx="15" cy="7.5" r="1" /></Svg>;
