@@ -488,6 +488,77 @@ def game_night():  # Siblings: controllers and a glowing screen
     return bokeh(img, rng, 15, [(160, 200, 255)], 3, 8, 2)
 
 
+def court_dusk():  # kofi: an outdoor basketball court at dusk, one hoop against the sky
+    rng = random.Random(40)
+    img = gradient([(0, (40, 30, 90)), (0.45, (230, 110, 90)), (0.6, (250, 170, 100)), (0.62, (120, 70, 60)), (1, (70, 40, 40))])
+    img = glow(img, (S * 0.7, S * 0.55), S * 0.35, (255, 160, 90), 0.8)
+    d = ImageDraw.Draw(img)
+    dark = (30, 22, 35)
+    d.rectangle([S * 0.27, S * 0.3, S * 0.29, S * 0.95], fill=dark)
+    d.rectangle([S * 0.18, S * 0.22, S * 0.4, S * 0.36], outline=dark, width=6)
+    d.ellipse([S * 0.25, S * 0.35, S * 0.37, S * 0.39], outline=(220, 90, 50), width=5)
+    d.line([(0, S * 0.8), (S, S * 0.74)], fill=(240, 220, 200), width=3)
+    return bokeh(img, rng, 20, [(255, 230, 170)], 2, 6, 1, (0.05, 0.5))
+
+
+def old_town_mist():  # hana: Edinburgh's old town in the evening mist, windows lit
+    rng = random.Random(41)
+    img = gradient([(0, (70, 80, 120)), (0.45, (170, 150, 170)), (0.6, (230, 180, 150)), (1, (60, 55, 70))])
+    img = glow(img, (S * 0.7, S * 0.5), S * 0.35, (255, 190, 140), 0.6)
+    d = ImageDraw.Draw(img)
+    x = -S * 0.02
+    while x < S:
+        w, top = rng.uniform(0.08, 0.15) * S, rng.uniform(0.38, 0.56) * S
+        c = tuple(int(v) for v in (rng.uniform(40, 60), rng.uniform(38, 52), rng.uniform(55, 72)))
+        d.rectangle([x, top, x + w, S], fill=c)
+        d.polygon([(x, top), (x + w / 2, top - rng.uniform(0.04, 0.1) * S), (x + w, top)], fill=c)
+        for _ in range(4):
+            wx, wy = rng.uniform(x + 6, x + w - 14), rng.uniform(top + 12, S * 0.9)
+            d.rectangle([wx, wy, wx + 8, wy + 12], fill=(255, 205, 120))
+        x += w + 2
+    img = Image.alpha_composite(img.convert("RGBA"), haze((200, 190, 205), 10, 90)).convert("RGB")
+    return img
+
+
+def rainy_window():  # theo: rain on the window, the city out of focus behind it
+    rng = random.Random(42)
+    img = gradient([(0, (20, 30, 50)), (0.6, (40, 50, 80)), (1, (25, 25, 40))])
+    img = bokeh(img, rng, 45, [(255, 190, 110), (255, 120, 90), (140, 190, 255), (255, 240, 200)], 14, 30, 10, (0.3, 1))
+    drops = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(drops)
+    for _ in range(90):
+        x, y, r = rng.uniform(0, S), rng.uniform(0, S), rng.uniform(2, 6)
+        d.ellipse([x - r, y - r, x + r, y + r * 1.4], fill=(220, 235, 255, 90))
+    drops = drops.filter(ImageFilter.GaussianBlur(1.2))
+    return Image.alpha_composite(img.convert("RGBA"), drops).convert("RGB")
+
+
+def balloons():  # ruby: hot-air balloons over Bristol in a morning sky
+    rng = random.Random(43)
+    img = gradient([(0, (120, 180, 235)), (0.7, (230, 225, 220)), (1, (120, 140, 110))])
+    img = ridge(img, int(S * 0.86), 14, (80, 110, 80), rng, roughness=2)
+    d = ImageDraw.Draw(img)
+    for x, y, r, c in [(0.3, 0.3, 0.12, (230, 70, 80)), (0.65, 0.45, 0.08, (250, 190, 60)), (0.8, 0.22, 0.05, (90, 140, 220))]:
+        d.ellipse([S * (x - r), S * (y - r), S * (x + r), S * (y + r * 1.15)], fill=c)
+        d.rectangle([S * (x - r * 0.18), S * (y + r * 1.45), S * (x + r * 0.18), S * (y + r * 1.7)], fill=(110, 75, 50))
+        d.line([(S * (x - r * 0.5), S * (y + r * 1.05)), (S * (x - r * 0.18), S * (y + r * 1.45))], fill=(90, 70, 60), width=2)
+        d.line([(S * (x + r * 0.5), S * (y + r * 1.05)), (S * (x + r * 0.18), S * (y + r * 1.45))], fill=(90, 70, 60), width=2)
+    return img
+
+
+def hill_spire():  # Harrow Sixth Form: the hill and the church spire at dusk
+    rng = random.Random(44)
+    img = gradient([(0, (45, 40, 100)), (0.5, (225, 130, 120)), (0.7, (250, 190, 140)), (1, (250, 190, 140))])
+    img = glow(img, (S * 0.25, S * 0.62), S * 0.35, (255, 170, 110), 0.8)
+    d = ImageDraw.Draw(img)
+    dark = (35, 28, 50)
+    d.ellipse([-S * 0.3, S * 0.6, S * 1.3, S * 1.6], fill=dark)
+    d.rectangle([S * 0.56, S * 0.42, S * 0.62, S * 0.66], fill=dark)
+    d.polygon([(S * 0.56, S * 0.42), (S * 0.59, S * 0.16), (S * 0.62, S * 0.42)], fill=dark)
+    d.rectangle([S * 0.42, S * 0.55, S * 0.56, S * 0.66], fill=dark)
+    return bokeh(img, rng, 30, [(255, 215, 140)], 2, 5, 0.8, (0.62, 0.8))
+
+
 GROUPS = {
     "Flat 4B": flat_window,
     "Maths & Econ Y2": chalkboard,
@@ -499,6 +570,7 @@ GROUPS = {
     "Friday Dinner Crew": dinner_candles,
     "Nadia": paris_evening,
     "Siblings": game_night,
+    "Harrow Sixth Form": hill_spire,
 }
 
 
@@ -528,6 +600,10 @@ PICTURES = {
     "aariz": harbour_night,
     "durukan": autumn_park,
     "barkin": green_pitch,
+    "kofi": court_dusk,
+    "hana": old_town_mist,
+    "theo": rainy_window,
+    "ruby": balloons,
 }
 
 if __name__ == "__main__":

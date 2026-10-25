@@ -14,13 +14,8 @@ import { credit } from "../lib/economy";
 import { newWallet } from "../lib/solana";
 import { creatorKey, joinSampleGroups, shareSamplePhotos } from "../lib/demo";
 import { createIdentity, deriveKeys, encryptBytes, importGroupKey, newGroupKey, randomSalt, unwrapGroupKey, wrapGroupKey } from "../lib/e2ee";
-import { PASSWORD } from "./seed-content";
+import { HUMANS, PASSWORD } from "./seed-content";
 
-const HUMANS = [
-  { username: "aariz", name: "Aariz", color: "#ffd166" },
-  { username: "durukan", name: "Durukan", color: "#06d6a0" },
-  { username: "barkin", name: "Barkin", color: "#ef476f" },
-];
 // The friends, course, football, careers, running and society chats.
 const GROUP_CHATS = ["Flat 4B", "Maths & Econ Y2", "Sunday League", "Spring Week Grind", "Run Club", "Finance Soc Committee"];
 

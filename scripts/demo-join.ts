@@ -9,7 +9,7 @@
 import { getDb } from "../lib/db";
 import { DEMO_DATA_FOR_ALL } from "../lib/config";
 import { SAMPLE_GROUPS, joinSampleGroups } from "../lib/demo";
-import { PEOPLE } from "./seed-content";
+import { HUMANS, PEOPLE } from "./seed-content";
 
 async function main() {
   if (!DEMO_DATA_FOR_ALL) throw new Error("DEMO_DATA_FOR_ALL is false, so accounts don't get the sample chats");
@@ -38,11 +38,12 @@ async function main() {
   }
   if (!total) console.log("Every account is already in every sample chat.");
   // Real accounts are guests in the sample chats (only listed to themselves), so each chat keeps its own cast.
+  // The teammates stay full members of the group chats seed-humans.ts put them in.
   const guests = await db.query(
     `UPDATE group_members gm SET guest = true FROM groups gr, users u
       WHERE gr.id = gm.group_id AND u.id = gm.user_id AND ${SAMPLE_GROUPS}
         AND NOT (u.username = ANY($1)) AND gm.user_id <> gr.created_by AND NOT gm.guest RETURNING gm.user_id`,
-    [PEOPLE.map((p) => p.username)]
+    [[...PEOPLE, ...HUMANS].map((p) => p.username)]
   );
   if (guests.length) console.log(`Marked ${guests.length} sample-chat memberships as guests`);
   process.exit(0);

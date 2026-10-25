@@ -57,9 +57,21 @@ export const PEOPLE: Person[] = [
   // Added by scripts/seed-chats.ts (the couples and siblings chats); `npm run seed` makes them too.
   { username: "nadia", name: "Nadia", color: "#ff8a80", skill: 0.75, boldness: 0.45 },
   { username: "zayn", name: "Zayn", color: "#80cbc4", skill: 0.5, boldness: 0.65 },
+  // Added by scripts/seed-newcomers.ts (Ilyas's sixth-form friends from Harrow).
+  { username: "kofi", name: "Kofi", color: "#ffca28", skill: 0.8, boldness: 0.45 },
+  { username: "hana", name: "Hana", color: "#ce93d8", skill: 0.6, boldness: 0.3 },
+  { username: "theo", name: "Theo", color: "#90a4ae", skill: 0.35, boldness: 0.75 },
+  { username: "ruby", name: "Ruby", color: "#ef5350", skill: 0.5, boldness: 0.6 },
 ];
 
 export const PASSWORD = "demo1234";
+
+// The teammates' own accounts (scripts/seed-humans.ts): full members of the group chats, guests in the rest.
+export const HUMANS = [
+  { username: "aariz", name: "Aariz", color: "#ffd166" },
+  { username: "durukan", name: "Durukan", color: "#06d6a0" },
+  { username: "barkin", name: "Barkin", color: "#ef476f" },
+];
 
 export const GROUPS: Group[] = [
   // ---------------------------------------------------------------------------------------------
