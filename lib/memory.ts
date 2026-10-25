@@ -88,10 +88,25 @@ export async function evidenceFor(q: Q, groupId: number, text: string, subjectId
     );
     if (Number(r.total) > 0) subjectRecord = `${r.yes} of ${r.total} past situations about them came true`;
   }
+  // The same kind of stake: this group's record on it, and the subject's own.
+  const cat = guessCategory(text);
+  let categoryRecord: string | undefined, subjectCategoryRecord: string | undefined;
+  if (cat !== "other") {
+    const [g] = await q.query<{ total: string; yes: string; mine: string; mine_yes: string }>(
+      `SELECT count(*) AS total, count(*) FILTER (WHERE outcome) AS yes,
+         count(*) FILTER (WHERE subject_id = $3) AS mine, count(*) FILTER (WHERE subject_id = $3 AND outcome) AS mine_yes
+       FROM memories WHERE group_id = $1 AND category = $2`,
+      [groupId, cat, subjectId ?? -1]
+    );
+    if (Number(g.total) > 0) categoryRecord = `${g.yes} of ${g.total} came true`;
+    if (Number(g.mine) > 0) subjectCategoryRecord = `${g.mine_yes} of ${g.mine} came true`;
+  }
   const history: HistoryEvidence = {
     baseRate: rate,
     n,
     subjectRecord,
+    categoryRecord,
+    subjectCategoryRecord,
     examples: similar.slice(0, 5).map((m) => ({ title: m.title, outcome: m.outcome, summary: m.summary })),
   };
   return { history, similar, vector };

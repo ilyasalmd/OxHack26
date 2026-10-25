@@ -792,6 +792,7 @@ export async function repriceGroup(user: User, groupId: number, moods: Record<st
     stocks: stocks.map((m) => ({
       id: m.id,
       title: m.title,
+      category: m.category,
       price: price(m),
       daysLeft: (new Date(m.resolves_at).getTime() - now().getTime()) / 86400000,
       subjectName: m.subject_name,

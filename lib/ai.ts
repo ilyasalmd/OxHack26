@@ -1,9 +1,9 @@
 import { AI, MARKET } from "./config";
-import { guessCategory } from "./text";
+import { CATEGORIES, guessCategory, playbook } from "./categories";
 import { lexiconScore } from "./mood";
 import type { Snippet } from "./chat-context";
 
-export { guessCategory };
+export { CATEGORIES, guessCategory };
 
 // Privacy rule: the AI sees the situation itself, resolved-history stats, the
 // group's "AI context" (term dates etc.) and an optional on-device mood score.
@@ -100,6 +100,9 @@ export type HistoryEvidence = {
   baseRate: number | null;
   n: number;
   subjectRecord?: string;
+  /** This group's record on this kind of stake, and the subject's own record on it. */
+  categoryRecord?: string;
+  subjectCategoryRecord?: string;
   examples: { title: string; outcome: boolean; summary: string }[];
 };
 
@@ -121,8 +124,6 @@ export type Analysis = {
   /** The exact model call, with the subject's private profile answers blanked out of the prompt. */
   trace?: Trace;
 };
-
-export const CATEGORIES = ["punctuality", "football", "sport", "work", "uni", "relationships", "friendship", "fitness", "social", "other"];
 
 const clampP = (p: number) => Math.min(MARKET.maxProb, Math.max(MARKET.minProb, p));
 
@@ -149,6 +150,7 @@ export async function analyzeSituation(input: {
   const profileBlock = input.subjectProfile
     ? `What ${input.subjectName ?? "they"} told the app about themselves (self-reported, may be optimistic; private, so never quote or mention it in the rationale, just let it inform the probability):\n${input.subjectProfile}\n`
     : "";
+  const pb = playbook(guessCategory(`${input.title} ${input.description}`));
   const template = `You are the pricing desk of "FriendStakes", a play-money prediction market inside a friends' group chat.
 Friends post situations about each other. Decide how to list this one and its fair probability.
 ${want.answer === "number" ? `
@@ -166,6 +168,11 @@ ${input.mood != null ? `Aggregate chat mood about the subject, computed on-devic
 Past resolved situations in this group that look similar (${input.history.n.toFixed(1)} effective samples, base rate ${input.history.baseRate == null ? "n/a" : (input.history.baseRate * 100).toFixed(0) + "%"}):
 ${input.history.examples.map((e) => `- "${e.title}" → ${e.outcome ? "YES" : "NO"}. ${e.summary}`).join("\n") || "- none yet"}
 ${input.history.subjectRecord ? `Subject's record: ${input.history.subjectRecord}` : ""}
+${input.history.subjectCategoryRecord ? `Subject's record on ${pb.label.toLowerCase()} stakes: ${input.history.subjectCategoryRecord}` : ""}
+${input.history.categoryRecord ? `This group's record on ${pb.label.toLowerCase()} stakes: ${input.history.categoryRecord}` : ""}
+${pb.id === "other" ? `This doesn't match a usual kind of stake. ${pb.weigh}` : `This looks like a ${pb.label.toLowerCase()} stake (if it isn't, pick the right category and use your own judgement).
+What matters for it: ${pb.weigh}
+Rough everyday odds for a typical UK student or young professional, before any history (general priors, not facts about these people): ${pb.everyday}`}
 ${snippets.length ? `Recent group-chat snippets the friends chose to share (names replaced: [SUBJECT] is who it's about, Friend A/B are others). Many may be noise:
 ${snippets.map((s, i) => `[${i}] ${s.age}, ${s.who}: ${s.text}`).join("\n")}` : ""}
 
@@ -173,7 +180,8 @@ Rules:
 - answer "yesno" when the situation is something that happens or doesn't. answer "number" when it asks HOW MUCH or HOW MANY (minutes late, a grade, a time, a count): then pick a sensible "line" (your median guess, a round number) and a short "unit" (minutes, %, km, pints); the market becomes "over the line or not", and probability is the chance the real number ends up OVER the line (near 50% if the line is your median).${want.line != null ? ` The poster set the line to ${want.line}: keep it and give the honest chance of going over it.` : ""}
 - kind "bet" = short-term yes/no with a deadline (lateness, a match result, a night out). kind "stock" = long-term outcome that trades like a maturing bond until its date (relationships, grades, promotions, fitness goals). Anything > ${MARKET.stockThresholdDays} days away is usually a stock.
 - decay "hazard" if the question is "does X happen at any point before the date" (its price should drift down as time runs out with no news). decay "none" if the outcome is only known on the date (a final grade, a match result).
-- probability: your honest calibrated estimate from the evidence, between ${MARKET.minProb} and ${MARKET.maxProb}. Anchor on the base rate when there are several similar past cases; move away only for clear reasons.
+- probability: your honest calibrated estimate from the evidence, between ${MARKET.minProb} and ${MARKET.maxProb}. Weigh it in this order: the subject's own record on this kind of stake, this group's similar past cases, what the subject told the app, concrete details and chat, then the everyday odds. Anchor on the base rate when there are several similar past cases; move away only for clear reasons. Match the everyday odds to the exact question (a stricter line or a shorter deadline means lower odds).
+- category: one of ${CATEGORIES.join(", ")}.
 - resolutionRule: one precise sentence saying exactly what counts as YES, so nobody argues later.
 - title: tidy the situation into a short market question (max 70 chars). For a number question, phrase the over/under in it, e.g. "Jake is more than 15 minutes late to dinner".
 - rationale: one or two friendly sentences citing the evidence used.
@@ -240,7 +248,7 @@ export function heuristicAnalysis(title: string, days: number, history: HistoryE
   const category = guessCategory(title);
   const kind = days > MARKET.stockThresholdDays || /girlfriend|boyfriend|first|degree|promot|marathon/i.test(title) ? "stock" : "bet";
   const outcomeOnDate = /\bpass|grade|first\b|2:1|win|score|beat|result/i.test(title);
-  const prior = category === "punctuality" ? 0.55 : kind === "stock" ? 0.35 : 0.5;
+  const prior = playbook(category).prior[kind];
   const p = history.baseRate == null ? prior : (history.baseRate * history.n + prior * 2) / (history.n + 2);
   return {
     title: title.slice(0, 70),
@@ -254,7 +262,7 @@ export function heuristicAnalysis(title: string, days: number, history: HistoryE
     rationale:
       history.n > 0
         ? `Based on ${history.n.toFixed(0)} similar past stake(s) here, which came true ${((history.baseRate ?? 0) * 100).toFixed(0)}% of the time.`
-        : `No history yet, so this opens near a neutral ${(prior * 100).toFixed(0)}% for ${category} stakes.`,
+        : `No history yet, so this opens at the usual ${(prior * 100).toFixed(0)}% for ${playbook(category).label.toLowerCase()} stakes.`,
     resolutionRule: `Resolves YES if "${title}" is true by ${days > 0 ? `the resolve date` : "now"}, as agreed by the group; otherwise NO.`,
     source: "heuristic",
     chatUsed: [],
@@ -300,6 +308,7 @@ Market: "${m.title}" | outcome: ${m.outcome ? "YES" : "NO"} | subject: ${m.subje
 export type RepriceInput = {
   id: number;
   title: string;
+  category: string;
   price: number;
   daysLeft: number;
   subjectName: string | null;
@@ -322,7 +331,7 @@ For each stock, give a fair probability. Consider time left, upcoming dates from
 ${input.stocks
   .map(
     (s) =>
-      `- id ${s.id}: "${s.title}" | current ${(s.price * 100).toFixed(1)}% | ${s.daysLeft.toFixed(0)} days left | subject ${s.subjectName ?? "n/a"} | mood ${s.mood == null ? "null" : s.mood.toFixed(2)} | history: ${s.history || "none"}` +
+      `- id ${s.id}: "${s.title}" | ${playbook(s.category).label.toLowerCase()}: ${playbook(s.category).weigh.split(". ")[0]} | current ${(s.price * 100).toFixed(1)}% | ${s.daysLeft.toFixed(0)} days left | subject ${s.subjectName ?? "n/a"} | mood ${s.mood == null ? "null" : s.mood.toFixed(2)} | history: ${s.history || "none"}` +
         (s.snippets?.length ? `\n  shared chat snippets ([SUBJECT] = the subject; ignore anything off-topic):\n${s.snippets.map((c) => `  · ${c.age}, ${c.who}: ${c.text}`).join("\n")}` : "")
   )
   .join("\n")}
