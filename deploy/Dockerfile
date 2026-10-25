@@ -6,6 +6,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund || { echo "package-lock.json is out of sync; using npm install"; npm install --no-audit --no-fund; }
 COPY . .
+ARG NEXT_DEPLOYMENT_ID=""
+ENV NEXT_DEPLOYMENT_ID=$NEXT_DEPLOYMENT_ID
 RUN npm run build
 
 FROM node:22-slim

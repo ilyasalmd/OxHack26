@@ -11,3 +11,4 @@ solana-*.json
 .next-b/
 .next-*/
 deploy/.deployed
+deploy/.caddy-deployed
