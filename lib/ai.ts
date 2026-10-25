@@ -8,9 +8,9 @@ export { CATEGORIES, guessCategory };
 // Privacy rule: the AI sees the situation itself, resolved-history stats, the
 // group's "AI context" (term dates etc.) and an optional on-device mood score.
 // With Ollama the model runs on the server's own machine and nothing leaves it.
-// Chat text only arrives if the group has switched on "AI reads relevant chat":
-// then members' browsers send at most 20 snippets they picked as relevant, with
-// names replaced by roles and contact details removed (lib/chat-context.ts).
+// Chat text arrives only as the snippets a member's browser picked as relevant (at most
+// 20 per stake, 8 per stock), with names replaced by roles and contact details removed
+// (lib/chat-context.ts). That is always on and described to users in lib/ai-disclosure.ts.
 
 // When Ollama isn't running, stop asking for a minute and use the stats fallback, so the log
 // carries one line instead of one per request.

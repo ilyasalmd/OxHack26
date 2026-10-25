@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { categoryLabel } from "@/lib/categories";
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "@/components/session";
@@ -16,8 +17,7 @@ type Call = { id: number; side: string; action: string; coins: number; price_aft
 type Leader = { id: number; display_name: string; username: string; color: string; net_worth: number; me: boolean };
 type Feed = { markets: Situation[]; calls: Call[]; leaders: Leader[] };
 
-const CATEGORY: Record<string, string> = { punctuality: "Punctuality", fitness: "Fitness", football: "Sport", sport: "Sport", uni: "Uni", work: "Work", relationships: "Social", social: "Social", other: "Other" };
-const label = (c: string) => CATEGORY[c] ?? c.charAt(0).toUpperCase() + c.slice(1);
+const label = categoryLabel;
 
 export default function Chats() {
   const { me, loading, identity } = useSession();
@@ -98,7 +98,7 @@ export default function Chats() {
           {me.groups.length === 0 && <li className="px-5 py-10 text-center text-mute">No chats yet. Start one with your friends&apos; usernames, or join with an invite code.</li>}
           {me.groups.map((g) => (
             <li key={g.id}>
-              <Link href={`/g/${g.id}`} className="flex items-center gap-3.5 px-5 py-3 active:bg-white/5">
+              <Link href={`/g/${g.id}`} prefetch={true} className="flex items-center gap-3.5 px-5 py-3 active:bg-white/5">
                 <ChatMark g={g} size={48} />
                 <div className="min-w-0 flex-1 py-0.5">
                   <div className="flex items-baseline gap-2">

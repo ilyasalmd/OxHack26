@@ -1,15 +1,35 @@
 "use client";
-import { Alert, Check, Clock, Mic, Ticks } from "../icons";
+import { Alert, Check, Mic, TrendUp } from "../icons";
 import { Avatar } from "../ui";
 
 export type Delivery = "sending" | "failed" | "sent" | "delivered" | "read";
 
-/** WhatsApp-style marks on your own messages: clock, one tick, two ticks, two tinted ticks. */
+/** The app's mark, small: a message that at least one friend has read. */
+export function ReadMark({ size = 13 }: { size?: number }) {
+  return (
+    <span className="inline-flex items-center justify-center rounded-[4px] bg-brand text-black" style={{ width: size, height: size }} aria-hidden>
+      <TrendUp size={size * 0.7} strokeWidth={3} />
+    </span>
+  );
+}
+
+/**
+ * The mark on your own messages: a spinner while it sends, one tick once the server has it,
+ * the app's mark once at least one other person has read it. The tooltip says who.
+ */
 export function DeliveryMark({ state, title }: { state: Delivery; title?: string }) {
   const label = { sending: "Sending", failed: "Not sent", sent: "Sent", delivered: "Delivered", read: "Read" }[state];
   return (
-    <span className={`inline-flex translate-y-[3px] ${state === "read" ? "text-brand" : state === "failed" ? "text-down" : "text-white/60"}`} title={title ?? label} aria-label={label}>
-      {state === "sending" ? <Clock size={13} /> : state === "failed" ? <Alert size={13} /> : state === "sent" ? <Check size={14} /> : <Ticks size={15} />}
+    <span className={`inline-flex translate-y-[3px] items-center ${state === "failed" ? "text-down" : "text-white/70"}`} title={title ?? label} aria-label={label} role="img">
+      {state === "sending" ? (
+        <span className="inline-block h-[11px] w-[11px] animate-spin rounded-full border-[1.5px] border-current border-t-transparent" />
+      ) : state === "failed" ? (
+        <Alert size={13} />
+      ) : state === "read" ? (
+        <ReadMark />
+      ) : (
+        <Check size={14} />
+      )}
     </span>
   );
 }

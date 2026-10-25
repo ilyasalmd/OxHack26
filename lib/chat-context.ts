@@ -1,6 +1,7 @@
-// Runs in the browser, on already-decrypted messages. When a group opts in, this
-// picks the few messages that are actually about a situation, hides who's who and
-// any personal details, and caps the count. Only the result ever leaves the device.
+// Runs in the browser, on already-decrypted messages. Whenever someone prices a stake, this
+// picks the few messages that are actually about the situation, hides who's who and any
+// personal details, and caps the count. Only the result ever leaves the device (lib/ai-disclosure.ts
+// is the plain-words version of these rules that the app shows people).
 import { CATEGORY_WORDS, guessCategory } from "./text";
 
 export type Snippet = { who: string; text: string; age: string };
@@ -8,7 +9,7 @@ type Msg = { text: string; authorId: number | null; at: string };
 type Person = { id: number; username: string; display_name: string };
 
 export const MAX_SNIPPETS = 20;
-const MAX_LEN = 280;
+export const MAX_LEN = 280;
 const STOP = new Set("the a an is be will to of in on at by for and or does do did get gets before after this that it is was are you i he she they we me my his her their".split(" "));
 const words = (s: string) => s.toLowerCase().split(/[^a-z0-9@']+/).filter(Boolean);
 const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

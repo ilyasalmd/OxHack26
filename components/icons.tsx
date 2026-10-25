@@ -1,9 +1,9 @@
 // A small stroke icon set (24px grid, 1.75 stroke) so the UI never leans on emoji.
-type P = { className?: string; size?: number };
+type P = { className?: string; size?: number; strokeWidth?: number };
 
-function Svg({ size = 18, className = "", children }: P & { children: React.ReactNode }) {
+function Svg({ size = 18, className = "", strokeWidth = 1.75, children }: P & { children: React.ReactNode }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.75} strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 ${className}`} aria-hidden>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 ${className}`} aria-hidden>
       {children}
     </svg>
   );

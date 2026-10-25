@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { api } from "./api";
 import { Avatar, Button, fmt, pct } from "./ui";
 import { Book } from "./icons";
+import { STOCK_SNIPPETS } from "@/lib/ai-disclosure";
 
 type Data = {
   leaderboard: { id: number; username: string; display_name: string; color: string; balance: number; netWorth: number; groupPnl: number; resolvedTrades: number; hitRate: number | null; brier: number | null; skill: number | null }[];
@@ -55,7 +56,8 @@ export function Board({ groupId, ticker, meId }: { groupId: number; ticker: stri
   );
 }
 
-export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onRepriced }: { groupId: number; moods: () => Record<string, number>; stockSnippets: () => Record<string, { who: string; text: string; age: string }[]> | null; aiReadsChat: boolean; onRepriced: () => void }) {
+/** withChat: this view has the decrypted chat, so relevant anonymised snippets go with the re-mark (the stats page does not). */
+export function Insights({ groupId, moods, stockSnippets, withChat, onRepriced }: { groupId: number; moods: () => Record<string, number>; stockSnippets: () => Record<string, { who: string; text: string; age: string }[]> | null; withChat: boolean; onRepriced: () => void }) {
   const { d, load } = useInsights(groupId);
   const [shareMood, setShareMood] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -66,8 +68,9 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
   async function reprice() {
     setBusy(true);
     try {
-      const r = await api<{ applied: { title: string; from: number; to: number; reason: string }[]; source: string }>(`/api/groups/${groupId}/reprice`, { body: { moods: shareMood ? moods() : null, chat: stockSnippets() } });
-      setNote(r.applied.length ? `Re-marked ${r.applied.length} stock(s) (${r.source}).` : "No stock needed re-marking.");
+      const r = await api<{ applied: { title: string; from: number; to: number; reason: string }[]; skipped?: { title: string }[]; source: string }>(`/api/groups/${groupId}/reprice`, { body: { moods: shareMood ? moods() : null, chat: stockSnippets() } });
+      const held = r.skipped?.length ? ` ${r.skipped.length} left alone because someone traded while the AI was thinking.` : "";
+      setNote(r.applied.length ? `Re-marked ${r.applied.length} stock(s) (${r.source}).${held}` : `No stock needed re-marking.${held}`);
       onRepriced();
       load();
     } catch (e) {
@@ -131,7 +134,7 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
         <h3 className="font-semibold">AI re-mark long-term stocks</h3>
         <p className="mb-3 text-xs text-mute">
           The AI re-prices open stocks from time left, your group&apos;s AI context (term dates, fixtures) and, if you allow it, mood scores computed on this phone.
-          {aiReadsChat && " This group also lets it see up to 8 relevant, anonymised messages per stock."}
+          {withChat ? ` It also gets up to ${STOCK_SNIPPETS} relevant, anonymised messages per stock, picked on this phone.` : " From this page it gets no chat messages; re-mark from inside the chat for that."}
         </p>
         <label className="mb-3 flex items-center gap-2 text-sm">
           <input type="checkbox" checked={shareMood} onChange={(e) => setShareMood(e.target.checked)} />

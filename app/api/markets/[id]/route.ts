@@ -70,7 +70,8 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     [m.group_id, user.id]
   );
   return {
-    market: { ...m, price: price(m), closed },
+    // Only the admin is told which stakes are seeded demo history.
+    market: { ...m, sample: m.sample && isAdminUsername(user.username), price: price(m), closed },
     creator: people.find((p) => p.id === m.creator_id),
     subject: people.find((p) => p.id === m.subject_id) ?? null,
     // A result somebody has put forward and the group hasn't yet confirmed or disputed.

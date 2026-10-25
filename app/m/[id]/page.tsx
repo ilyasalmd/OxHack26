@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { categoryLabel } from "@/lib/categories";
 import { use, useCallback, useEffect, useState } from "react";
 import { useSession } from "@/components/session";
 import { api } from "@/components/api";
@@ -35,7 +36,7 @@ type Detail = {
     id: number; group_id: number; kind: "bet" | "stock"; answer: "yesno" | "number"; line: number | null; unit: string; actual: number | null; decay: string; title: string; description: string; category: string; resolution_rule: string;
     ai_prob: number; base_rate: number | null; base_rate_n: number; open_prob: number; ai_rationale: string; ai_source: string; evidence: number | null;
     chat_context: { shared: number; used: { who: string; text: string; age: string; why: string }[] } | null;
-    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | "unclaimed" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number;
+    b: number; q_yes: number; q_no: number; status: string; outcome: boolean | null; void_reason: "veto" | "dispute" | "reports" | "unclaimed" | null; created_at: string; resolves_at: string; volume: number; price: number; closed: boolean; fees_held: number; sample?: boolean;
   };
   creator: Person;
   subject: Person | null;
@@ -206,9 +207,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           {isStock
             ? `Until it matures you can sell shares back at the going price, so you can take a profit or cut a loss early. Your first trade is free, then each one pays ${me.config.economy.stockFee} ${c.ticker}, which goes to ${d.creator.display_name} for listing it once it settles.`
             : "A bet is locked once placed and rides to the result."}{" "}
-          At maturity the winning shares pay out. If only one person traded, they just get their money back.
+          At maturity the winning shares pay out, once someone has called the result and the chat has confirmed it. If only one person traded, they just get their money back.
         </li>
-        <li>If it&apos;s called off (by the person it&apos;s about, by reports, or because nobody called it and the market was too close to call), everyone gets back exactly what they put in, fees included.</li>
+        <li>If it&apos;s called off (by the person it&apos;s about, by reports, or because nobody confirmed what happened within 3 days of the deadline), everyone gets back exactly what they put in, fees included. The price is never used as the result: it says what people expected, not what happened.</li>
       </ul>
     </Fold>
   );
@@ -245,7 +246,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <TopBar
         back={`/g/${m.group_id}`}
         backOnDesktop
-        title={<span className="text-sm text-mute">{typeLabel(m)} · {m.category}</span>}
+        title={<span className="text-sm text-mute">{typeLabel(m)} · {categoryLabel(m.category)}{m.sample && <span className="ml-1.5 rounded bg-white/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-mute" title="Admin only: seeded demo history">Sample</span>}</span>}
         right={
           <>
             <button onClick={recap} disabled={speaking} className="flex items-center gap-1.5 rounded-lg bg-white/5 px-3 py-1.5 text-sm hover:bg-white/10 disabled:opacity-50" title="Hear a recap">
@@ -329,7 +330,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               {m.void_reason === "veto" && `${d.subject?.display_name ?? "The person it was about"} called it off.`}
               {m.void_reason === "dispute" && "The proposed result was disputed."}
               {m.void_reason === "reports" && "Members reported it."}
-              {m.void_reason === "unclaimed" && "Nobody called it within 3 days of the deadline, and the market was too close to call."}
+              {m.void_reason === "unclaimed" && "Nobody confirmed what happened within 3 days of the deadline. The price was a prediction, not a result, so it doesn't pay out."}
               {!m.void_reason && "It was voided."} Everyone was refunded what they spent, so nobody wins or loses.
             </p>
           </section>

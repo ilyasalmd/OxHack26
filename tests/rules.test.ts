@@ -95,34 +95,60 @@ test("someone the result would pay can't confirm it", async () => {
 const ageDeadline = (id: number, hours: number) =>
   db.query(`UPDATE markets SET resolves_at = now() - make_interval(hours => $2) WHERE id = $1`, [id, hours]);
 
-test("every situation gets an answer: unclaimed for 3 days, it settles the way the market leans", async () => {
+test("the day the deadline arrives, the whole chat is told once, and the notice counts as unread for everyone", async () => {
   const id = await open("Bob makes it to the 9am");
+  await mk.runDecay(db);
+  const notices = async () => (await db.query<{ n: number }>(`SELECT count(*)::int AS n FROM messages WHERE market_id = $1 AND kind = 'due'`, [id]))[0].n;
+  assert.equal(await notices(), 0, "nothing before the deadline");
+  await ageDeadline(id, 1);
+  await mk.runDecay(db);
+  await mk.runDecay(db);
+  assert.equal(await notices(), 1, "one notice, however often the sweep runs");
+  const [msg] = await db.query<{ body: string; user_id: number | null }>(`SELECT body, user_id FROM messages WHERE market_id = $1 AND kind = 'due'`, [id]);
+  assert.match(msg.body, /reached its deadline/);
+  assert.match(msg.body, /refunded/);
+  assert.equal(msg.user_id, null, "from nobody, so it's unread for every member");
+});
+
+test("nobody confirms what happened: the stake is called off and refunded, however the market leaned", async () => {
+  const id = await open("Bob makes it to the 9am lecture");
+  const bob0 = await balance(people.bob);
+  const cara0 = await balance(people.cara);
   await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 80 });
   await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 10 });
+  assert.ok(mk.price(await mk.getMarket(db, id)) > 0.7, "the market leans strongly YES");
   await ageDeadline(id, 71);
   await mk.settleUnclaimed(db);
   assert.equal(await status(id), "open", "still inside the 3 days");
   await ageDeadline(id, 73);
   await mk.settleUnclaimed(db);
   const m = await mk.getMarket(db, id);
-  assert.equal(m.status, "resolved");
-  assert.equal(m.outcome, true);
+  assert.equal(m.status, "void", "a price is a prediction, not a result");
+  assert.equal(m.void_reason, "unclaimed");
+  assert.equal(m.outcome, null);
+  assert.ok(Math.abs((await balance(people.bob)) - bob0) < 0.01, "the YES holder is not paid, just refunded");
+  assert.ok(Math.abs((await balance(people.cara)) - cara0) < 0.01, "the NO holder gets their stake back");
+  const [mem] = await db.query(`SELECT 1 FROM memories WHERE market_id = $1`, [id]);
+  assert.equal(mem, undefined, "an unverified outcome never enters the history used for pricing");
+  const [tick] = await db.query(`SELECT 1 FROM price_ticks WHERE market_id = $1 AND source = 'resolve'`, [id]);
+  assert.equal(tick, undefined, "and never becomes a settled price");
 });
 
-test("unclaimed and too close to call, or never traded, it's called off and refunded", async () => {
-  const id = await open("Cara finds her keys");
-  const start = await balance(people.bob);
-  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 1 });
-  await ageDeadline(id, 73);
-  await mk.settleUnclaimed(db);
-  const m = await mk.getMarket(db, id);
-  assert.equal(m.status, "void");
-  assert.equal(m.void_reason, "unclaimed");
-  assert.ok(Math.abs((await balance(people.bob)) - start) < 0.01, "the stake comes back");
+test("unclaimed with nobody trading, it's called off too, and stock fees come back with the stake", async () => {
   const quiet = await open("Nobody trades this");
   await ageDeadline(quiet, 73);
   await mk.settleUnclaimed(db);
   assert.equal(await status(quiet), "void");
+  const id = await mk.createMarket(people.alice, chat, { title: "Cara finishes the dissertation draft", resolvesAt: new Date(Date.now() + 2 * DAY).toISOString(), kind: "stock" });
+  const bob0 = await balance(people.bob);
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 10 });
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 10 });
+  await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 5 });
+  assert.ok((await mk.getMarket(db, id)).fees_held > 0, "bob's second trade paid a fee");
+  await ageDeadline(id, 73);
+  await mk.settleUnclaimed(db);
+  assert.equal((await mk.getMarket(db, id)).void_reason, "unclaimed");
+  assert.ok(Math.abs((await balance(people.bob)) - bob0) < 0.01, "stake and fee both come back");
 });
 
 test("an early claim nobody confirmed by the deadline settles a day after it, like any proposal", async () => {
@@ -333,4 +359,91 @@ test("the vote running out: an unopposed claim stands, a rejected one is dropped
   const m = await mk.getMarket(db, opposed.id);
   assert.equal(m.status, "open");
   assert.equal(m.proposed_outcome, null);
+});
+
+// AI re-marks: the AI thinks with nothing locked, and its write never lands on top of a trade.
+const stockFor = (title: string, subject: string) =>
+  mk.createMarket(people.alice, chat, { title, resolvesAt: new Date(Date.now() + 40 * DAY).toISOString(), subjectUsername: subject, kind: "stock" });
+const trace = () => ({ provider: "none" as const, model: "", prompt: "", raw: null, ms: 0 });
+const nearly = (a: number, b: number, eps = 1e-6) => assert.ok(Math.abs(a - b) < eps, `${a} vs ${b}`);
+
+test("a trade made while the AI is thinking stands: the stale re-mark is skipped, not written over it", async () => {
+  const id = await stockFor("Bob gets a first in econometrics", "bob");
+  const seen = mk.price(await mk.getMarket(db, id));
+  const snap = await mk.snapshotForRemark(db, chat, null, null);
+  assert.ok(snap.stocks.some((s) => s.id === id));
+  // The AI is "thinking". Meanwhile cara buys NO and moves the price.
+  const t = await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 60 });
+  const afterTrade = await mk.getMarket(db, id);
+  assert.ok(t.after < seen - 0.02, "the trade moved the price");
+  // The AI comes back with a view based on the price it saw.
+  const out = await mk.applyRemarks(chat, snap, [{ id, probability: seen + 0.1, reason: "term dates look good" }], trace());
+  assert.equal(out.applied.length, 0);
+  assert.equal(out.skipped.length, 1);
+  assert.match(out.skipped[0].skipped, /trading moved it/);
+  const m = await mk.getMarket(db, id);
+  nearly(m.q_yes, afterTrade.q_yes);
+  nearly(m.q_no, afterTrade.q_no);
+  nearly(mk.price(m), t.after);
+  const [ai] = await db.query(`SELECT 1 FROM price_ticks WHERE market_id = $1 AND source = 'ai'`, [id]);
+  assert.equal(ai, undefined, "no AI tick was written");
+  const [rec] = await db.query<{ record: string }>(`SELECT record FROM pricing_records WHERE $1 = ANY(market_ids) AND kind = 'reprice' ORDER BY id DESC LIMIT 1`, [id]);
+  assert.equal(JSON.parse(rec.record).maths.skipped.length, 1, "the pricing record says why it was skipped");
+});
+
+test("with no trade in between, the re-mark is applied to the current book and earlier trades keep their shares", async () => {
+  const id = await stockFor("Cara runs the half marathon in under two hours", "cara");
+  await mk.trade(people.bob, id, { side: "no", action: "buy", amount: 30 });
+  const before = await mk.getMarket(db, id);
+  const seen = mk.price(before);
+  const snap = await mk.snapshotForRemark(db, chat, null, null);
+  const out = await mk.applyRemarks(chat, snap, [{ id, probability: seen + 0.3, reason: "training is going well" }], trace());
+  assert.equal(out.applied.length, 1);
+  const m = await mk.getMarket(db, id);
+  nearly(mk.price(m), seen + mk.AI_MOVE_CAP, 1e-6);
+  nearly(m.q_no, before.q_no, 1e-9);
+  const [pos] = await db.query<{ no_shares: number }>(`SELECT no_shares FROM positions WHERE market_id = $1 AND user_id = $2`, [id, people.bob.id]);
+  assert.ok(pos.no_shares > 0, "bob's shares are untouched: only the quote moved");
+  assert.ok(Math.abs(Math.abs(mk.price(await mk.getMarket(db, id)) - seen) - mk.AI_MOVE_CAP) < 1e-6, "capped at 15 points");
+});
+
+test("a stock that closed or got a result proposed while the AI was thinking is left alone", async () => {
+  const id = await stockFor("Bob learns to drive before summer", "bob");
+  const seen = mk.price(await mk.getMarket(db, id));
+  const snap = await mk.snapshotForRemark(db, chat, null, null);
+  await mk.proposeResult(people.cara, id, true, PROOF);
+  const out = await mk.applyRemarks(chat, snap, [{ id, probability: seen - 0.1, reason: "no lessons booked" }], trace());
+  assert.equal(out.applied.length, 0);
+  assert.match(out.skipped[0].skipped, /closed/);
+  nearly(mk.price(await mk.getMarket(db, id)), seen);
+});
+
+test("time decay owed since the snapshot is applied under the same lock as the re-mark", async () => {
+  const id = await stockFor("Cara books the summer trip", "cara");
+  const m0 = await mk.getMarket(db, id);
+  assert.equal(m0.decay, "hazard", "a 'by date X' stock decays");
+  const seen = mk.price(m0);
+  // Pretend the last decay was ten days ago, so some is owed.
+  await db.query(`UPDATE markets SET last_decay_at = now() - interval '10 days' WHERE id = $1`, [id]);
+  const snap = await mk.snapshotForRemark(db, chat, null, null);
+  const out = await mk.applyRemarks(chat, snap, [{ id, probability: seen + 0.05, reason: "flights are cheap this week" }], trace());
+  assert.equal(out.applied.length, 1);
+  const m = await mk.getMarket(db, id);
+  nearly(mk.price(m), seen + 0.05, 1e-6);
+  assert.ok(new Date(m.last_decay_at).getTime() > Date.now() - 60_000, "decay was brought up to date in the same write");
+  const ticks = (await db.query<{ source: string }>(`SELECT source FROM price_ticks WHERE market_id = $1 ORDER BY ts, source`, [id])).map((r) => r.source);
+  assert.equal(ticks.filter((x) => x === "decay").length, 1, "one decay tick for the time owed");
+  assert.equal(ticks.filter((x) => x === "ai").length, 1, "and one AI tick, written together");
+});
+
+test("the decay sweep decays from the price after the latest trade", async () => {
+  const id = await stockFor("Bob finishes the marathon training plan", "bob");
+  await db.query(`UPDATE markets SET last_decay_at = now() - interval '5 days' WHERE id = $1`, [id]);
+  const t = await mk.trade(people.cara, id, { side: "yes", action: "buy", amount: 40 });
+  await mk.runDecay(db);
+  const m = await mk.getMarket(db, id);
+  assert.ok(mk.price(m) < t.after, "decay moved it down");
+  assert.ok(mk.price(m) > t.after - 0.1, "from the post-trade price, not from the old one");
+  const [pos] = await db.query<{ yes_shares: number }>(`SELECT yes_shares FROM positions WHERE market_id = $1 AND user_id = $2`, [id, people.cara.id]);
+  assert.ok(pos.yes_shares > 0);
 });

@@ -3,6 +3,8 @@ import { DEMO_MODE } from "./config";
 import { now } from "./clock";
 import { deriveKeys, unlockIdentity, unwrapGroupKey, wrapGroupKey } from "./e2ee";
 
+type Member = Creator & { wrapped: string };
+
 /**
  * Demo only: drops a new account into the sample chats from `npm run seed`, so whoever
  * signs up at the event sees three months of use instead of an empty app.
@@ -74,5 +76,31 @@ export async function joinSampleGroups(userId: number, q?: Q) {
     );
     joined++;
   }
+  if (joined) await shareSamplePhotos(db, userId, me.public_key);
   return joined;
+}
+
+/**
+ * The sample people's profile photos, for a newcomer. Their apps never run, so nobody would wrap
+ * their profile keys for the new member; the server opens each one with the sample password
+ * (as above) and wraps a copy, so the sample chats show faces rather than initials.
+ */
+export async function shareSamplePhotos(db: Q, userId: number, myPublicKey: string) {
+  const owners = await db.query<Member>(
+    `SELECT DISTINCT u.id, u.username, u.key_salt, u.enc_private_key, u.public_key, pk.wrapped
+       FROM group_members mine
+       JOIN group_members o ON o.group_id = mine.group_id AND o.user_id <> mine.user_id
+       JOIN users u ON u.id = o.user_id AND u.deleted_at IS NULL AND u.avatar_id IS NOT NULL
+       JOIN profile_keys pk ON pk.owner_id = u.id AND pk.viewer_id = u.id
+      WHERE mine.user_id = $1
+        AND NOT EXISTS (SELECT 1 FROM profile_keys x WHERE x.owner_id = u.id AND x.viewer_id = $1)`,
+    [userId]
+  );
+  for (const o of owners) {
+    const priv = await creatorKey(o);
+    if (!priv) continue;
+    const raw = await unwrapGroupKey(o.wrapped, priv, o.public_key).catch(() => null);
+    if (!raw) continue;
+    await db.query(`INSERT INTO profile_keys (owner_id, viewer_id, wrapped) VALUES ($1,$2,$3) ON CONFLICT DO NOTHING`, [o.id, userId, await wrapGroupKey(raw, priv, myPublicKey)]);
+  }
 }

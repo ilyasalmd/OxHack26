@@ -174,13 +174,13 @@ CREATE INDEX IF NOT EXISTS chain_ops_status_idx ON chain_ops (status, id);
 -- The same op republished on public Solana devnet by `npm run solana:devnet`.
 ALTER TABLE chain_ops ADD COLUMN IF NOT EXISTS devnet_signature text;
 
--- Opt-in per group: members' apps may send a few filtered, redacted chat snippets to the AI.
+-- The AI reading relevant chat (filtered and redacted on members' phones) is always on and is
+-- disclosed before anyone creates or joins a chat (lib/ai-disclosure.ts). The column is kept so
+-- older rows and scripts still load, but nothing reads it any more.
 ALTER TABLE groups ADD COLUMN IF NOT EXISTS ai_reads_chat boolean NOT NULL DEFAULT true;
--- Chat reading is on unless a group turns it off. Groups made before that was the default are
--- switched on once; the flag row stops it happening again, so a group that opts out stays out.
 ALTER TABLE groups ALTER COLUMN ai_reads_chat SET DEFAULT true;
+UPDATE groups SET ai_reads_chat = true WHERE NOT ai_reads_chat;
 CREATE TABLE IF NOT EXISTS app_flags (name text PRIMARY KEY);
-UPDATE groups SET ai_reads_chat = true WHERE NOT EXISTS (SELECT 1 FROM app_flags WHERE name = 'chat_default_on');
 INSERT INTO app_flags (name) VALUES ('chat_default_on') ON CONFLICT DO NOTHING;
 
 -- Stock trading fee: after a trader's first free trade on a stock, each trade pays a small fee that
