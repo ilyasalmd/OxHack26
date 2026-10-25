@@ -39,6 +39,8 @@ const CHIME_QUICK = 0.6;
 // How often an open message, or a bare "ok"/"lol" nobody needs to answer, gets no reply.
 const QUIET_WHEN_OPEN = 0.15;
 const QUIET_AFTER_ACK = 0.55;
+// How often, in a group of three or more, a message after someone's passing remark is open to anyone.
+const OPEN_AFTER_REMARK = 0.55;
 /** A message that needs no answer: "ok", "lol", "haha", "100%", "nice". */
 export const ACK = /^(ok(ay)?|k|kk|lol+|lmao+|haha+|ha|nice|fair|true|same|yeah|yep|ye|ya|cool|sound|bet|100%?|facts|fr|word|right|oh|ah|hmm+|mhm|np|ty|thx)[\s!.?]*$/i;
 
@@ -121,7 +123,12 @@ export function pickTurns(args: { members: TurnMember[]; recent: TurnMessage[]; 
     const to = byId.get(prev.userId)!;
     if (!to.bot) return done(chime([], CHIME_WHEN_OPEN - 0.1, 0.7), "someone-else");
     if (ack && quiet(QUIET_AFTER_ACK)) return done([], "reply");
-    return done(chime([to.id], CHIME_AFTER_ADDRESSED), "reply");
+    // A question either way (theirs to the sender, or the sender's back about what they said) stays
+    // between the two. After a passing remark, in a bigger group anyone may pick the next message up,
+    // so one person doesn't hog the chat.
+    const me = byId.get(senderId);
+    const asked = [prev.text, ...said].some((t) => /\?\s*$/.test(t)) || (me ? addressScore(prev.text, me) > 0 : false);
+    if (asked || bots.length < 3 || rand() >= OPEN_AFTER_REMARK) return done(chime([to.id], CHIME_AFTER_ADDRESSED), "reply");
   }
 
   // 3. Open to the room: someone picks it up, usually not whoever spoke last.

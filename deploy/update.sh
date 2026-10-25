@@ -18,8 +18,8 @@ if [ -z "$branch" ]; then
   branch=${branch#origin/}
 fi
 
-# The server always matches GitHub. deploy/.env is ignored by git, so it is kept.
-git checkout -q -B "$branch" "origin/$branch"
+# The server always matches GitHub, even over a hand edit. deploy/.env is ignored by git, so it is kept.
+git checkout -q -f -B "$branch" "origin/$branch"
 
 # New settings from env.example go into .env with their defaults; existing values stay.
 [ -z "$(tail -c1 .env)" ] || echo >> .env

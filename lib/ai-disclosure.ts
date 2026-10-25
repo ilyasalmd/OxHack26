@@ -44,7 +44,11 @@ export const aiChatNotice = (hosted = AI.usesGoogle, local = AI.chain.includes("
     },
     {
       head: "Sample chats",
-      body: `The sample people (Mum, Dad, Jake, Priya and the rest) are run by the app, only in the sample chats. To answer you, one of them opens the last ${BOT_CONTEXT} messages of that chat with their own copy of its key, as any member could, and Gemma on our server writes their reply. Nothing is redacted for this, so it only happens when Gemma runs on our own machine, and nothing leaves the server. It never happens in a chat you start.`,
+      body: `The sample people (Mum, Dad, Jake, Priya and the rest) are run by the app, only in the sample chats. To answer you, one of them opens the last ${BOT_CONTEXT} messages of that chat with their own copy of its key, as any member could, and Gemma writes their reply ${
+        hosted
+          ? `${local ? "on our server through Ollama when it can, and otherwise " : ""}on Google's servers through the Gemini API, so those messages go to Google. Emails, phone numbers and links are cut first; names and the rest of each message are not`
+          : "on our server. Nothing leaves the server"
+      }. It never happens in a chat you start.`,
     },
     {
       head: "Limits",

@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useSession, type Me } from "./session";
 import { api } from "./api";
@@ -12,6 +12,7 @@ import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
 import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, Trophy, User as UserIcon, Wallet, Users } from "./icons";
 import { decryptPayload, forgetIdentities, type Payload } from "@/lib/e2ee";
 import { ChatMark, chatName } from "./chat/mark";
+import { applyAccent, themeFor } from "@/lib/theme";
 
 /** The phone's four tabs. Each screen does one job; everything else is a page you go into and back out of. */
 const TABS = [
@@ -29,10 +30,11 @@ const hasTabs = (path: string) => TABS.some((t) => t.href === path);
 export function Frame({ children }: { children: React.ReactNode }) {
   const { me } = useSession();
   const path = usePathname();
+  // Signing out lands on the sign-in page in its original colours; signing in brings the saved theme back.
+  // Before paint, so neither page shows a frame of the other's theme.
+  useLayoutEffect(() => applyAccent(themeFor(path)), [path]);
   // Sign-in screens own the whole window (and must not re-mount when a session appears mid-flow).
-  // The sign-in screens keep their own lime-and-white look on a light theme too (see .brand-scope).
-  if (path === "/") return <div className="brand-scope contents">{children}</div>;
-  if (path === "/recover" || path === "/welcome") return <>{children}</>;
+  if (path === "/" || path === "/recover" || path === "/welcome") return <>{children}</>;
   if (!me) return <div className="mx-auto min-h-dvh max-w-xl">{children}</div>;
   const tabs = hasTabs(path);
   return (

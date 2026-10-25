@@ -21,12 +21,16 @@ function ageLabel(at: string, now: number) {
   return `${Math.round(h / 24)}d ago`;
 }
 
-/** Replace names with roles and strip contact details, links and long numbers. */
-export function redact(text: string, members: Person[], subjectId: number | null, aliases: Map<number, string>) {
-  let out = text
+/** Cut emails, links and phone or other long numbers. */
+export const cutContacts = (text: string) =>
+  text
     .replace(/[\w.+-]+@[\w-]+\.[\w.]+/g, "[email]")
     .replace(/https?:\/\/\S+|www\.\S+/gi, "[link]")
     .replace(/\+?\d[\d\s().-]{7,}\d/g, "[number]");
+
+/** Replace names with roles and strip contact details, links and long numbers. */
+export function redact(text: string, members: Person[], subjectId: number | null, aliases: Map<number, string>) {
+  let out = cutContacts(text);
   for (const m of members) {
     const role = m.id === subjectId ? "[SUBJECT]" : alias(m.id, aliases);
     // A first name on its own ("Jake" for "Jake Thompson") identifies someone just as well.

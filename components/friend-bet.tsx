@@ -16,6 +16,8 @@ export type FriendBetLite = {
   side: "yes" | "no";
   creator_id: number;
   taker_id: number | null;
+  /** Aimed at one friend: only they can take it. Null means anyone in the chat. */
+  target_id?: number | null;
   stake: number;
   taker_stake: number;
   pot: number;
@@ -55,7 +57,7 @@ function localInput(d: Date) {
 }
 
 /** Post a bet: what it is, when it ends, your side, and what each of you puts in. */
-export function NewFriendBet({ open, onClose, groupId, now, ticker, onCreated }: { open: boolean; onClose: () => void; groupId: number; now: string; ticker: string; onCreated: () => void }) {
+export function NewFriendBet({ open, onClose, groupId, now, ticker, members, onCreated }: { open: boolean; onClose: () => void; groupId: number; now: string; ticker: string; members: Person[]; onCreated: () => void }) {
   const { me } = useSession();
   const base = new Date(now);
   const presets: [string, Date][] = [
@@ -68,6 +70,10 @@ export function NewFriendBet({ open, onClose, groupId, now, ticker, onCreated }:
   const [side, setSide] = useState<"yes" | "no">("yes");
   const [mine, setMine] = useState("20");
   const [theirs, setTheirs] = useState("20");
+  // Who can take it: anyone in the chat (null) or one friend.
+  const [target, setTarget] = useState<number | null>(null);
+  const friends = members.filter((m) => m.id !== me?.user.id);
+  const targetName = friends.find((f) => f.id === target)?.display_name;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
   const balance = me?.user.balance ?? 0;
@@ -80,7 +86,7 @@ export function NewFriendBet({ open, onClose, groupId, now, ticker, onCreated }:
     setBusy(true);
     setErr("");
     try {
-      await api(`/api/groups/${groupId}/friend-bets`, { body: { title: title.trim(), resolvesAt: new Date(when).toISOString(), side, stake: a, theirStake: b } });
+      await api(`/api/groups/${groupId}/friend-bets`, { body: { title: title.trim(), resolvesAt: new Date(when).toISOString(), side, stake: a, theirStake: b, targetId: target } });
       setTitle("");
       onCreated();
     } catch (e) {
@@ -97,6 +103,21 @@ export function NewFriendBet({ open, onClose, groupId, now, ticker, onCreated }:
           <span className="mb-1.5 block text-sm font-medium">What&apos;s the bet?</span>
           <Input placeholder="e.g. Sam is late on Friday" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={140} autoFocus />
         </label>
+
+        {friends.length > 1 && (
+          <div>
+            <span className="mb-1.5 block text-sm font-medium">Who can take it?</span>
+            <div className="thin-scroll -mx-1 flex gap-1.5 overflow-x-auto px-1 pb-1">
+              <button type="button" onClick={() => setTarget(null)} className={`shrink-0 rounded-full px-3.5 py-2 text-sm font-medium ${target === null ? "bg-white text-black" : "bg-white/[.06] hover:bg-white/10"}`}>Anyone</button>
+              {friends.map((f) => (
+                <button type="button" key={f.id} onClick={() => setTarget(f.id)} className={`flex shrink-0 items-center gap-1.5 rounded-full py-1.5 pl-1.5 pr-3.5 text-sm font-medium ${target === f.id ? "bg-white text-black" : "bg-white/[.06] hover:bg-white/10"}`}>
+                  <Avatar id={f.id} name={f.display_name} color={f.color} size={22} />
+                  {f.display_name}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
 
         <div>
           <span className="mb-1.5 block text-sm font-medium">You say it…</span>
@@ -118,7 +139,7 @@ export function NewFriendBet({ open, onClose, groupId, now, ticker, onCreated }:
             </span>
           </label>
           <label className="rounded-xl bg-ink px-3 py-2.5">
-            <span className="block text-[11px] text-mute">Your friend puts in</span>
+            <span className="block text-[11px] text-mute">{targetName ? `${targetName} puts in` : "Your friend puts in"}</span>
             <span className="flex items-baseline gap-1">
               <input inputMode="numeric" value={theirs} onChange={(e) => setTheirs(e.target.value.replace(/[^0-9]/g, ""))} aria-label="Your friend puts in" className="w-full min-w-0 bg-transparent text-2xl font-semibold tabular outline-none" />
               <span className="text-sm text-mute">{ticker}</span>
@@ -146,7 +167,11 @@ export function NewFriendBet({ open, onClose, groupId, now, ticker, onCreated }:
 
         {err && <p className="text-sm text-down">{err}</p>}
         <Button className="w-full !py-3" disabled={!ok || busy} onClick={post}>{busy ? "Posting…" : `Post bet · put in ${fmt(a, 0)} ${ticker}`}</Button>
-        <p className="text-center text-xs text-mute">Anyone in the chat can take it, or offer a different amount. You get your {ticker} back if nobody takes it.</p>
+        <p className="text-center text-xs text-mute">
+          {targetName
+            ? `Only ${targetName} can take it, offer a different amount or turn it down. You get your ${ticker} back if they don't take it.`
+            : `Anyone in the chat can take it, or offer a different amount. You get your ${ticker} back if nobody takes it.`}
+        </p>
       </div>
     </Sheet>
   );
@@ -168,6 +193,9 @@ export function FriendBetCard({ bet, members, meId, now, ticker, onChange }: { b
   const inBet = me(bet.creator_id) || me(bet.taker_id);
   const ended = new Date(bet.resolves_at).getTime() <= new Date(now).getTime();
   const done = bet.status === "settled" || bet.status === "cancelled" || bet.status === "refunded";
+  const target = person(bet.target_id ?? null);
+  // Aimed at one friend: only they get the take / offer / turn down buttons.
+  const mayTake = !me(bet.creator_id) && (!bet.target_id || me(bet.target_id));
 
   async function act(body: Record<string, unknown>) {
     setBusy(true);
@@ -188,18 +216,18 @@ export function FriendBetCard({ bet, members, meId, now, ticker, onChange }: { b
       <div className={`text-[11px] font-semibold ${yes ? "text-up" : "text-down"}`}>Says {says(yes)}</div>
       <div className="mt-0.5 flex items-center gap-1.5 text-sm">
         {p ? <Avatar id={p.id} name={p.display_name} color={p.color} size={16} /> : <span className="h-4 w-4 rounded-full border border-dashed border-white/30" />}
-        <span className="truncate">{p ? nameOf(p) : "Open"}</span>
+        <span className="truncate">{p ? nameOf(p) : target ? nameOf(target) : "Open"}</span>
         <span className="ml-auto shrink-0 tabular text-mute">{fmt(amount, 0)}</span>
       </div>
     </div>
   );
 
   const status = {
-    open: ended ? "ended, nobody took it" : `open · ends ${timeLeft(bet.resolves_at, now)}`,
+    open: ended ? (target ? `ended, ${nameOf(target)} didn't take it` : "ended, nobody took it") : `${target ? `for ${me(target.id) ? "you" : target.display_name}` : "open"} · ends ${timeLeft(bet.resolves_at, now)}`,
     live: ended ? "ended · waiting for a result" : `on · ends ${timeLeft(bet.resolves_at, now)}`,
     claimed: `${nameOf(person(bet.claim_by))} say${me(bet.claim_by) ? "" : "s"} they won`,
     settled: `${nameOf(person(bet.winner_id))} won ${fmt(bet.pot, 0)} ${ticker}`,
-    cancelled: "nobody took it · money back",
+    cancelled: target ? `${nameOf(target)} didn't take it · money back` : "nobody took it · money back",
     refunded: "called off · both got their money back",
   }[bet.status];
 
@@ -221,11 +249,17 @@ export function FriendBetCard({ bet, members, meId, now, ticker, onChange }: { b
 
         <div className="space-y-2 p-3">
           {/* Open: anyone else can take it or offer a different amount; the poster sees offers and can cancel. */}
-          {bet.status === "open" && !ended && !me(bet.creator_id) && !countering && (
+          {bet.status === "open" && !ended && mayTake && !countering && (
             <div className="grid grid-cols-[1fr_auto] gap-2">
               <Button variant={creatorYes ? "down" : "up"} disabled={busy} onClick={() => act({ action: "take" })}>Take it · put in {fmt(bet.taker_stake, 0)}</Button>
               <Button variant="ghost" disabled={busy} onClick={() => { setCounter(String(Math.round(bet.taker_stake))); setCountering(true); }}>Offer different</Button>
             </div>
+          )}
+          {bet.status === "open" && !ended && target && me(target.id) && !countering && (
+            <button type="button" className="block w-full text-center text-sm text-mute underline underline-offset-2 hover:text-white" disabled={busy} onClick={() => act({ action: "decline" })}>Turn it down</button>
+          )}
+          {bet.status === "open" && !ended && target && !me(target.id) && !me(bet.creator_id) && (
+            <p className="text-center text-sm text-mute">Waiting for {target.display_name} to take it.</p>
           )}
           {countering && (
             <div className="flex items-center gap-2">
@@ -250,7 +284,7 @@ export function FriendBetCard({ bet, members, meId, now, ticker, onChange }: { b
           )}
           {bet.status === "open" && me(bet.creator_id) && (
             <div className="flex items-center justify-between gap-2 text-sm text-mute">
-              <span>{ended ? "Nobody took it. Your stake comes back shortly." : "Waiting for a friend to take it."}</span>
+              <span>{ended ? (target ? `${target.display_name} didn't take it. Your stake comes back shortly.` : "Nobody took it. Your stake comes back shortly.") : `Waiting for ${target ? target.display_name : "a friend"} to take it.`}</span>
               {!ended && <button type="button" className="shrink-0 underline underline-offset-2 hover:text-white" disabled={busy} onClick={() => act({ action: "cancel" })}>Cancel bet</button>}
             </div>
           )}
