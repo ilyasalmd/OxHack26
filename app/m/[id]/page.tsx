@@ -48,7 +48,7 @@ type Detail = {
   position: { yes_shares: number; no_shares: number; spent: number; cashOut: { yes: number | null; no: number | null } | null } | null;
   quotes: { vig: number; buyVig: number; ask: { yes: number; no: number }; bid: { yes: number; no: number } };
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; canShort: boolean; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; canTrade: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -59,6 +59,11 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
   const [chartMode, setChartMode] = useState<"candles" | "line">("candles");
   // The slip's side; on a phone it opens as a sheet, on a laptop it sits beside the chart.
   const [side, setSide] = useState<Side>("yes");
+  // On a bet you're already on, the slip can only add to that side.
+  const locked = d?.me.lockedSide ?? null;
+  useEffect(() => {
+    if (locked) setSide(locked);
+  }, [locked]);
   const [oddsFmt] = useOddsFormat();
   const [slipOpen, setSlipOpen] = useState(false);
   const [resolveOpen, setResolveOpen] = useState(false);
@@ -405,7 +410,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         )}
         {!resolved && !voided && d.me.canTrade && !m.closed && (
           <div className="mt-5 grid grid-cols-2 gap-2 lg:hidden">
-            <button onClick={() => { setSide("yes"); setSlipOpen(true); }} className="rounded-2xl bg-brand px-4 py-3 text-left text-black transition active:scale-[.98]">
+            <button onClick={() => { setSide("yes"); setSlipOpen(true); }} disabled={!d.me.canLong} className="rounded-2xl bg-brand px-4 py-3 text-left text-black transition active:scale-[.98] disabled:opacity-40">
               <div className="text-sm font-semibold">{lbl.yes}</div>
               <div className="text-2xl font-semibold tracking-tight tabular">{isStock && !isNumber ? show(m.price) : formatOdds(m.price, oddsFmt)}</div>
               {!(isStock && !isNumber) && <div className="text-[11px] text-black/60">{pct(m.price)} chance</div>}
@@ -438,11 +443,11 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             </p>
           )}
           <p className="text-mute">{m.ai_rationale}</p>
-          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+          {me.account?.isAdmin && <div className="mt-3 grid grid-cols-3 gap-2 text-center">
             <div className="rounded-xl bg-ink p-2"><div className="text-xs text-mute">AI</div><div className="font-semibold tabular">{pct(m.ai_prob)}</div></div>
             <div className="rounded-xl bg-ink p-2"><div className="text-xs text-mute">History</div><div className="font-semibold tabular">{m.base_rate == null ? "–" : pct(m.base_rate)}</div></div>
             <div className="rounded-xl bg-ink p-2"><div className="text-xs text-mute">Opened</div><div className="font-semibold tabular">{pct(m.open_prob)}</div></div>
-          </div>
+          </div>}
           {m.chat_context && (
             <div className="mt-3 border-t border-line pt-3">
               <div className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-mute">
@@ -517,7 +522,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
        <aside className="sticky top-20 mt-6 hidden space-y-4 lg:block">
         {!resolved && !voided && d.me.canTrade && !m.closed && (
           <section className="rounded-2xl border border-line bg-panel p-4">
-            <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+            <BetSlip market={m} book={book} side={side} onSide={setSide} canLong={d.me.canLong} canShort={d.me.canShort} lockedSide={d.me.lockedSide} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
           </section>
         )}
         {positionCard}
@@ -527,7 +532,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
       <div className="lg:hidden"><TimeMachine onJump={load} /></div>
 
       <Sheet open={slipOpen && !wide} onClose={() => setSlipOpen(false)} title={isStock ? "Trade" : "Bet slip"}>
-        <BetSlip market={m} book={book} side={side} onSide={setSide} canShort={d.me.canShort} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
+        <BetSlip market={m} book={book} side={side} onSide={setSide} canLong={d.me.canLong} canShort={d.me.canShort} lockedSide={d.me.lockedSide} balance={d.me.balance} maxStake={d.me.maxStake} floor={me.config.economy.balanceFloor} ticker={c.ticker} fee={d.me.fee} lister={d.creator.display_name} vig={d.quotes.buyVig} busy={busy} err={err} onPlace={(s, amt) => doTrade("buy", s, amt)} />
       </Sheet>
 
       <Sheet open={resolveOpen} onClose={() => setResolveOpen(false)} title="Propose the result">
