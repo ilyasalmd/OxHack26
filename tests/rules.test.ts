@@ -177,10 +177,77 @@ test("an early claim nobody confirmed by the deadline settles a day after it, li
   assert.equal(await status(id), "resolved");
 });
 
-test("the subject can't confirm a result about themselves", async () => {
-  const id = await open("Bob gets to the gym three times", "bob");
+test("the person it's about can propose a result about themselves, and confirm one", async () => {
+  const mine = await open("Bob gets to the gym three times", "bob");
+  await ageDeadline(mine, 1);
+  await mk.proposeResult(people.bob, mine, true, PROOF);
+  assert.equal((await mk.getMarket(db, mine)).proposed_by, people.bob.id);
+  const theirs = await open("Bob is late to the seminar", "bob");
+  await mk.trade(people.cara, theirs, { side: "yes", action: "buy", amount: 20 });
+  await mk.trade(people.alice, theirs, { side: "no", action: "buy", amount: 20 });
+  await ageDeadline(theirs, 1);
+  await mk.proposeResult(people.cara, theirs, true);
+  await mk.confirmResult(people.bob, theirs);
+  assert.equal(await status(theirs), "open", "bob owns up, but one of two neutral-or-losing voters isn't a majority");
+  await mk.confirmResult(people.alice, theirs);
+  assert.equal(await status(theirs), "resolved");
+});
+
+test("three friends, split bets: the winner calls it right after the deadline and the loser's confirm settles it", async () => {
+  // The case that used to deadlock: alice posted and backed YES, cara backed NO, it's about bob.
+  const id = await open("Bob is late to Friday dinner", "bob");
+  const alice0 = await balance(people.alice);
+  await mk.trade(people.alice, id, { side: "yes", action: "buy", amount: 30 });
+  await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 30 });
+  await ageDeadline(id, 1);
+  await mk.proposeResult(people.alice, id, true);
+  const v = await mk.voteState(db, await mk.getMarket(db, id));
+  assert.deepEqual(v.losers, [people.cara.id], "cara is the one it costs");
+  assert.ok(v.eligible.includes(people.bob.id), "bob, who it's about, can check it too");
+  await mk.confirmResult(people.cara, id);
+  assert.equal(await status(id), "resolved", "the loser conceding settles it at once");
+  assert.ok((await balance(people.alice)) > alice0);
+});
+
+test("anyone can call it straight after the deadline, not just whoever posted it", async () => {
+  const id = await open("The bins go out on Tuesday");
+  await ageDeadline(id, 1);
+  await mk.trade(people.bob, id, { side: "no", action: "buy", amount: 10 }).catch(() => {});
+  await mk.proposeResult(people.cara, id, false, PROOF);
+  assert.equal((await mk.getMarket(db, id)).proposed_by, people.cara.id);
+});
+
+test("everyone backed the same side: calling it that way needs evidence, even after the deadline", async () => {
+  const id = await open("Cara passes her driving test");
+  await mk.trade(people.alice, id, { side: "yes", action: "buy", amount: 20 });
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 20 });
+  await ageDeadline(id, 1);
+  await rejects(mk.proposeResult(people.alice, id, true), /evidence/);
   await mk.proposeResult(people.alice, id, true, PROOF);
-  await rejects(mk.confirmResult(people.bob, id), /can't confirm/);
+  assert.deepEqual((await mk.voteState(db, await mk.getMarket(db, id))).eligible, [people.cara.id], "only cara, who didn't bet, checks it");
+});
+
+test("the losing side staying quiet can't block a result: it settles when the window ends", async () => {
+  const id = await open("Alice finishes the crossword");
+  await mk.trade(people.bob, id, { side: "yes", action: "buy", amount: 25 });
+  await mk.trade(people.cara, id, { side: "no", action: "buy", amount: 25 });
+  await ageDeadline(id, 1);
+  await mk.proposeResult(people.bob, id, true);
+  await mk.finaliseProposals(db);
+  assert.equal(await status(id), "open", "still inside the window");
+  await db.query(`UPDATE markets SET proposed_at = now() - interval '25 hours', resolves_at = now() - interval '26 hours' WHERE id = $1`, [id]);
+  await mk.finaliseProposals(db);
+  assert.equal(await status(id), "resolved");
+});
+
+test("in a bigger chat, one confirm from someone the result costs settles it without waiting for a majority", async () => {
+  const { users: [a, b, , , ], id } = await chatOf(5);
+  await mk.trade(a, id, { side: "yes", action: "buy", amount: 20 });
+  await mk.trade(b, id, { side: "no", action: "buy", amount: 20 });
+  await mk.proposeResult(a, id, true, PROOF);
+  assert.equal((await mk.voteState(db, await mk.getMarket(db, id))).needed, 3, "a majority of the four voters would be three");
+  await mk.confirmResult(b, id);
+  assert.equal(await status(id), "resolved");
 });
 
 test("a market only one person traded pays nothing: the stake comes back", async () => {
