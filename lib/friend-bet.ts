@@ -27,6 +27,8 @@ export type FriendBet = {
   stake: number;
   taker_stake: number;
   taker_id: number | null;
+  /** Only this person can take it; null means anyone in the chat. */
+  target_id: number | null;
   status: "open" | "live" | "claimed" | "settled" | "cancelled" | "refunded";
   claim_by: number | null;
   claimed_at: Date | null;
@@ -64,7 +66,7 @@ const pot = (b: Pick<FriendBet, "stake" | "taker_stake">) => round2(b.stake + b.
 const other = (b: FriendBet, userId: number) => (userId === b.creator_id ? b.taker_id! : b.creator_id);
 
 /** Post a bet in a chat: the poster's coins are set aside now. */
-export async function createFriendBet(user: User, groupId: number, input: { title: string; resolvesAt: string; side: "yes" | "no"; stake: number; theirStake: number }) {
+export async function createFriendBet(user: User, groupId: number, input: { title: string; resolvesAt: string; side: "yes" | "no"; stake: number; theirStake: number; targetId?: number | null }) {
   const title = input.title.trim();
   if (title.length < 4) throw new HttpError(400, "Say what the bet is");
   const problem = topicProblem(title);
@@ -74,13 +76,16 @@ export async function createFriendBet(user: User, groupId: number, input: { titl
   const stake = round2(input.stake);
   const theirs = round2(input.theirStake);
   if (!(theirs >= ECONOMY.minTrade)) throw new HttpError(400, `Your friend has to put in at least ${ECONOMY.minTrade}`);
+  const target = input.targetId ?? null;
+  if (target === user.id) throw new HttpError(400, "Pick a friend, not yourself");
   const db = await getDb();
   return db.tx(async (q) => {
     await member(q, groupId, user.id);
+    if (target) await member(q, groupId, target).catch(() => { throw new HttpError(400, "That friend isn't in this chat"); });
     await putIn(q, user.id, stake, `Bet a friend · ${title}`);
     const [b] = await q.query<FriendBet>(
-      `INSERT INTO friend_bets (group_id, creator_id, title, resolves_at, side, stake, taker_stake, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
-      [groupId, user.id, title, ends, input.side, stake, theirs, now()]
+      `INSERT INTO friend_bets (group_id, creator_id, title, resolves_at, side, stake, taker_stake, target_id, created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
+      [groupId, user.id, title, ends, input.side, stake, theirs, target, now()]
     );
     await q.query(`INSERT INTO messages (group_id, user_id, kind, body, friend_bet_id, created_at) VALUES ($1,$2,'friendbet',$3,$4,$5)`, [groupId, user.id, `posted a bet: ${title}`, b.id, now()]);
     return { id: b.id };
@@ -97,7 +102,7 @@ async function startWith(q: Q, b: FriendBet, takerId: number, takerStake: number
 export async function actOnFriendBet(
   user: User,
   betId: number,
-  a: { action: "take" } | { action: "counter"; theirStake: number } | { action: "accept"; counterId: number } | { action: "cancel" } | { action: "won" } | { action: "lost" } | { action: "confirm" } | { action: "dispute" }
+  a: { action: "take" } | { action: "counter"; theirStake: number } | { action: "accept"; counterId: number } | { action: "cancel" } | { action: "decline" } | { action: "won" } | { action: "lost" } | { action: "confirm" } | { action: "dispute" }
 ) {
   const db = await getDb();
   return db.tx(async (q) => {
@@ -105,10 +110,15 @@ export async function actOnFriendBet(
     await member(q, b.group_id, user.id);
     const inBet = user.id === b.creator_id || user.id === b.taker_id;
     const over = new Date(b.resolves_at).getTime() <= now().getTime();
+    // A bet aimed at one friend is theirs alone to take, counter or turn down.
+    const notForYou = async () => {
+      if (b.target_id && user.id !== b.target_id) throw new HttpError(403, `This bet is for ${await name(q, b.target_id)}`);
+    };
     switch (a.action) {
       case "take": {
         if (b.status !== "open") throw new HttpError(400, "Someone already took this bet");
         if (user.id === b.creator_id) throw new HttpError(400, "You can't take your own bet");
+        await notForYou();
         if (over) throw new HttpError(400, "This bet has ended");
         await startWith(q, b, user.id, b.taker_stake);
         await line(q, b, user.id, `took the bet: “${b.title}”. Winner takes ${pot(b).toFixed(0)}`);
@@ -117,6 +127,7 @@ export async function actOnFriendBet(
       case "counter": {
         if (b.status !== "open") throw new HttpError(400, "This bet isn't open any more");
         if (user.id === b.creator_id) throw new HttpError(400, "Change your own bet by cancelling it and posting a new one");
+        await notForYou();
         if (over) throw new HttpError(400, "This bet has ended");
         const theirs = round2(a.theirStake);
         if (!(theirs >= ECONOMY.minTrade)) throw new HttpError(400, `Put in at least ${ECONOMY.minTrade}`);
@@ -146,6 +157,15 @@ export async function actOnFriendBet(
         await q.query(`UPDATE friend_bets SET status = 'cancelled', settled_at = $2 WHERE id = $1`, [b.id, now()]);
         await q.query(`UPDATE friend_bet_counters SET status = 'closed' WHERE bet_id = $1 AND status = 'open'`, [b.id]);
         await line(q, b, user.id, `cancelled the bet “${b.title}” and got their ${b.stake.toFixed(0)} back`);
+        return { ok: true };
+      }
+      case "decline": {
+        if (!b.target_id || user.id !== b.target_id) throw new HttpError(403, "Only the friend it was aimed at can turn it down");
+        if (b.status !== "open") throw new HttpError(400, "This bet isn't open any more");
+        await credit(q, b.creator_id, b.stake, `Bet turned down · ${b.title}`);
+        await q.query(`UPDATE friend_bets SET status = 'cancelled', settled_at = $2 WHERE id = $1`, [b.id, now()]);
+        await q.query(`UPDATE friend_bet_counters SET status = 'closed' WHERE bet_id = $1 AND status = 'open'`, [b.id]);
+        await line(q, b, user.id, `turned down “${b.title}”, so ${await name(q, b.creator_id)} got their ${b.stake.toFixed(0)} back`);
         return { ok: true };
       }
       case "lost": {
@@ -243,6 +263,7 @@ export async function friendBetsForChat(q: Q, groupId: number) {
     side: b.side,
     creator_id: b.creator_id,
     taker_id: b.taker_id,
+    target_id: b.target_id ?? null,
     stake: b.stake,
     taker_stake: b.taker_stake,
     pot: pot(b),
