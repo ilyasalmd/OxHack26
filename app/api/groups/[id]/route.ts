@@ -35,7 +35,7 @@ async function chatFeed(id: number, userId: number, after: number, read: number)
   const user = { id: userId };
   const db = await getDb();
   // These reads don't depend on each other, so they go to the database together, not one after another.
-  const [[group], members, [prefs], [myKey], former, messages, markets, friendBets] = await Promise.all([
+  const [[group], members, [prefs], [myKey], former, messages, markets, friendBets, changes] = await Promise.all([
     db.query(
       `SELECT id, name, emoji, invite_code, ai_context, created_by, is_dm, description_ct, description_iv, photo_id::int AS photo_id FROM groups WHERE id = $1`,
       [id]
@@ -61,7 +61,7 @@ async function chatFeed(id: number, userId: number, after: number, read: number)
     ),
     // A message you reported is hidden for you from then on.
     db.query(
-      `SELECT id::int, user_id, kind, ciphertext, iv, body, market_id, friend_bet_id, created_at FROM (
+      `SELECT id::int, user_id, kind, ciphertext, iv, body, market_id, friend_bet_id, created_at, edited_at, deleted_at FROM (
          SELECT * FROM messages m WHERE group_id = $1 AND id > $2
            AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.reporter_id = $3 AND r.message_id = m.id)
          ORDER BY id DESC LIMIT 200) t ORDER BY id`,
@@ -70,6 +70,13 @@ async function chatFeed(id: number, userId: number, after: number, read: number)
     db.query<MarketRow>(`SELECT * FROM markets WHERE group_id = $1 ORDER BY created_at DESC`, [id]),
     // Bet a friend: one-on-one bets in this chat, for their cards.
     friendBetsForChat(db, id),
+    // Messages the app already has that were edited or deleted since, so it can update them.
+    db.query<{ id: number; ciphertext: string | null; iv: string | null; edited_at: Date | null; deleted_at: Date | null }>(
+      `SELECT id::int, ciphertext, iv, edited_at, deleted_at FROM messages
+        WHERE group_id = $1 AND id <= $2 AND (edited_at IS NOT NULL OR deleted_at IS NOT NULL)
+        ORDER BY greatest(coalesce(edited_at, 'epoch'), coalesce(deleted_at, 'epoch')) DESC LIMIT 100`,
+      [id, after]
+    ),
   ]);
   // Ticks: whatever this app just fetched is delivered; what it says is on screen is read.
   const newest = messages.length ? (messages[messages.length - 1] as { id: number }).id : 0;
@@ -97,6 +104,7 @@ async function chatFeed(id: number, userId: number, after: number, read: number)
     myKey: myKey ?? null,
     prefs: prefs ?? { wallpaper: null, muted: false },
     messages,
+    changes,
     typing: whoIsTyping(id, user.id),
     friendBets,
     markets: markets.map((m) => ({

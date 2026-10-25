@@ -48,7 +48,7 @@ type Detail = {
   position: { yes_shares: number; no_shares: number; spent: number; cashOut: { yes: number | null; no: number | null } | null } | null;
   quotes: { vig: number; buyVig: number; ask: { yes: number; no: number }; bid: { yes: number; no: number } };
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; listerWaits: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; canTrade: boolean; listerWaits: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; wouldLose: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -356,12 +356,12 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             <p className="mt-2 text-mute">
               {proposal.by?.display_name ?? "Someone"} says {proposal.early ? "it already happened" : "so"}{proposal.note ? `: “${proposal.note}”` : ""}. Trading is paused.
               {d.me.canConfirm
-                ? " Does that match what happened?"
-                : d.me.isSubject
-                  ? " It's about you, so you don't vote on it, but you can call it off."
-                  : proposal.by?.id === me.user.id
-                    ? " The rest of the chat votes on it now."
-                    : " You'd gain from this result, so the friends who wouldn't gain vote on it."}
+                ? d.me.wouldLose
+                  ? " This result costs you, so if you agree, your confirm settles it straight away."
+                  : " Does that match what happened?"
+                : proposal.by?.id === me.user.id
+                  ? " Anyone it doesn't pay can confirm or dispute it now."
+                  : " You'd gain from this result, so the friends who wouldn't gain check it."}
             </p>
             {proposal.votes && (
               <div className="mt-3 rounded-xl bg-ink p-3">
@@ -394,10 +394,10 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
             )}
             <p className="mt-2 text-xs text-mute">
               {proposal.early
-                ? "It's before the deadline, so it only settles once most of the group checks this and confirms it. If most reject it, trading opens again."
+                ? "It's before the deadline, so it needs a confirmation: one from someone it costs, or most of the others. If most reject it, trading opens again."
                 : proposal.settlesAt && new Date(proposal.settlesAt).getTime() > now
-                  ? `If the vote isn't decided in ${timeLeft(proposal.settlesAt, new Date(now)).replace(" left", "")}, it settles as proposed unless more people rejected it than confirmed it.`
-                  : "The vote ran out of time, so it is about to settle as proposed unless more people rejected it."}
+                  ? `It settles straight away if someone it costs confirms it, or once most confirm. Without a confirmation it lapses in ${timeLeft(proposal.settlesAt, new Date(now)).replace(" left", "")}.`
+                  : "The window has run out: it settles if it was approved, otherwise the claim lapses."}
             </p>
             {d.me.canConfirm && (
               <div className="mt-3 grid grid-cols-2 gap-2">
@@ -542,9 +542,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
         <div className="space-y-3">
           <p className="text-sm text-mute">{m.resolution_rule}</p>
           {d.me.early ? (
-            <p className="text-xs text-mute">It&apos;s before the deadline, so you can only say it already happened, and you need proof: say what happened, or add a photo. Trading pauses while the rest of the chat votes (not the person it&apos;s about, and not anyone it pays). It settles once more than half of them confirm; if more than half reject it, trading opens again.</p>
+            <p className="text-xs text-mute">It&apos;s before the deadline, so you can only say it already happened, and you need proof: say what happened, or add a photo. Trading pauses while the others check it (anyone it doesn&apos;t pay). One confirmation from someone it costs settles it, or most of the others; if most reject it, trading opens again.</p>
           ) : (
-            <p className="text-xs text-mute">Trading closes now and the rest of the chat votes (not the person it&apos;s about, and not anyone your call pays). It settles once more than half confirm, and your claim is dropped if more than half reject it. If the vote isn&apos;t decided within {SETTLE_WINDOW_HOURS} hours, it settles as you proposed unless more people rejected it than confirmed it.</p>
+            <p className="text-xs text-mute">Anyone can say what happened, even if they bet on it. Trading closes and the others check it (anyone your call doesn&apos;t pay). One confirmation from someone it costs settles it straight away, or most of the others; most rejecting it drops your claim. If nobody confirms within {SETTLE_WINDOW_HOURS} hours, your claim lapses as if you hadn&apos;t made it. If everyone who bet backed this result, add a note or a photo as evidence.</p>
           )}
           {isNumber ? (
             <>
@@ -566,7 +566,7 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
                     <Button variant={over === false ? "down" : "up"} className="w-full" disabled={busy || over == null || !allowed || (d.me.early && note.trim().length < 10)} onClick={() => resolve(over!)}>
                       {over == null ? "Enter the number" : `Settle as ${over ? lbl.yes : lbl.no}`}
                     </Button>
-                    {over != null && !allowed && <p className="text-xs text-mute">You&apos;d gain from that result, so a friend who wouldn&apos;t gain has to enter it.</p>}
+                    {over === false && !allowed && <p className="text-xs text-mute">{lbl.no} isn&apos;t known until the deadline.</p>}
                   </>
                 );
               })()}
@@ -574,39 +574,34 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
           ) : (
             <>
               <Input placeholder={d.me.early ? "What happened? e.g. walked in at 7:52, see photo" : "What happened? (optional, saved to group memory)"} value={note} onChange={(e) => setNote(e.target.value)} />
-              {d.me.early && (
-                <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-white/20 p-3 text-sm hover:border-white/40">
-                  {proof ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={proof.url} alt="" className="h-14 w-14 rounded-lg object-cover" />
-                  ) : (
-                    <span className="flex h-14 w-14 items-center justify-center rounded-lg bg-white/5 text-mute">+</span>
-                  )}
-                  <span className="min-w-0 flex-1">
-                    <span className="block font-medium">{proof ? "Photo added" : "Add a photo as proof"}</span>
-                    <span className="text-xs text-mute">Encrypted on this device. Only this chat can see it.</span>
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    hidden
-                    onChange={async (e) => {
-                      const f = e.target.files?.[0];
-                      e.target.value = "";
-                      if (!f) return;
-                      const img = await shrinkImage(f).catch(() => null);
-                      if (img) setProof({ url: URL.createObjectURL(img.blob), bytes: img.bytes });
-                    }}
-                  />
-                </label>
-              )}
+              <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-white/20 p-3 text-sm hover:border-white/40">
+                {proof ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={proof.url} alt="" className="h-14 w-14 rounded-lg object-cover" />
+                ) : (
+                  <span className="flex h-14 w-14 items-center justify-center rounded-lg bg-white/5 text-mute">+</span>
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium">{proof ? "Photo added" : "Add a photo as proof"}</span>
+                  <span className="text-xs text-mute">Encrypted on this device. Only this chat can see it.</span>
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!f) return;
+                    const img = await shrinkImage(f).catch(() => null);
+                    if (img) setProof({ url: URL.createObjectURL(img.blob), bytes: img.bytes });
+                  }}
+                />
+              </label>
               <div className="grid grid-cols-2 gap-2">
                 <Button variant="up" disabled={busy || !d.me.canResolveYes || (d.me.early && !proof && note.trim().length < 10)} onClick={() => resolve(true)}>YES, it happened</Button>
                 <Button variant="down" disabled={busy || !d.me.canResolveNo} onClick={() => resolve(false)}>NO</Button>
               </div>
-              {(d.me.early ? !d.me.canResolveYes : !(d.me.canResolveYes && d.me.canResolveNo)) && (
-                <p className="text-xs text-mute">You hold shares in this, so a friend without any has to call it your way.</p>
-              )}
             </>
           )}
           {err && <p className="text-sm text-down">{err}</p>}
