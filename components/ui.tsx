@@ -11,8 +11,8 @@ export function Avatar({ name, color, size = 36, id }: { name: string; color: st
     return <img src={photo} alt="" className="shrink-0 rounded-full object-cover" style={{ width: size, height: size }} />;
   return (
     <div
-      className="flex shrink-0 items-center justify-center rounded-full font-semibold text-black"
-      style={{ width: size, height: size, background: color, fontSize: size * 0.42 }}
+      className="flex shrink-0 items-center justify-center rounded-full font-semibold"
+      style={{ width: size, height: size, background: color, color: "#0b0b0c", fontSize: size * 0.42 }}
     >
       {name.slice(0, 1).toUpperCase()}
     </div>
