@@ -9,8 +9,8 @@ import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
 import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, fmt, pct, timeLeft } from "@/components/ui";
 import { GroupMark, pendingChatNames } from "@/components/shell";
-import { cacheFor, decryptWith, prefetchChat, sortMsgs, warmChat, type ChatKey } from "@/components/chat/cache";
-import { Alert, Camera, Chart, Plus, Chat, Check, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
+import { cacheFor, decryptWith, persistChat, prefetchChat, restoreChat, sortMsgs, warmChat, type ChatKey } from "@/components/chat/cache";
+import { Alert, Camera, Chart, Plus, Chat, Check, ChevronLeft, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
 import { FriendBetCard, NewFriendBet, StakeChooser, type FriendBetLite } from "@/components/friend-bet";
@@ -128,6 +128,16 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [cached] = useState(() => (me ? cacheFor(me.user.id).get(id) : undefined));
   const [feed, setFeed] = useState<Omit<Feed, "messages"> | null>(cached?.feed ?? null);
   const [messages, setMessages] = useState<Msg[]>(cached?.messages ?? []);
+  // Polling starts once the device cache has been consulted, so the first request asks only for what's new.
+  const [ready, setReady] = useState(!!cached);
+  // A chat opens showing its newest messages; earlier ones are drawn as you scroll up (they're already in memory).
+  // `floor` is the oldest message id drawn; anything newer (and anything still sending) is always drawn.
+  const PAGE = 60;
+  const [floor, setFloor] = useState<number | null>(null);
+  const wall = useRef<HTMLDivElement>(null);
+  const anchor = useRef<{ height: number; top: number } | null>(null);
+  // Messages that were already in the chat when it opened appear in place; only new ones slide in.
+  const animateAfter = useRef<number>(cached ? cached.lastId : Number.MAX_SAFE_INTEGER);
   const [dropped, setDropped] = useState<File | null>(null);
   const [dragging, setDragging] = useState(false);
   const [viewing, setViewing] = useState<Msg | null>(null);
@@ -161,9 +171,37 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
 
   const decryptAll = useCallback((msgs: Msg[]) => decryptWith(keyRef.current, msgs), []);
 
-  // Keep this chat's latest state for the next time it's opened (sent messages only).
+  // Not in memory yet: draw the chat as this device last saw it (decrypted now), then catch up.
+  const userId = me?.user.id;
   useEffect(() => {
-    if (feed && me) cacheFor(me.user.id).set(id, { feed, messages: messages.filter((m) => !m.pending), lastId: lastId.current, key: keyRef.current });
+    if (ready || !userId) return;
+    let alive = true;
+    restoreChat(userId, id, identity)
+      .then((c) => {
+        if (!alive) return;
+        if (c && !feed) {
+          keyRef.current = c.key;
+          lastId.current = c.lastId;
+          animateAfter.current = c.lastId;
+          setFeed(c.feed);
+          setMessages(c.messages);
+        }
+      })
+      .finally(() => alive && setReady(true));
+    return () => {
+      alive = false;
+    };
+    // Runs once per chat, as soon as the account is known.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, userId, id]);
+
+  // Keep this chat's latest state for the next time it's opened (sent messages only), in memory and on the device.
+  useEffect(() => {
+    if (!feed || !me) return;
+    const entry = { feed, messages: messages.filter((m) => !m.pending), lastId: lastId.current, key: keyRef.current };
+    cacheFor(me.user.id).set(id, entry);
+    const t = setTimeout(() => persistChat(me.user.id, id, entry), 400);
+    return () => clearTimeout(t);
   }, [id, feed, messages, me]);
 
   // Once this chat is up, fetch the others quietly, one at a time, so switching to them is instant.
@@ -221,6 +259,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         shareKeyWithNewcomers(id, identity, keyRef.current.raw, f.members).catch(() => {});
       }
       if (fresh.length) {
+        // The first fetch of a chat this device has never seen: it's history, so it appears in place.
+        if (animateAfter.current === Number.MAX_SAFE_INTEGER) animateAfter.current = fresh[fresh.length - 1].id;
         lastId.current = fresh[fresh.length - 1].id;
         const dec = await decryptAll(fresh);
         setMessages((old) => {
@@ -243,17 +283,50 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   }, [id, identity, decryptAll, setIdentity, refresh]);
 
   useEffect(() => {
-    if (!me) return;
+    if (!me || !ready) return;
     poll();
     const t = setInterval(poll, 1500);
-    return () => clearInterval(t);
-  }, [me, poll]);
+    // Back from another app or a locked phone: catch up now, not on the next tick.
+    const wake = () => document.visibilityState === "visible" && poll();
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
+  }, [me, ready, poll]);
+
+  // Scrolling up to the top of what's drawn reveals the next page of earlier messages, keeping your place.
+  const sent = messages.filter((m) => !m.pending);
+  const floorAt = floor == null ? Math.max(0, sent.length - PAGE) : sent.findIndex((m) => m.id >= floor);
+  const hidden = Math.max(0, floorAt);
+  useEffect(() => {
+    if (floor == null && sent.length) setFloor(sent[Math.max(0, sent.length - PAGE)].id);
+  }, [floor, sent]);
+  const revealEarlier = useCallback(() => {
+    const el = wall.current;
+    if (!el || !hidden) return;
+    anchor.current = { height: el.scrollHeight, top: el.scrollTop };
+    setFloor(sent[Math.max(0, hidden - PAGE)].id);
+  }, [hidden, sent]);
+  useEffect(() => {
+    const el = wall.current;
+    const a = anchor.current;
+    if (!el || !a) return;
+    anchor.current = null;
+    el.scrollTop = a.top + (el.scrollHeight - a.height);
+  }, [floor]);
+  const onWallScroll = () => {
+    const el = wall.current;
+    if (el && el.scrollTop < 240 && hidden) revealEarlier();
+  };
 
   const typingCount = feed?.typing?.length ?? 0;
   // Open at the newest message straight away, then glide down as new ones arrive.
   const landed = useRef(false);
   useEffect(() => {
-    if (!messages.length) return;
+    if (!messages.length || anchor.current) return;
     bottom.current?.scrollIntoView({ behavior: landed.current ? "smooth" : "auto", block: "end" });
     landed.current = true;
   }, [messages.length, typingCount]);
@@ -323,15 +396,22 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     void api(`/api/groups/${id}/typing`, { body: { mode } }).catch(() => {});
   };
 
-  /** Your message's marks: everyone else has fetched it (delivered) or had it on screen (read). */
+  /**
+   * Your message's mark: a clock while it sends, a tick once the server has it, and the app's mark
+   * once at least one other person has had it on screen. Who has read it is in the tooltip.
+   */
   const delivery = (m: Msg): { state: Delivery; title?: string } => {
     if (m.pending) return { state: m.pending };
     const others = (feed?.members ?? []).filter((x) => x.id !== me?.user.id);
     if (!others.length) return { state: "sent" };
-    const read = others.filter((x) => (x.read_upto ?? 0) >= m.id).length;
+    const readers = others.filter((x) => (x.read_upto ?? 0) >= m.id);
     const got = others.filter((x) => (x.delivered_upto ?? 0) >= m.id).length;
-    const title = others.length > 1 ? `Read by ${read} of ${others.length}, delivered to ${got}` : undefined;
-    return { state: read === others.length ? "read" : got === others.length ? "delivered" : "sent", title };
+    if (readers.length) {
+      const names = readers.map((x) => x.display_name.split(" ")[0]);
+      const title = readers.length === others.length && others.length > 1 ? "Read by everyone" : `Read by ${names.slice(0, 3).join(", ")}${names.length > 3 ? ` and ${names.length - 3} more` : ""}`;
+      return { state: "read", title };
+    }
+    return { state: got === others.length ? "delivered" : "sent", title: others.length > 1 ? `Sent · delivered to ${got} of ${others.length}` : got ? "Delivered" : "Sent" };
   };
 
   /** Confirm or dispute a proposed result straight from the chat card. */
@@ -378,7 +458,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       <main className="chat-in flex min-h-dvh flex-col lg:min-h-full">
         <TopBar back="/chats" title={<div className="flex items-center gap-3"><GroupMark name={known?.name ?? ""} size={36} /><div><div className="font-semibold leading-tight">{known?.name ?? ""}</div><div className="text-xs text-mute">{err || (known ? `${known.members} members` : "")}</div></div></div>} />
         <div className="chat-wall flex flex-1 flex-col justify-end gap-3 px-4 pb-24 lg:px-8" aria-hidden>
-          {[62, 44, 70, 38, 56].map((w, k) => (
+          {/* While the device cache is read (a few ms) the wall stays plain; grey bubbles only for a chat this device has never opened. */}
+          {ready && [62, 44, 70, 38, 56].map((w, k) => (
             <div key={k} className={`h-11 animate-pulse rounded-2xl bg-white/[.05] ${k % 2 ? "self-end" : "ml-11"}`} style={{ width: `${w}%`, maxWidth: 420 }} />
           ))}
         </div>
@@ -463,9 +544,14 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           {identity && !feed.myKey && (
             <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> Waiting for a friend&apos;s app to share the chat key with you. Markets work in the meantime.</p>
           )}
-          <div className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper, wallUrl === "error" ? null : wallUrl)}>
+          <div ref={wall} onScroll={onWallScroll} className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper, wallUrl === "error" ? null : wallUrl)}>
             <div className="mx-auto max-w-3xl px-3 py-3 lg:px-6 lg:py-5">
-              {runs(messages).map((r, i, all) => {
+              {hidden > 0 && (
+                <button onClick={revealEarlier} className="mx-auto mb-2 flex items-center gap-1 rounded-full bg-white/5 px-3 py-1 text-xs text-mute hover:text-white">
+                  <ChevronLeft size={12} className="rotate-90" /> {hidden} earlier
+                </button>
+              )}
+              {runs(messages.slice(hidden)).map((r, i, all) => {
                 const first = Array.isArray(r) ? r[0] : r;
                 const before = all[i - 1];
                 const prev = before && (Array.isArray(before) ? before[before.length - 1] : before);
@@ -495,6 +581,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                         ticker={c.ticker}
                         groupKey={keyRef.current?.key ?? null}
                         delivery={delivery}
+                        animate={!!r.pending || r.id > animateAfter.current}
                         onReport={setReporting}
                         onReview={review}
                         onOpen={setViewing}
@@ -615,7 +702,7 @@ function TradeRun({ trades, members }: { trades: Msg[]; members: Map<number, Mem
     return (
       <div className="my-2 space-y-0.5 text-center text-xs text-mute" onClick={() => setOpen(false)}>
         {trades.map((t) => (
-          <Link key={t.id} href={`/m/${t.market_id}`} className="block hover:text-white">
+          <Link key={t.id} href={`/m/${t.market_id}`} prefetch={false} className="block hover:text-white">
             <b className="text-white/80">{t.user_id ? members.get(t.user_id)?.display_name : ""}</b> {t.body}
           </Link>
         ))}
@@ -654,6 +741,7 @@ function MessageRow({
   ticker,
   groupKey,
   delivery,
+  animate,
   onReport,
   onReview,
   onOpen,
@@ -671,6 +759,8 @@ function MessageRow({
   ticker: string;
   groupKey: CryptoKey | null;
   delivery: (m: Msg) => { state: Delivery; title?: string };
+  /** Slide in (a message that just arrived) rather than appear in place (history). */
+  animate?: boolean;
   onReport: (m: Msg) => void;
   onReview: (marketId: number, what: "confirm" | "dispute") => Promise<void>;
   onOpen: (m: Msg) => void;
@@ -698,10 +788,10 @@ function MessageRow({
       </span>
     );
     return (
-      <div className={`msg-in group flex items-end ${mine ? "justify-end" : "justify-start"} gap-2 ${first ? "mt-2.5" : "mt-0.5"}`}>
+      <div className={`${animate ? "msg-in " : ""}group flex items-end ${mine ? "justify-end" : "justify-start"} gap-2 ${first ? "mt-2.5" : "mt-0.5"}`}>
         {!mine && (
           <div className="w-7 shrink-0">
-            {last && who && (who.username ? <Link href={`/u/${who.username}`} aria-label={`${who.display_name}'s profile`}><Avatar id={who.id} name={who.display_name} color={who.color} size={28} /></Link> : <Avatar name={who.display_name} color={who.color} size={28} />)}
+            {last && who && (who.username ? <Link href={`/u/${who.username}`} prefetch={false} aria-label={`${who.display_name}'s profile`}><Avatar id={who.id} name={who.display_name} color={who.color} size={28} /></Link> : <Avatar name={who.display_name} color={who.color} size={28} />)}
           </div>
         )}
         {mine && m.pending === "failed" && m.ck && (
@@ -743,7 +833,7 @@ function MessageRow({
   return (
     <div className="my-2 text-center text-xs text-mute">
       {m.market_id ? (
-        <Link href={`/m/${m.market_id}`} className="hover:text-white">
+        <Link href={`/m/${m.market_id}`} prefetch={false} className="hover:text-white">
           {who && <b className="text-white/80">{who.display_name} </b>}
           {m.body}
         </Link>
@@ -796,7 +886,7 @@ function MarketCard({ m, mk, who, now, meId, members, onReview }: { m: Msg; mk: 
     // Old news: one line, so the chat isn't a wall of finished cards.
     return (
       <div className="msg-in my-2 flex justify-center">
-        <Link href={`/m/${mk.id}`} className="flex w-full max-w-[92%] items-center gap-2 rounded-full bg-white/[.04] px-4 py-2 text-[13px] text-mute hover:bg-white/[.07] lg:max-w-md">
+        <Link href={`/m/${mk.id}`} prefetch={false} className="flex w-full max-w-[92%] items-center gap-2 rounded-full bg-white/[.04] px-4 py-2 text-[13px] text-mute hover:bg-white/[.07] lg:max-w-md">
           <span className="truncate">{mk.title}</span>
           <span className={`ml-auto shrink-0 font-semibold ${voided ? "text-mute" : mk.outcome ? "text-up" : "text-down"}`}>{voided ? "Called off" : mk.outcome ? lbl.yes : lbl.no}</span>
         </Link>
@@ -806,7 +896,7 @@ function MarketCard({ m, mk, who, now, meId, members, onReview }: { m: Msg; mk: 
   return (
     <div className="msg-in my-4 flex justify-center">
       <div className="w-full max-w-[92%] overflow-hidden rounded-2xl bg-panel lg:max-w-md">
-        <Link href={`/m/${mk.id}`} className="block px-4 pt-3.5 hover:bg-white/[.02]">
+        <Link href={`/m/${mk.id}`} prefetch={false} className="block px-4 pt-3.5 hover:bg-white/[.02]">
           <div className="flex items-center gap-2 text-xs text-mute">
             {who ? <Avatar id={who.id} name={who.display_name} color={who.color} size={16} /> : <Sparkle size={13} />}
             <span className="truncate"><b className="font-medium text-white/80">{who?.display_name ?? "Someone"}</b> · {type === "Yes or no" ? when : `${type} · ${when}`}</span>
@@ -836,7 +926,7 @@ function MarketCard({ m, mk, who, now, meId, members, onReview }: { m: Msg; mk: 
 function OddsButton({ href, tone, label, big, small }: { href: string; tone: "up" | "down"; label: string; big: string; small: string }) {
   const t = tone === "up" ? "bg-up/10 text-up hover:bg-up/20" : "bg-down/10 text-down hover:bg-down/20";
   return (
-    <Link href={href} className={`flex items-center justify-between rounded-xl px-3.5 py-2.5 transition ${t}`}>
+    <Link href={href} prefetch={false} className={`flex items-center justify-between rounded-xl px-3.5 py-2.5 transition ${t}`}>
       <span className="truncate text-sm font-semibold">{label}</span>
       <span className="ml-2 text-right leading-tight">
         <span className="block text-[17px] font-semibold tabular">{big}</span>
@@ -889,7 +979,7 @@ function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite;
             : "Settling any moment now."}
       </div>
       {canReview && mk.proposed_early && (
-        <Link href={`/m/${mk.id}`} className="mt-2.5 block rounded-xl bg-white/[.07] py-2 text-center text-sm font-medium hover:bg-white/10">
+        <Link href={`/m/${mk.id}`} prefetch={false} className="mt-2.5 block rounded-xl bg-white/[.07] py-2 text-center text-sm font-medium hover:bg-white/10">
           See the evidence and vote
         </Link>
       )}

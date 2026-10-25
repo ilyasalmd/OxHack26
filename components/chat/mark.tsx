@@ -22,6 +22,7 @@ export const chatName = (g: ChatLike) => (g.is_dm && g.peer ? g.peer.display_nam
 export function ChatMark({ g, size = 40 }: { g: ChatLike; size?: number }) {
   const { identity } = useSession();
   const [key, setKey] = useState<CryptoKey | null>(null);
+  const wrapped = g.my_key?.wrapped_key ?? null;
   useEffect(() => {
     if (!g.photo_id || !identity || !g.my_key) return;
     let alive = true;
@@ -31,7 +32,9 @@ export function ChatMark({ g, size = 40 }: { g: ChatLike; size?: number }) {
     return () => {
       alive = false;
     };
-  }, [g.id, g.photo_id, g.my_key, identity]);
+    // The key is identified by its wrapped bytes; the object is new on every refresh of the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [g.id, g.photo_id, wrapped, identity]);
   const photo = useAttachment(g.is_dm ? null : g.photo_id, key, "image/jpeg");
   if (g.is_dm && g.peer) return <Avatar id={g.peer.id} name={g.peer.display_name} color={g.peer.color} size={size} />;
   if (photo && photo !== "error")
