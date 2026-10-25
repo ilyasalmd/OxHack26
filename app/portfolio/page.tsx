@@ -6,6 +6,7 @@ import { api } from "@/components/api";
 import { PriceChart } from "@/components/chart";
 import { Badge, Coins, TopBar, fmt, pct } from "@/components/ui";
 import { ArrowUpRight, Wallet } from "@/components/icons";
+import { InviteFriends } from "@/components/invite-friends";
 
 type P = {
   netWorth: { balance: number; positions: number; total: number };
@@ -89,6 +90,7 @@ export default function Portfolio() {
         </div>
 
         <div className="mt-5 grid grid-cols-2 gap-2 lg:hidden">{cashCards}</div>
+        <InviteFriends className="mt-3 lg:hidden" />
 
         <h3 className="mb-2 mt-7 text-[15px] font-semibold">In play</h3>
         <div className="space-y-1.5">
@@ -121,6 +123,7 @@ export default function Portfolio() {
        </div>
        <aside className="sticky top-20 mt-6 hidden space-y-3 lg:block">
         <div className="grid grid-cols-2 gap-2">{cashCards}</div>
+        <InviteFriends />
         {walletCard}
        </aside>
       </div>

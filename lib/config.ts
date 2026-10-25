@@ -18,6 +18,11 @@ export const ECONOMY = {
   // listed it, held until maturity. The lister trades their own stock free.
   stockFee: 0.5,
   freeTrades: 1,
+  // Invite friends: paid once, when this many friends who signed up with your link have joined a chat or made a stake.
+  referralReward: 200,
+  referralFriends: 3,
+  // Sign-ups on one link beyond this many in a day are recorded but never count.
+  referralDailyCap: 5,
 };
 
 export const MARKET = {
