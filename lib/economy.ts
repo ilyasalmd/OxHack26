@@ -41,7 +41,9 @@ export async function netWorth(q: Q, userId: number) {
     const p = priceYes({ b: r.b, qYes: r.q_yes, qNo: r.q_no });
     return s + r.yes_shares * p + r.no_shares * (1 - p);
   }, 0);
-  return { balance: u.balance, positions: round2(held), total: round2(u.balance + held) };
+  // Coins in friend bets count at what was put in until the bet finishes.
+  const bets = await (await import("./friend-bet")).lockedInFriendBetsFor(q, userId);
+  return { balance: u.balance, positions: round2(held + bets), total: round2(u.balance + held + bets) };
 }
 
 export async function recordNetWorth(q: Q, userId: number) {

@@ -13,6 +13,7 @@ import { cacheFor, decryptWith, prefetchChat, sortMsgs, warmChat, type ChatKey }
 import { Alert, Camera, Chart, Plus, Chat, Check, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
+import { FriendBetCard, NewFriendBet, StakeChooser, type FriendBetLite } from "@/components/friend-bet";
 import { Board, Insights } from "@/components/group-stats";
 import { decryptPayload, encryptMessage, forgetIdentities, type Attachment, type Payload } from "@/lib/e2ee";
 import { primeAttachment, registerPhotos, shrinkImage, squarePhoto, uploadEncrypted, useAttachment } from "@/components/media";
@@ -77,6 +78,8 @@ export type Msg = {
   iv: string | null;
   body: string | null;
   market_id: number | null;
+  /** A friend bet's card, or a line about what happened to it. */
+  friend_bet_id?: number | null;
   created_at: string;
   text?: string | null;
   payload?: Payload | null;
@@ -108,6 +111,7 @@ export type Feed = {
   prefs?: { wallpaper: string | null; muted: boolean };
   messages: Msg[];
   markets: MarketLite[];
+  friendBets?: FriendBetLite[];
   typing?: { id: number; mode: "text" | "voice" }[];
   now: string;
 };
@@ -128,6 +132,9 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const [dragging, setDragging] = useState(false);
   const [viewing, setViewing] = useState<Msg | null>(null);
   const [newOpen, setNewOpen] = useState(false);
+  // "+ Stake" asks first: invest (the market, as before) or bet a friend one-on-one.
+  const [chooseOpen, setChooseOpen] = useState(false);
+  const [betOpen, setBetOpen] = useState(false);
   // Laptop: markets, board and insights live in a panel beside the chat, closed until asked for.
   const [sideOpen, setSideOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -260,6 +267,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
     [feed]
   );
   const markets = useMemo(() => new Map(feed?.markets.map((m) => [m.id, m]) ?? []), [feed]);
+  const friendBets = useMemo(() => new Map(feed?.friendBets?.map((b) => [b.id, b]) ?? []), [feed]);
 
   /**
    * Sends straight away on screen (clock mark), then encrypts, uploads any file and posts. The
@@ -481,6 +489,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
                         meId={me.user.id}
                         members={members}
                         markets={markets}
+                        friendBets={friendBets}
+                        onBetChanged={poll}
                         now={feed.now}
                         ticker={c.ticker}
                         groupKey={keyRef.current?.key ?? null}
@@ -506,7 +516,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             onImage={sendImage}
             onVoice={sendVoice}
             onTyping={typing}
-            onSituation={() => setNewOpen(true)}
+            onSituation={() => setChooseOpen(true)}
           />
         </section>
 
@@ -526,13 +536,27 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
           </div>
           {panel === "Markets" && (
             <div className="border-t border-line p-3">
-              <Button className="flex w-full items-center justify-center gap-2" onClick={() => setNewOpen(true)}><Plus size={16} /> New stake</Button>
+              <Button className="flex w-full items-center justify-center gap-2" onClick={() => setChooseOpen(true)}><Plus size={16} /> New stake</Button>
             </div>
           )}
         </aside>
       </div>
       <div className="lg:hidden"><TimeMachine onJump={poll} /></div>
 
+      <StakeChooser
+        open={chooseOpen}
+        onClose={() => setChooseOpen(false)}
+        onInvest={() => { setChooseOpen(false); setNewOpen(true); }}
+        onBet={() => { setChooseOpen(false); setBetOpen(true); }}
+      />
+      <NewFriendBet
+        open={betOpen}
+        onClose={() => setBetOpen(false)}
+        groupId={id}
+        now={feed.now}
+        ticker={c.ticker}
+        onCreated={() => { setBetOpen(false); poll(); refresh(); }}
+      />
       <NewSituation
         open={newOpen}
         onClose={() => setNewOpen(false)}
@@ -624,6 +648,8 @@ function MessageRow({
   meId,
   members,
   markets,
+  friendBets,
+  onBetChanged,
   now,
   ticker,
   groupKey,
@@ -639,6 +665,8 @@ function MessageRow({
   meId: number;
   members: Map<number, Member>;
   markets: Map<number, MarketLite>;
+  friendBets: Map<number, FriendBetLite>;
+  onBetChanged: () => unknown;
   now: string;
   ticker: string;
   groupKey: CryptoKey | null;
@@ -708,6 +736,8 @@ function MessageRow({
       </div>
     );
   }
+  const fb = m.friend_bet_id ? friendBets.get(m.friend_bet_id) : null;
+  if (m.kind === "friendbet" && fb) return <FriendBetCard bet={fb} members={members} meId={meId} now={now} ticker={ticker} onChange={onBetChanged} />;
   const mk = m.market_id ? markets.get(m.market_id) : null;
   if ((m.kind === "market" || m.kind === "resolution") && mk) return <MarketCard m={m} mk={mk} who={who} now={now} ticker={ticker} meId={meId} members={members} onReview={onReview} />;
   return (

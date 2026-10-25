@@ -42,7 +42,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
     ),
     // A message you reported is hidden for you from then on.
     db.query(
-      `SELECT id::int, user_id, kind, ciphertext, iv, body, market_id, created_at FROM (
+      `SELECT id::int, user_id, kind, ciphertext, iv, body, market_id, friend_bet_id, created_at FROM (
          SELECT * FROM messages m WHERE group_id = $1 AND id > $2
            AND NOT EXISTS (SELECT 1 FROM reports r WHERE r.reporter_id = $3 AND r.message_id = m.id)
          ORDER BY id DESC LIMIT 200) t ORDER BY id`,
@@ -71,6 +71,8 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
     prefs: prefs ?? { wallpaper: null, muted: false },
     messages,
     typing: whoIsTyping(id, user.id),
+    // Bet a friend: one-on-one bets in this chat, for their cards.
+    friendBets: await (await import("@/lib/friend-bet")).friendBetsForChat(db, id),
     markets: markets.map((m) => ({
       id: m.id,
       title: m.title,
