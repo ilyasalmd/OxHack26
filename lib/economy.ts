@@ -40,8 +40,8 @@ export async function closeVault(q: Q, marketId: number, why: string) {
 export async function netWorth(q: Q, userId: number) {
   const [[u], rows, bets] = await Promise.all([
     q.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [userId]),
-    q.query<{ yes_shares: number; no_shares: number; b: number; q_yes: number; q_no: number }>(
-      `SELECT p.yes_shares, p.no_shares, m.b, m.q_yes, m.q_no
+    q.query<{ yes_shares: number; no_shares: number; b: number; q_yes: number; q_no: number; t_yes: number | null; t_no: number | null }>(
+      `SELECT p.yes_shares, p.no_shares, m.b, m.q_yes, m.q_no, m.t_yes, m.t_no
        FROM positions p JOIN markets m ON m.id = p.market_id
        WHERE p.user_id = $1 AND m.status = 'open'`,
       [userId]
@@ -51,7 +51,7 @@ export async function netWorth(q: Q, userId: number) {
   ]);
   // Open positions count at what cashing out would pay now, never at the last price: your own
   // buy can't make you look richer.
-  const held = rows.reduce((s, r) => s + holdingValue({ b: r.b, qYes: r.q_yes, qNo: r.q_no }, r, MARKET.vig), 0);
+  const held = rows.reduce((s, r) => s + holdingValue({ b: r.b, qYes: r.q_yes, qNo: r.q_no }, r, MARKET.vig, { b: r.b, qYes: r.t_yes ?? r.q_yes, qNo: r.t_no ?? r.q_no }), 0);
   return { balance: u.balance, positions: round2(held + bets), total: round2(u.balance + held + bets) };
 }
 

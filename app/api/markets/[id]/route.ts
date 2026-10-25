@@ -2,8 +2,8 @@ import { firstSentence } from "@/lib/text";
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
-import { PROPOSE_GRACE_MS, book, callableBy, getMarket, isClosed, price, voteState } from "@/lib/markets";
-import { askPrice, bidPrice, cashOutQuote } from "@/lib/lmsr";
+import { PROPOSE_GRACE_MS, book, callableBy, getMarket, isClosed, price, tradeBook, voteState } from "@/lib/markets";
+import { askPrice, bidPrice, cashOutValue } from "@/lib/lmsr";
 import { maxStake } from "@/lib/economy";
 import { tradeFee, tradeMargin } from "@/lib/markets";
 import { findSimilar } from "@/lib/memory";
@@ -53,11 +53,13 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   );
   const [position] = await db.query(`SELECT yes_shares, no_shares, spent FROM positions WHERE market_id = $1 AND user_id = $2`, [id, user.id]);
   // What the AI bookmaker pays to cash each side out right now.
+  // Capped by the trade book: price moves from decay or the AI can't be cashed out.
   const bk = book(m);
+  const tb = tradeBook(m);
   const cashOut = position
     ? {
-        yes: position.yes_shares > 1e-6 ? cashOutQuote(bk, "yes", position.yes_shares, MARKET.vig) : null,
-        no: position.no_shares > 1e-6 ? cashOutQuote(bk, "no", position.no_shares, MARKET.vig) : null,
+        yes: position.yes_shares > 1e-6 ? cashOutValue(bk, tb, "yes", position.yes_shares, MARKET.vig) : null,
+        no: position.no_shares > 1e-6 ? cashOutValue(bk, tb, "no", position.no_shares, MARKET.vig) : null,
       }
     : null;
   const people = await db.query<{ id: number; display_name: string; username: string; color: string }>(
@@ -76,6 +78,7 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const voters = vote ? await db.query<{ id: number; display_name: string; color: string }>(`SELECT id, display_name, color FROM users WHERE id = ANY($1::int[])`, [[...vote.confirms, ...vote.rejects]]) : [];
   const named = (ids: number[]) => ids.map((i) => voters.find((v) => v.id === i)).filter(Boolean);
   const isSubject = m.subject_id === user.id;
+  const listerWaits = m.creator_id === user.id && !(await db.query(`SELECT 1 FROM trades WHERE market_id = $1 AND user_id <> $2 LIMIT 1`, [id, user.id])).length;
   const open = m.status === "open";
   const proposed = open && m.proposed_outcome != null;
   const [mine] = await db.query(`SELECT 1 FROM reports WHERE market_id = $1 AND reporter_id = $2`, [id, user.id]);
@@ -117,7 +120,9 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
     me: {
       balance: u.balance,
       maxStake: maxStake(u.balance),
-      canTrade: !closed && !(isSubject && m.kind === "bet"),
+      canTrade: !closed && !(isSubject && m.kind === "bet") && !listerWaits,
+      // Whoever posted it trades only once a friend has.
+      listerWaits,
       // Bets are locked once placed, so you can add to your side but never switch or sell;
       // stocks can be bought and sold, with the margin after the first free trade.
       lockedSide,

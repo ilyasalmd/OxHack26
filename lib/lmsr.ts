@@ -75,10 +75,18 @@ export const cashOutQuote = (book: Book, side: Side, shares: number, vig: number
 
 export type Holding = { yes_shares: number; no_shares: number };
 
+/**
+ * Coins for cashing out, when time decay or an AI re-mark has moved the quote away from where trades
+ * left it (`tradeBook`): the lower of the two buy-backs. Moves the app made itself are the house's
+ * money, so they count when the stake settles but can never be cashed out early.
+ */
+export const cashOutValue = (book: Book, tradeBook: Book, side: Side, shares: number, vig: number) =>
+  Math.min(cashOutQuote(book, side, shares, vig), cashOutQuote(tradeBook, side, shares, vig));
+
 /** What a position is worth today: what you'd get cashing all of it out now. */
-export function holdingValue(book: Book, h: Holding, vig: number) {
-  const yes = h.yes_shares > 1e-6 ? cashOutQuote(book, "yes", h.yes_shares, vig) : 0;
-  const no = h.no_shares > 1e-6 ? cashOutQuote(book, "no", h.no_shares, vig) : 0;
+export function holdingValue(book: Book, h: Holding, vig: number, tradeBook: Book = book) {
+  const yes = h.yes_shares > 1e-6 ? cashOutValue(book, tradeBook, "yes", h.yes_shares, vig) : 0;
+  const no = h.no_shares > 1e-6 ? cashOutValue(book, tradeBook, "no", h.no_shares, vig) : 0;
   return yes + no;
 }
 

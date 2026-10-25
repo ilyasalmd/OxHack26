@@ -17,7 +17,7 @@ export const GET = route(async (_req, user) => {
   const [series, positions, ledger, chain, nw, friendBets, skill] = await Promise.all([
     chartPoints(db, BALANCE_SERIES, user.id),
     db.query<any>(
-      `SELECT p.*, m.title, m.kind, m.status, m.outcome, m.b, m.q_yes, m.q_no, m.resolves_at, m.group_id, g.name AS group_name, g.emoji
+      `SELECT p.*, m.title, m.kind, m.status, m.outcome, m.b, m.q_yes, m.q_no, m.t_yes, m.t_no, m.resolves_at, m.group_id, g.name AS group_name, g.emoji
        FROM positions p JOIN markets m ON m.id = p.market_id JOIN groups g ON g.id = m.group_id
        WHERE p.user_id = $1 AND (p.yes_shares > 0.001 OR p.no_shares > 0.001) ORDER BY m.status, m.resolves_at`,
       [user.id]
@@ -53,7 +53,7 @@ export const GET = route(async (_req, user) => {
         spent: p.spent,
         price: pr,
         // Open positions are worth what cashing out pays now.
-        value: p.status === "resolved" ? (p.outcome ? p.yes_shares : p.no_shares) : p.status === "open" ? holdingValue({ b: p.b, qYes: p.q_yes, qNo: p.q_no }, p, MARKET.vig) : 0,
+        value: p.status === "resolved" ? (p.outcome ? p.yes_shares : p.no_shares) : p.status === "open" ? holdingValue({ b: p.b, qYes: p.q_yes, qNo: p.q_no }, p, MARKET.vig, { b: p.b, qYes: p.t_yes ?? p.q_yes, qNo: p.t_no ?? p.q_no }) : 0,
       };
     }),
     ledger,

@@ -48,7 +48,7 @@ type Detail = {
   position: { yes_shares: number; no_shares: number; spent: number; cashOut: { yes: number | null; no: number | null } | null } | null;
   quotes: { vig: number; buyVig: number; ask: { yes: number; no: number }; bid: { yes: number; no: number } };
   similar: { id: number; title: string; outcome: boolean; summary: string; similarity: number }[];
-  me: { balance: number; maxStake: number; canTrade: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
+  me: { balance: number; maxStake: number; canTrade: boolean; listerWaits: boolean; canLong: boolean; canShort: boolean; lockedSide: "yes" | "no" | null; canSell: boolean; fee: number; canResolve: boolean; canResolveYes: boolean; canResolveNo: boolean; canConfirm: boolean; myVote: boolean | null; early: boolean; canVeto: boolean; canReport: boolean; reported: boolean; isSubject: boolean };
 };
 
 export default function MarketPage({ params }: { params: Promise<{ id: string }> }) {
@@ -421,6 +421,9 @@ export default function MarketPage({ params }: { params: Promise<{ id: string }>
               {!(isStock && !isNumber) && <div className="text-[11px] text-mute">{pct(1 - m.price)} chance</div>}
             </button>
           </div>
+        )}
+        {!resolved && !voided && !m.closed && d.me.listerWaits && (
+          <p className="mt-3 rounded-xl bg-brand/10 p-3 text-sm text-brand">You posted this one, so a friend trades it first. You can join in as soon as someone has.</p>
         )}
         {!resolved && !voided && d.me.isSubject && (
           <div className="mt-3 rounded-xl bg-brand/10 p-3 text-sm text-brand">
