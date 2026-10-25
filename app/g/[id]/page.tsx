@@ -1301,7 +1301,7 @@ function ChatLook({ feed, groupId, chatKey, onChange }: { feed: Omit<Feed, "mess
       {picked || photo ? (
         <div className="mb-3 rounded-xl border border-line p-3">
           <div className="chat-wall flex aspect-[16/10] flex-col justify-end gap-1.5 rounded-lg p-3" style={wallpaperStyle(`photo:0:${dim}`, preview)}>
-            <span className="max-w-[70%] self-start rounded-2xl bg-[#1f2126] px-3 py-1.5 text-xs">Can you still read this?</span>
+            <span className="max-w-[70%] self-start rounded-2xl bg-raised px-3 py-1.5 text-xs">Can you still read this?</span>
             <span className="max-w-[70%] self-end rounded-2xl bg-brand px-3 py-1.5 text-xs text-black">Looks good</span>
           </div>
           <label className="mt-3 flex items-center gap-3 text-xs text-mute">

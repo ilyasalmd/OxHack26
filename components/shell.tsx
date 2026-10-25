@@ -9,14 +9,14 @@ import { warmChat } from "./chat/cache";
 import { clearCache } from "./chat/store";
 import { TimeMachine } from "./timemachine";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
-import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, User as UserIcon, Wallet, Users } from "./icons";
+import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, Trophy, User as UserIcon, Wallet, Users } from "./icons";
 import { decryptPayload, forgetIdentities, type Payload } from "@/lib/e2ee";
 import { ChatMark, chatName } from "./chat/mark";
 
 /** The phone's four tabs. Each screen does one job; everything else is a page you go into and back out of. */
 const TABS = [
   { href: "/chats", label: "Chats", icon: Chat },
-  { href: "/markets", label: "Stakes", icon: TrendUp },
+  { href: "/ranks", label: "Ranks", icon: Trophy },
   { href: "/portfolio", label: "Wallet", icon: Wallet },
   { href: "/settings", label: "You", icon: UserIcon },
 ];
@@ -30,7 +30,9 @@ export function Frame({ children }: { children: React.ReactNode }) {
   const { me } = useSession();
   const path = usePathname();
   // Sign-in screens own the whole window (and must not re-mount when a session appears mid-flow).
-  if (path === "/" || path === "/recover" || path === "/welcome") return <>{children}</>;
+  // The sign-in screens keep their own lime-and-white look on a light theme too (see .brand-scope).
+  if (path === "/") return <div className="brand-scope contents">{children}</div>;
+  if (path === "/recover" || path === "/welcome") return <>{children}</>;
   if (!me) return <div className="mx-auto min-h-dvh max-w-xl">{children}</div>;
   const tabs = hasTabs(path);
   return (
@@ -68,11 +70,16 @@ function TabBar({ path, me }: { path: string; me: Me }) {
   );
 }
 
-export function Logo({ size = 28 }: { size?: number }) {
+/**
+ * The app's mark on its own: the kinked tick, no tile behind it. It wears the theme's accent, which is light
+ * on dark themes and deep on light ones, so it always reads against the background.
+ */
+export function Logo({ size = 28, className = "" }: { size?: number; className?: string }) {
   return (
-    <div className="flex items-center justify-center rounded-lg bg-brand text-black" style={{ width: size, height: size }}>
-      <TrendUp size={size * 0.6} />
-    </div>
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 text-brand ${className}`} role="img" aria-label="FriendStakes">
+      <path d="M3 17l6-6 4 4 8-8" />
+      <path d="M15 7h6v6" />
+    </svg>
   );
 }
 
@@ -84,7 +91,7 @@ export function GroupMark({ name, size = 40 }: { name: string; size?: number }) 
   const tint = TINTS[[...name].reduce((a, ch) => a + ch.charCodeAt(0), 0) % TINTS.length];
   return (
     <div
-      className="flex shrink-0 items-center justify-center rounded-xl font-semibold tracking-tight"
+      className="group-mark flex shrink-0 items-center justify-center rounded-xl font-semibold tracking-tight"
       style={{ width: size, height: size, fontSize: size * 0.36, background: `${tint}22`, color: tint, boxShadow: `inset 0 0 0 1px ${tint}33` }}
     >
       {initials}
@@ -134,7 +141,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   }
   // The chats are the home screen, like a messaging app; everything else is a small row at the bottom.
   const nav = [
-    { href: "/markets", label: "Stakes", icon: TrendUp },
+    { href: "/ranks", label: "Ranks", icon: Trophy },
     { href: "/portfolio", label: "Wallet", icon: Wallet },
     ...(me.account?.isAdmin ? [{ href: "/chain", label: "Chain", icon: Blocks }] : []),
     { href: "/settings", label: "Settings", icon: Settings, dot: !me.account?.hasRecovery },
@@ -143,8 +150,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   return (
     <aside className="hidden w-[320px] shrink-0 flex-col border-r border-line bg-panel lg:flex">
       <div className="flex items-center gap-2.5 px-5 pb-2 pt-5">
-        <Logo />
-        <span className="font-semibold tracking-tight">FriendStakes</span>
+        <Link href="/chats" title="FriendStakes" className="-m-1 rounded-lg p-1 transition hover:bg-white/[.06]"><Logo size={26} /></Link>
         <Link href="/portfolio" title="Wallet" className="ml-auto rounded-full bg-white/[.06] px-2.5 py-1 text-xs font-medium tabular text-mute hover:text-white">
           <Coins value={me.netWorth.total} ticker={c.ticker} />
         </Link>
