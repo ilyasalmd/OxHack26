@@ -365,7 +365,149 @@ def green_pitch():  # barkin: a floodlit football pitch at dusk
     return img
 
 
+def admin_mark():  # stakesadmin: a calm teal and indigo mesh
+    rng = random.Random(22)
+    img = Image.new("RGB", (S, S), (40, 90, 120))
+    return bokeh(img, rng, 12, [(60, 200, 190), (90, 110, 230), (30, 60, 110), (120, 220, 170)], 150, 320, 80)
+
+
+# --- group pictures (scripts/avatars/groups/<slug>.jpg) -----------------------------------------
+
+
+def flat_window():  # Flat 4B: warm windows of a terrace at night
+    rng = random.Random(31)
+    img = gradient([(0, (20, 24, 55)), (0.6, (45, 40, 80)), (1, (25, 20, 35))])
+    d = ImageDraw.Draw(img)
+    d.rectangle([S * 0.12, S * 0.3, S * 0.88, S], fill=(55, 40, 45))
+    for row in range(3):
+        for col in range(3):
+            x, y = S * (0.2 + col * 0.24), S * (0.38 + row * 0.2)
+            lit = rng.random() < 0.75
+            d.rectangle([x, y, x + S * 0.14, y + S * 0.12], fill=(255, 200, 120) if lit else (35, 30, 45))
+    return glow(img, (S * 0.5, S * 0.6), S * 0.5, (255, 170, 90), 0.5)
+
+
+def chalkboard():  # Maths & Econ: a supply and demand cross on a chalkboard
+    img = gradient([(0, (30, 60, 50)), (1, (20, 42, 36))])
+    d = ImageDraw.Draw(img)
+    chalk = (225, 235, 225)
+    d.line([(S * 0.18, S * 0.15), (S * 0.18, S * 0.82), (S * 0.85, S * 0.82)], fill=chalk, width=7)
+    d.line([(S * 0.25, S * 0.25), (S * 0.8, S * 0.75)], fill=(250, 200, 120), width=7)
+    d.line([(S * 0.25, S * 0.75), (S * 0.8, S * 0.25)], fill=(140, 200, 250), width=7)
+    return img.filter(ImageFilter.GaussianBlur(1.2))
+
+
+def sunday_pitch():  # Sunday League: muddy grass from above, a ball on the spot
+    img = gradient([(0, (70, 130, 60)), (1, (50, 100, 45))])
+    d = ImageDraw.Draw(img)
+    for i in range(0, S, 96):
+        d.rectangle([i, 0, i + 48, S], fill=(80, 140, 68))
+    d.ellipse([S * 0.25, S * 0.25, S * 0.75, S * 0.75], outline=(235, 245, 235), width=6)
+    d.line([(S * 0.5, 0), (S * 0.5, S)], fill=(235, 245, 235), width=6)
+    d.ellipse([S * 0.44, S * 0.44, S * 0.56, S * 0.56], fill=(250, 250, 250))
+    return img
+
+
+def skyline_dawn():  # Spring Week Grind: the City at dawn
+    rng = random.Random(33)
+    img = gradient([(0, (40, 50, 100)), (0.5, (230, 140, 120)), (0.75, (255, 200, 150)), (1, (255, 200, 150))])
+    img = glow(img, (S * 0.65, S * 0.7), S * 0.35, (255, 190, 120), 0.8)
+    d = ImageDraw.Draw(img)
+    x = 0
+    while x < S:
+        w = rng.randint(40, 90)
+        h = rng.uniform(0.25, 0.6) * S
+        d.rectangle([x, S - h, x + w, S], fill=(30, 30, 55))
+        for wy in range(int(S - h + 12), S, 22):
+            for wx in range(x + 8, x + w - 8, 16):
+                if rng.random() < 0.35:
+                    d.rectangle([wx, wy, wx + 6, wy + 9], fill=(255, 215, 150))
+        x += w + rng.randint(2, 10)
+    return img
+
+
+def family_table():  # Family: a laid table with warm light
+    rng = random.Random(34)
+    img = gradient([(0, (120, 70, 50)), (0.5, (200, 130, 80)), (1, (90, 50, 35))])
+    img = glow(img, (S * 0.5, S * 0.2), S * 0.4, (255, 220, 160), 0.8)
+    d = ImageDraw.Draw(img)
+    for cx, cy in [(0.3, 0.45), (0.7, 0.45), (0.3, 0.78), (0.7, 0.78)]:
+        d.ellipse([S * (cx - 0.13), S * (cy - 0.1), S * (cx + 0.13), S * (cy + 0.1)], fill=(245, 240, 230))
+        d.ellipse([S * (cx - 0.08), S * (cy - 0.06), S * (cx + 0.08), S * (cy + 0.06)], fill=(225, 215, 200))
+    return bokeh(img, rng, 20, [(255, 230, 180)], 4, 10, 2, (0, 0.3))
+
+
+def track_dawn():  # Run Club: a running track at sunrise
+    img = gradient([(0, (250, 190, 140)), (0.4, (255, 220, 170)), (0.42, (190, 80, 60)), (1, (160, 60, 45))])
+    img = glow(img, (S * 0.75, S * 0.35), S * 0.3, (255, 230, 170), 0.8)
+    d = ImageDraw.Draw(img)
+    for i in range(6):
+        y0 = S * (0.45 + i * 0.1)
+        d.arc([-S * 0.6, y0, S * 1.6, y0 + S * 1.2], 200, 340, fill=(250, 245, 240), width=4)
+    return img
+
+
+def society_lights():  # Finance Soc Committee: an evening event, out-of-focus lights
+    rng = random.Random(36)
+    img = gradient([(0, (20, 15, 40)), (1, (60, 25, 60))])
+    img = bokeh(img, rng, 90, [(255, 210, 120), (255, 120, 160), (180, 140, 255)], 10, 30, 10)
+    return bokeh(img, rng, 30, [(255, 240, 200)], 3, 8, 1.2)
+
+
+def dinner_candles():  # Friday Dinner Crew: candles and glasses on a dark table
+    rng = random.Random(37)
+    img = gradient([(0, (25, 15, 15)), (1, (60, 30, 25))])
+    for x in (0.3, 0.5, 0.7):
+        img = glow(img, (S * x, S * 0.42), S * 0.22, (255, 170, 80), 0.9)
+    d = ImageDraw.Draw(img)
+    for x in (0.3, 0.5, 0.7):
+        d.rectangle([S * (x - 0.02), S * 0.46, S * (x + 0.02), S * 0.7], fill=(245, 235, 215))
+        d.ellipse([S * (x - 0.015), S * 0.4, S * (x + 0.015), S * 0.46], fill=(255, 220, 140))
+    return bokeh(img, rng, 25, [(255, 200, 120)], 4, 12, 3, (0.6, 1))
+
+
+def paris_evening():  # Nadia: Paris at dusk, the trip they keep planning
+    rng = random.Random(38)
+    img = gradient([(0, (50, 50, 110)), (0.5, (220, 130, 150)), (1, (250, 190, 150))])
+    d = ImageDraw.Draw(img)
+    dark = (35, 30, 55)
+    d.polygon([(S * 0.5, S * 0.12), (S * 0.36, S * 0.92), (S * 0.44, S * 0.92), (S * 0.5, S * 0.6), (S * 0.56, S * 0.92), (S * 0.64, S * 0.92)], fill=dark)
+    d.rectangle([S * 0.4, S * 0.55, S * 0.6, S * 0.58], fill=dark)
+    img = ridge(img, int(S * 0.9), 6, dark, rng, roughness=1)
+    return bokeh(img, rng, 40, [(255, 220, 150)], 2, 5, 0.8, (0.15, 0.85))
+
+
+def game_night():  # Siblings: controllers and a glowing screen
+    rng = random.Random(39)
+    img = gradient([(0, (15, 20, 45)), (1, (30, 20, 50))])
+    img = glow(img, (S * 0.5, S * 0.35), S * 0.45, (90, 140, 255), 0.9)
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([S * 0.18, S * 0.15, S * 0.82, S * 0.55], 20, fill=(70, 120, 230))
+    for cx in (0.32, 0.68):
+        d.rounded_rectangle([S * (cx - 0.14), S * 0.66, S * (cx + 0.14), S * 0.82], 40, fill=(30, 30, 40))
+    return bokeh(img, rng, 15, [(160, 200, 255)], 3, 8, 2)
+
+
+GROUPS = {
+    "Flat 4B": flat_window,
+    "Maths & Econ Y2": chalkboard,
+    "Sunday League": sunday_pitch,
+    "Spring Week Grind": skyline_dawn,
+    "Family": family_table,
+    "Run Club": track_dawn,
+    "Finance Soc Committee": society_lights,
+    "Friday Dinner Crew": dinner_candles,
+    "Nadia": paris_evening,
+    "Siblings": game_night,
+}
+
+
+def slug(name):
+    return "".join(c.lower() if c.isalnum() else "-" for c in name).strip("-").replace("--", "-")
+
+
 PICTURES = {
+    "stakesadmin": admin_mark,
     "ilyas": golden_hour_sea,
     "jake": city_lights,
     "priya": mountain_sunrise,
@@ -394,3 +536,8 @@ if __name__ == "__main__":
         if only and name not in only:
             continue
         finish(draw(), name)
+    (OUT / "groups").mkdir(exist_ok=True)
+    for name, draw in GROUPS.items():
+        if only and name not in only:
+            continue
+        finish(draw(), f"groups/{slug(name)}")

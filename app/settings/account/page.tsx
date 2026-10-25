@@ -9,11 +9,12 @@ import { Badge, Button, Input, Sheet, ago } from "@/components/ui";
 import { Check, Key, LogOut, Lock, Pencil, Trash, User, Users } from "@/components/icons";
 import { forgetIdentities } from "@/lib/e2ee";
 
-type Account = { username: string; displayName: string; color: string; createdAt: string; hasRecovery: boolean; usernameChangedAt: string | null; nextUsernameChangeAt: string | null };
+type Account = { username: string; displayName: string; bio: string; color: string; createdAt: string; hasRecovery: boolean; usernameChangedAt: string | null; nextUsernameChangeAt: string | null };
 type Session = { id: string; device: string; place: string; createdAt: string; lastSeenAt: string; current: boolean };
-type SheetName = "name" | "username" | "password" | "recovery" | "sessions" | "delete";
+type SheetName = "name" | "bio" | "username" | "password" | "recovery" | "sessions" | "delete";
 
 const USERNAME = /^[a-z0-9_]{3,20}$/;
+const BIO_MAX = 140;
 const clean = (v: string) => v.trim().replace(/^@/, "").toLowerCase();
 const day = (t: string) => new Date(t).toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long" });
 
@@ -47,6 +48,7 @@ export default function AccountPage() {
           <Group title="Profile">
             <Row icon={Pencil} label="Display name" value={account.displayName} onClick={() => setSheet("name")} />
             <Row icon={User} label="Username" value={`@${account.username}`} onClick={() => setSheet("username")} />
+            <Row icon={Pencil} label="Bio" value={account.bio ? (account.bio.length > 24 ? `${account.bio.slice(0, 24)}…` : account.bio) : "Add one"} onClick={() => setSheet("bio")} />
           </Group>
           <Group title="Security" note="Your password unlocks your encryption keys on each device. Only keys made from it are ever sent.">
             <Row icon={Lock} label="Password" onClick={() => setSheet("password")} />
@@ -60,6 +62,9 @@ export default function AccountPage() {
 
           <Sheet open={sheet === "name"} onClose={close} title="Display name">
             <DisplayNameForm account={account} onSaved={() => { changed(); close(); }} />
+          </Sheet>
+          <Sheet open={sheet === "bio"} onClose={close} title="Bio">
+            <BioForm account={account} onSaved={() => { changed(); close(); }} />
           </Sheet>
           <Sheet open={sheet === "username"} onClose={close} title="Username">
             <UsernameForm account={account} onSaved={changed} />
@@ -131,6 +136,49 @@ function DisplayNameForm({ account, onSaved }: { account: Account; onSaved: () =
     >
       <label htmlFor={id} className="sr-only">Display name</label>
       <Input id={id} value={name} maxLength={30} autoComplete="nickname" onChange={(e) => { setName(e.target.value); setMsg(null); }} />
+      {msg && <div className="mt-2.5"><Status ok={msg.ok}>{msg.text}</Status></div>}
+    </Block>
+  );
+}
+
+function BioForm({ account, onSaved }: { account: Account; onSaved: () => void }) {
+  const [bio, setBio] = useState(account.bio);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const id = useId();
+  const v = bio.trim().replace(/\s+/g, " ");
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setMsg(null);
+    try {
+      await api("/api/account", { method: "PATCH", body: { bio: v } });
+      setMsg({ ok: true, text: "Saved" });
+      onSaved();
+    } catch (e) {
+      setMsg({ ok: false, text: (e as Error).message });
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Block
+      title="Bio"
+      description="A line about you, on your profile and in the member list of chats you're in."
+      note={`${v.length} of ${BIO_MAX} characters. Leave it empty to remove it.`}
+      onSubmit={submit}
+      action={<Button disabled={busy || v === account.bio}>{busy ? "Saving…" : "Save"}</Button>}
+    >
+      <label htmlFor={id} className="sr-only">Bio</label>
+      <textarea
+        id={id}
+        value={bio}
+        maxLength={BIO_MAX}
+        rows={3}
+        placeholder="Second-year economics. Always ten minutes late."
+        onChange={(e) => { setBio(e.target.value.replace(/\n/g, " ")); setMsg(null); }}
+        className="w-full resize-none rounded-xl border border-line bg-ink px-3.5 py-2.5 text-[15px] outline-none placeholder:text-white/25 focus:border-white/30"
+      />
       {msg && <div className="mt-2.5"><Status ok={msg.ok}>{msg.text}</Status></div>}
     </Block>
   );

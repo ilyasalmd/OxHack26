@@ -8,7 +8,7 @@ import { AVATAR_COLS } from "@/lib/chat";
 export const GET = route<{ params: Promise<{ username: string }> }>(async (_req, user, ctx) => {
   const username = cleanUsername(decodeURIComponent((await ctx.params).username));
   const db = await getDb();
-  const cols = `u.id, u.username, u.display_name, u.color, u.public_key, ${AVATAR_COLS("u", "$2")}`;
+  const cols = `u.id, u.username, u.display_name, u.bio, u.color, u.public_key, ${AVATAR_COLS("u", "$2")}`;
   const [u] = await db.query(`SELECT ${cols} FROM users u WHERE u.username = $1 AND u.deleted_at IS NULL`, [username, user.id]);
   if (u) return u;
   const [moved] = await db.query(

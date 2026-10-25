@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api } from "./api";
 import { Avatar, Badge, Button, Input, Sheet, pct } from "./ui";
 import { Book, Chat, Check, Hourglass, Sparkle, Timer, TrendUp } from "./icons";
@@ -38,14 +38,36 @@ const ANSWERS: { k: Answer; label: string; blurb: string; icon: React.ReactNode 
   { k: "number", label: "A number", blurb: "How many, how late, what mark. Bet over or under a line.", icon: <Timer size={16} /> },
   { k: "stock", label: "Long-term stock", blurb: "Months away. The price moves as news comes in.", icon: <TrendUp size={16} /> },
 ];
-const EXAMPLES = ["Jake is late to dinner again", "How many pints does Sam have on Friday", "Priya gets a first this year"];
+// Example stakes, written around the people in this chat ({a}, {b}: two of them, never the poster)
+// and the kind of chat it is, read from its name. Anything unmatched gets the everyday set.
+const FLAVOURS: [RegExp, string[]][] = [
+  [/flat|house|halls|home/i, ["{a} does the washing up before Sunday", "{a} is late to dinner again", "How many times {b} hits snooze tomorrow"]],
+  [/math|econ|uni|course|study|lecture|revision|y\d/i, ["{a} gets above 70 on the next problem sheet", "{b} starts revision before reading week", "{a} makes the 9am lecture on Monday"]],
+  [/league|football|five|5-a-side|team|fc\b/i, ["{a} scores on Sunday", "{b} turns up for the warm-up", "How many goals {a} gets this season"]],
+  [/spring|week|grind|intern|careers|finance|soc|committee/i, ["{a} gets a first-round invite this month", "{b} hears back before half term", "{a} finishes the cover letter by Friday"]],
+  [/run|gym|club|fitness|climb/i, ["{a} makes Tuesday's 7am run", "{b} breaks 50 minutes for 10k", "{a} goes to the gym before work all week"]],
+  [/family|siblings|mum|dad|cousins/i, ["{a} comes home for Sunday lunch", "{b} replies to Mum within an hour", "{a} remembers the birthday without a reminder"]],
+  [/dinner|crew|friday|pub|drinks/i, ["{a} is more than 20 minutes late on Friday", "{b} picks the restaurant this week", "How many pints {a} has on Friday"]],
+];
+const EVERYDAY = ["{a} is late to dinner again", "How many pints {b} has on Friday", "{a} replies within an hour"];
+
+function examplesFor(groupName: string, members: Member[], meId: number) {
+  const pool = FLAVOURS.find(([re]) => re.test(groupName))?.[1] ?? EVERYDAY;
+  // People who turned off stakes about them aren't suggested.
+  const others = members.filter((m) => m.id !== meId && m.subject_policy !== "nobody").map((m) => m.display_name.split(" ")[0]);
+  // A different pair each time the sheet opens; a one-to-one chat only has one other person.
+  const i = Math.floor(Math.random() * Math.max(1, others.length));
+  const a = others[i] ?? "Sam";
+  const b = others[(i + 1) % Math.max(1, others.length)] ?? a;
+  return pool.map((x) => x.replace("{a}", a).replace("{b}", b));
+}
 
 function localInput(d: Date) {
   const z = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
   return z.toISOString().slice(0, 16);
 }
 
-export function NewSituation({ open, onClose, groupId, members, meId, now, aiContext, chatSnippets, moods, onCreated }: { open: boolean; onClose: () => void; groupId: number; members: Member[]; meId: number; now: string; aiContext: string; chatSnippets: (subjectId: number | null, title: string) => Snippet[]; moods: () => Record<string, number>; onCreated: (id: number) => void }) {
+export function NewSituation({ open, onClose, groupId, groupName, members, meId, now, aiContext, chatSnippets, moods, onCreated }: { open: boolean; onClose: () => void; groupId: number; groupName: string; members: Member[]; meId: number; now: string; aiContext: string; chatSnippets: (subjectId: number | null, title: string) => Snippet[]; moods: () => Record<string, number>; onCreated: (id: number) => void }) {
   const base = new Date(now);
   const presets: [string, Date][] = [
     ["Tonight", new Date(new Date(base).setHours(23, 0, 0, 0) <= base.getTime() ? base.getTime() + 3 * 3600e3 : new Date(base).setHours(23, 0, 0, 0))],
@@ -54,6 +76,8 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
     ["3 months", new Date(base.getTime() + 90 * 864e5)],
     ["1 year", new Date(base.getTime() + 365 * 864e5)],
   ];
+  // Picked once per opening of the sheet, not on every keystroke.
+  const examples = useMemo(() => examplesFor(groupName, members, meId), [open, groupName, meId, members.length]);
   const [title, setTitle] = useState("");
   const [subject, setSubject] = useState("");
   const [answer, setAnswer] = useState<Answer>("auto");
@@ -144,7 +168,7 @@ export function NewSituation({ open, onClose, groupId, members, meId, now, aiCon
             />
             {!title && (
               <div className="no-scrollbar -mx-1 mt-2 flex gap-2 overflow-x-auto px-1">
-                {EXAMPLES.map((x) => (
+                {examples.map((x) => (
                   <button type="button" key={x} onClick={() => setTitle(x)} className="shrink-0 rounded-full bg-white/[.05] px-3 py-1.5 text-[13px] text-mute hover:text-white">{x}</button>
                 ))}
               </div>

@@ -41,7 +41,7 @@ async function chatFeed(id: number, userId: number, after: number, read: number)
       [id]
     ),
     db.query<{ id: number; delivered_upto: number; read_upto: number }>(
-      `SELECT u.id, u.username, u.display_name, u.color, u.public_key, u.balance, u.subject_policy, (k.user_id IS NOT NULL) AS has_key,
+      `SELECT u.id, u.username, u.display_name, u.bio, u.color, u.public_key, u.balance, u.subject_policy, (k.user_id IS NOT NULL) AS has_key,
          ${AVATAR_COLS("u", "$2")}, gm.delivered_upto::int AS delivered_upto, gm.read_upto::int AS read_upto
        FROM group_members gm JOIN users u ON u.id = gm.user_id
        LEFT JOIN group_keys k ON k.group_id = gm.group_id AND k.user_id = u.id

@@ -15,14 +15,14 @@ export default function Profile({ params }: { params: Promise<{ username: string
   const { username } = use(params);
   const { me, loading, identity } = useSession();
   const router = useRouter();
-  const [u, setU] = useState<({ username: string; display_name: string; color: string } & PhotoInfo) | null>(null);
+  const [u, setU] = useState<({ username: string; display_name: string; bio?: string; color: string } & PhotoInfo) | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
 
   useEffect(() => {
     if (!loading && !me) router.replace(`/?next=/u/${username}`);
     if (me)
-      api<{ username: string; display_name: string; color: string } & PhotoInfo>(`/api/users/${username}`)
+      api<{ username: string; display_name: string; bio?: string; color: string } & PhotoInfo>(`/api/users/${username}`)
         .then((x) => {
           // An old username (renamed in the last 30 days) still finds them: move to the new link.
           if (x.username !== decodeURIComponent(username).replace(/^@/, "").toLowerCase()) router.replace(`/u/${x.username}`);
@@ -55,6 +55,7 @@ export default function Profile({ params }: { params: Promise<{ username: string
           <Avatar id={u.id} name={u.display_name} color={u.color} size={96} />
           <div className="text-2xl font-bold">{u.display_name}</div>
           <div className="text-mute">@{u.username}</div>
+          {u.bio && <p className="text-center text-[15px] leading-snug text-white/80">{u.bio}</p>}
           {me?.user.username !== u.username && (
             <>
               <Button className="mt-4 flex w-full items-center justify-center gap-2" onClick={start} disabled={!identity || busy}><Chat size={16} /> {busy ? "Opening…" : "Message privately"}</Button>

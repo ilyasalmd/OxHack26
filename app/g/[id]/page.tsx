@@ -34,6 +34,7 @@ export type Member = {
   id: number;
   username: string;
   display_name: string;
+  bio?: string;
   color: string;
   public_key: string;
   balance: number;
@@ -760,6 +761,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
         open={newOpen}
         onClose={() => setNewOpen(false)}
         groupId={id}
+        groupName={feed.group.name}
         members={feed.members}
         meId={me.user.id}
         now={feed.now}
@@ -1469,8 +1471,9 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
             <div key={m.id} className="flex items-center gap-3 py-1.5">
               <Link href={`/u/${m.username}`} onClick={onClose} className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-85">
                 <Avatar id={m.id} name={m.display_name} color={m.color} size={34} />
-                <span className="min-w-0 truncate">
-                  {m.id === me?.user.id ? "You" : m.display_name} <span className="text-sm text-mute">@{m.username}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{m.id === me?.user.id ? "You" : m.display_name} <span className="text-sm text-mute">@{m.username}</span></span>
+                  {m.bio && <span className="block truncate text-xs text-mute">{m.bio}</span>}
                 </span>
               </Link>
               <span className="flex shrink-0 items-center gap-1 text-xs text-mute" title={m.has_key ? "Has the chat key" : "Waiting for the chat key"}>{m.has_key ? <Check size={12} /> : <><Hourglass size={12} /> no key yet</>}</span>
