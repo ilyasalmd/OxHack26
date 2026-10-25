@@ -2,6 +2,7 @@ import { getDb } from "@/lib/db";
 import { HttpError, route } from "@/lib/auth";
 import { devnetConfig, explorer, solanaConfig } from "@/lib/solana";
 import { describeTx } from "@/lib/chain";
+import { chainNamespace, vaultFor } from "@/lib/outbox";
 import { isAdminUsername } from "@/lib/config";
 
 // A small block explorer for the app's token, read straight from the Solana RPC (not our
@@ -32,10 +33,27 @@ export const GET = route(async (_req, user) => {
   const byWallet = new Map(people.map((p) => [p.wallet_pubkey, p]));
 
   const txs = sigs.map((s, i) => {
-    const t = describeTx(s, parsed[i], cfg.mint.toBase58(), supply.value.decimals ?? 0);
+    const t = describeTx(s, parsed[i], cfg.mint.toBase58(), supply.value.decimals ?? 0, cfg.payer.publicKey.toBase58());
     const who = t.owner ? byWallet.get(t.owner) : undefined;
     return { ...t, who: who ? { name: who.display_name, color: who.color } : null };
   });
+
+  // Coins locked in open stakes: what each vault holds on chain, against what the app's ledger
+  // says went in and came out. They match once the outbox has caught up.
+  const open = await db.query<{ market_id: number; held: number }>(
+    `SELECT c.market_id, sum(CASE WHEN c.kind = 'stake' THEN c.amount ELSE -c.amount END)::float8 AS held
+     FROM chain_ops c JOIN markets m ON m.id = c.market_id
+     WHERE m.status = 'open' AND c.kind IN ('stake', 'payout') AND c.status = 'confirmed'
+     GROUP BY c.market_id LIMIT 100`
+  );
+  const ns = await chainNamespace(db);
+  const vaults = await Promise.all(open.map((o) => vaultFor(cfg, ns, o.market_id)));
+  const accounts = vaults.length ? await conn.getMultipleParsedAccounts(vaults) : { value: [] };
+  const onChain = accounts.value.reduce((s, a) => {
+    const data = a?.data as { parsed?: { info?: { tokenAmount?: { uiAmount?: number } } } } | undefined;
+    return s + (data?.parsed?.info?.tokenAmount?.uiAmount ?? 0);
+  }, 0);
+  const escrow = { stakes: open.length, onChain: Math.round(onChain * 100) / 100, ledger: Math.round(open.reduce((s, o) => s + o.held, 0) * 100) / 100 };
 
   // The public devnet copy from `npm run solana:devnet`, when this server has published one.
   const dev = cfg.cluster === "devnet" ? null : devnetConfig();
@@ -62,6 +80,7 @@ export const GET = route(async (_req, user) => {
       authority: cfg.payer.publicKey.toBase58(),
     },
     txs,
+    escrow,
     devnet: dev?.mint && copied ? { mintUrl: explorer(dev.mint.toBase58(), "address", "devnet"), published: copied.done, total: copied.total } : null,
   };
 });

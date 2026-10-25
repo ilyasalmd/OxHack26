@@ -16,7 +16,8 @@ import { createMint } from "@solana/spl-token";
 import bs58 from "bs58";
 import { getDb } from "../lib/db";
 import { CURRENCY } from "../lib/config";
-import { devnetConfig, explorer, sendOp, type Op } from "../lib/solana";
+import { devnetConfig, explorer } from "../lib/solana";
+import { chainNamespace, sendOpNow, type Op } from "../lib/outbox";
 
 const save = (line: string, note: string) => fs.appendFileSync(".env.local", `\n# ${note} (generated ${new Date().toISOString()})\n${line}\n`);
 
@@ -57,16 +58,21 @@ async function main() {
 
   const db = await getDb();
   const ops = await db.query<Op>(
-    `SELECT c.id, c.kind, c.amount, c.memo, u.wallet_pubkey, u.wallet_secret_enc
+    `SELECT c.id, c.kind, c.amount, c.memo, c.market_id, u.wallet_pubkey, u.wallet_secret_enc
        FROM chain_ops c LEFT JOIN users u ON u.id = c.user_id
       WHERE c.status = 'confirmed' AND c.devnet_signature IS NULL ORDER BY c.id LIMIT $1`,
     [limit]
   );
   console.log(`Publishing ${ops.length} ops to devnet`);
+  const ns = await chainNamespace(db);
+  // Receipt accounts cost rent (about 0.0009 SOL each), which a faucet-funded devnet payer can't
+  // spare for every op. The copy is a manual script that saves each signature straight away, so
+  // it goes without them unless SOLANA_OP_RECEIPTS=true.
+  const receipts = process.env.SOLANA_OP_RECEIPTS === "true";
   let sent = 0;
   for (const op of ops) {
     try {
-      const sig = await sendOp(chain, op);
+      const sig = await sendOpNow(chain, op, ns, { receipts });
       await db.query(`UPDATE chain_ops SET devnet_signature = $2 WHERE id = $1`, [op.id, sig]);
       console.log(`#${op.id} ${op.kind.padEnd(4)} ${explorer(sig, "tx", "devnet")}`);
       sent++;

@@ -63,12 +63,12 @@ export default function Portfolio() {
           <span className="tabular">{p.wallet.onChain == null ? "–" : fmt(p.wallet.onChain)}</span>
         </div>
       ) : (
-        <p className="mt-2 text-mute">Chain sync is off: set SOLANA_PAYER_SECRET and SOLANA_MINT to mirror every buy-in (burn) and payout (mint) on devnet.</p>
+        <p className="mt-2 text-mute">Chain sync is off: set SOLANA_PAYER_SECRET and SOLANA_MINT to put every buy-in and payout on the chain.</p>
       )}
       <div className="mt-3 space-y-1.5">
         {p.chain.slice(0, 8).map((op) => (
           <div key={op.id} className="flex items-center gap-2 text-xs">
-            <Badge tone={op.kind === "mint" ? "up" : "down"}>{op.kind}</Badge>
+            <Badge tone={op.kind === "mint" || op.kind === "payout" ? "up" : "down"}>{op.kind}</Badge>
             <span className="tabular">{fmt(op.amount)}</span>
             <span className="flex-1" />
             {op.url ? <a href={op.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-0.5 text-brand">confirmed <ArrowUpRight size={11} /></a> : <span className="text-mute" title={op.error ?? ""}>{op.status}</span>}

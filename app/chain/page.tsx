@@ -14,6 +14,7 @@ type Chain =
       network: { cluster: string; label: string; version: string; slot: number; epoch: number; tps: number | null };
       token: { mint: string; url: string; supply: number; decimals: number; authority: string };
       txs: Tx[];
+      escrow: { stakes: number; onChain: number; ledger: number };
       devnet: { mintUrl: string; published: number; total: number } | null;
     };
 
@@ -21,6 +22,9 @@ const short = (s: string, n = 4) => `${s.slice(0, n)}…${s.slice(-n)}`;
 const KIND: Record<string, { label: string; tone: string; sign: string }> = {
   mint: { label: "Mint", tone: "text-up bg-up/10", sign: "+" },
   burn: { label: "Burn", tone: "text-down bg-down/10", sign: "−" },
+  stake: { label: "Stake", tone: "text-down bg-down/10", sign: "−" },
+  payout: { label: "Payout", tone: "text-up bg-up/10", sign: "+" },
+  close: { label: "Close", tone: "text-brand bg-brand/10", sign: "" },
   create: { label: "Create", tone: "text-brand bg-brand/10", sign: "" },
   other: { label: "Other", tone: "text-mute bg-white/5", sign: "" },
 };
@@ -95,7 +99,7 @@ export default function ChainPage() {
                             </div>
                           </div>
                           <div className="text-right">
-                            {t.amount != null && <div className={`text-sm font-medium tabular ${t.kind === "mint" ? "text-up" : t.kind === "burn" ? "text-down" : ""}`}>{k.sign}{fmt(t.amount)}</div>}
+                            {t.amount != null && <div className={`text-sm font-medium tabular ${t.kind === "mint" || t.kind === "payout" ? "text-up" : t.kind === "burn" || t.kind === "stake" ? "text-down" : ""}`}>{k.sign}{fmt(t.amount)}</div>}
                             <div className="text-[11px] text-mute">{t.ok ? (t.time ? ago(t.time) : "") : "failed"}</div>
                           </div>
                           <ChevronRight size={14} className="hidden shrink-0 text-mute group-hover:text-white sm:block" />
@@ -117,6 +121,14 @@ export default function ChainPage() {
                     <Row k="Network">{c.network.label}</Row>
                   </dl>
                 </section>
+                <section className="rounded-2xl border border-line bg-panel p-4 text-sm">
+                  <h2 className="font-semibold">Locked in open stakes</h2>
+                  <dl className="mt-3 space-y-2 text-xs">
+                    <Row k="Stakes with a vault">{c.escrow.stakes}</Row>
+                    <Row k="Held in vaults on chain"><span className="tabular">{fmt(c.escrow.onChain)} {ticker}</span></Row>
+                    <Row k="The app's ledger says"><span className={`tabular ${Math.abs(c.escrow.onChain - c.escrow.ledger) < 0.01 ? "text-up" : "text-down"}`}>{fmt(c.escrow.ledger)} {ticker}</span></Row>
+                  </dl>
+                </section>
                 {c.devnet && (
                   <section className="rounded-2xl border border-line bg-panel p-4 text-sm leading-relaxed text-mute">
                     <h2 className="mb-2 font-semibold text-white">Public copy on Solana devnet</h2>
@@ -126,7 +138,7 @@ export default function ChainPage() {
                 )}
                 <section className="rounded-2xl border border-line bg-panel p-4 text-sm leading-relaxed text-mute">
                   <h2 className="mb-2 font-semibold text-white">What goes on-chain</h2>
-                  <p>When you buy in, the app burns that many {ticker} from your wallet. When you win or get your weekly allowance, it mints them back. Each one carries a short memo saying why.</p>
+                  <p>When you buy in, your {ticker} move from your wallet into that stake&apos;s own vault on the chain, so anyone can see what each stake holds. When it settles, winners are paid out of the vault: the house tops it up if winners are owed more than was paid in, and burns what is left if not. New coins are minted only for allowances and opening balances.</p>
                   <p className="mt-2">Your chats, the odds and who bet what stay off-chain: chats are end-to-end encrypted and the market runs on the server. {ticker} is play money and can&apos;t be bought or sold.</p>
                   <Link href="/portfolio" className="mt-3 inline-flex items-center gap-1 text-brand">Your wallet <ArrowUpRight size={12} /></Link>
                 </section>

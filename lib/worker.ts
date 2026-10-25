@@ -1,6 +1,6 @@
 import { getDb } from "./db";
 import { runDecay } from "./markets";
-import { drainChainOps } from "./solana";
+import { drainChainOps } from "./outbox";
 
 // In-process background loop: time decay for long-term stocks, friend bets that are due, and the Solana outbox.
 const g = globalThis as unknown as { __fsWorker?: NodeJS.Timeout };
