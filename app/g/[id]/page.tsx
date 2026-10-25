@@ -7,14 +7,15 @@ import { api } from "@/components/api";
 import { addMember, groupKey, shareKeyWithNewcomers } from "@/components/groupkeys";
 import { UnlockPrompt } from "@/components/unlock";
 import { TimeMachine } from "@/components/timemachine";
-import { Avatar, Badge, Button, Change, Input, LiveNumber, Sheet, TopBar, fmt, pct, timeLeft } from "@/components/ui";
+import { Avatar, Badge, Button, Input, Sheet, TopBar, fmt, pct, timeLeft } from "@/components/ui";
 import { GroupMark, pendingChatNames } from "@/components/shell";
 import { cacheFor, decryptWith, persistChat, prefetchChat, restoreChat, sortMsgs, warmChat, type ChatKey } from "@/components/chat/cache";
-import { Alert, Camera, Chart, Plus, Chat, Check, ChevronLeft, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, Timer, TrendUp } from "@/components/icons";
+import { Alert, Camera, Chart, Plus, Chat, Check, ChevronLeft, Close, Flag, Hourglass, Key, Lock, Pencil, Settings, Sparkle, TrendUp } from "@/components/icons";
 import { ReportSheet } from "@/components/report";
 import { NewSituation } from "@/components/new-situation";
 import { FriendBetCard, NewFriendBet, StakeChooser, type FriendBetLite } from "@/components/friend-bet";
 import { Board, Insights } from "@/components/group-stats";
+import { GroupStakes, type StakeFilter } from "@/components/group-stakes";
 import { decryptPayload, encryptMessage, forgetIdentities, type Attachment, type Payload } from "@/lib/e2ee";
 import { primeAttachment, registerPhotos, shrinkImage, squarePhoto, uploadEncrypted, useAttachment } from "@/components/media";
 import { Composer, type PickedImage } from "@/components/chat/composer";
@@ -115,7 +116,7 @@ export type Feed = {
   now: string;
 };
 
-const PANELS = ["Markets", "Board", "Insights"] as const;
+const PANELS = ["Stakes", "Board", "Insights"] as const;
 type Panel = (typeof PANELS)[number];
 
 export default function GroupPage({ params }: { params: Promise<{ id: string }> }) {
@@ -123,7 +124,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   const { me, loading, identity, refresh, setIdentity } = useSession();
   const router = useRouter();
   // A phone shows the chat alone (markets live in their own tab); a laptop shows a panel beside it.
-  const [panel, setPanel] = useState<Panel>("Markets");
+  const [panel, setPanel] = useState<Panel>("Stakes");
+  const [stakeFilter, setStakeFilter] = useState<StakeFilter>("all");
   const [cached] = useState(() => (me ? cacheFor(me.user.id).get(id) : undefined));
   const [feed, setFeed] = useState<Omit<Feed, "messages"> | null>(cached?.feed ?? null);
   const [messages, setMessages] = useState<Msg[]>(cached?.messages ?? []);
@@ -569,6 +571,8 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
   }
   const c = me.config.currency;
   const live = feed.markets.filter((m) => m.status === "open" && !m.closed).length;
+  // The side panel's stakes list refetches whenever a stake in the chat moves or changes state.
+  const stakesKey = [...feed.markets.map((m) => `${m.id}:${m.status}:${m.proposed_outcome}:${m.votes?.confirms ?? ""}:${m.price.toFixed(3)}`), ...(feed.friendBets ?? []).map((b) => `${b.id}:${b.status}`)].join();
   const dm = !!feed.group.is_dm;
   const peer = dm ? feed.members.find((m) => m.id !== me.user.id) ?? null : null;
   const chat = { ...feed.group, peer, my_key: feed.myKey };
@@ -599,10 +603,10 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
       }
       right={
         <>
-          <Link href={`/markets?g=${id}`} className="flex items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1.5 text-sm font-semibold text-brand lg:hidden" aria-label="Open this chat's markets">
+          <Link href={`/g/${id}/stakes`} className="flex items-center gap-1.5 rounded-full bg-brand/15 px-3 py-1.5 text-sm font-semibold text-brand lg:hidden" aria-label="Open this chat's stakes">
             <TrendUp size={14} /> {live} live
           </Link>
-          <button onClick={() => setSideOpen((v) => !v)} className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold lg:flex ${sideOpen ? "bg-white text-black" : "bg-brand/15 text-brand hover:bg-brand/25"}`} aria-pressed={sideOpen} title="Markets, leaderboard and insights for this chat">
+          <button onClick={() => setSideOpen((v) => !v)} className={`hidden items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-semibold lg:flex ${sideOpen ? "bg-white text-black" : "bg-brand/15 text-brand hover:bg-brand/25"}`} aria-pressed={sideOpen} title="Stakes, leaderboard and insights for this chat">
             <TrendUp size={14} /> {live} live
           </button>
           <button onClick={() => setSettingsOpen(true)} className="hidden rounded-md p-2 text-mute hover:bg-white/5 hover:text-white lg:block" title="Chat settings">
@@ -642,7 +646,7 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             <p className="mx-3 mt-3 flex items-center gap-2 text-sm text-mute"><Key size={15} /> Your account was reset since this device last unlocked it. Enter your password once to read the chat.</p>
           )}
           {identity && !feed.myKey && (
-            <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> Waiting for a friend&apos;s app to share the chat key with you. Markets work in the meantime.</p>
+            <p className="m-3 flex items-center gap-2 rounded-xl border border-line bg-panel p-3 text-sm text-mute"><Key size={15} /> Waiting for a friend&apos;s app to share the chat key with you. Stakes work in the meantime.</p>
           )}
           <div ref={wall} onScroll={onWallScroll} className="chat-wall thin-scroll flex-1 overflow-y-auto" style={wallpaperStyle(feed.prefs?.wallpaper, wallUrl === "error" ? null : wallUrl)}>
             <div className="mx-auto max-w-3xl px-3 pb-5 pt-3 lg:px-6 lg:py-5">
@@ -716,11 +720,11 @@ export default function GroupPage({ params }: { params: Promise<{ id: string }> 
             <button onClick={() => setSideOpen(false)} className="ml-auto rounded-md p-1.5 text-mute hover:bg-white/5 hover:text-white" aria-label="Close panel"><Close size={16} /></button>
           </nav>
           <div className="thin-scroll flex-1 overflow-y-auto">
-            {panel === "Markets" && <MarketList markets={feed.markets} members={members} now={feed.now} />}
+            {panel === "Stakes" && <GroupStakes groupId={id} meId={me.user.id} ticker={c.ticker} filter={stakeFilter} onFilter={setStakeFilter} refreshKey={stakesKey} panel />}
             {panel === "Board" && <Board groupId={id} ticker={c.ticker} meId={me.user.id} />}
             {panel === "Insights" && <Insights groupId={id} moods={moods} stockSnippets={stockSnippets} withChat onRepriced={poll} />}
           </div>
-          {panel === "Markets" && (
+          {panel === "Stakes" && (
             <div className="border-t border-line p-3">
               <Button className="flex w-full items-center justify-center gap-2" onClick={() => setChooseOpen(true)}><Plus size={16} /> New stake</Button>
             </div>
@@ -1103,47 +1107,6 @@ function ProposalActions({ mk, meId, members, now, onReview }: { mk: MarketLite;
   );
 }
 
-function MarketList({ markets, members, now }: { markets: MarketLite[]; members: Map<number, Member>; now: string }) {
-  const groups = [
-    { label: "Live bets", items: markets.filter((m) => m.status === "open" && !m.closed && m.kind === "bet") },
-    { label: "Stocks (long-term)", items: markets.filter((m) => m.status === "open" && !m.closed && m.kind === "stock") },
-    { label: "Result proposed", items: markets.filter((m) => m.status === "open" && m.proposed_outcome != null) },
-    { label: "Awaiting result", items: markets.filter((m) => m.status === "open" && m.closed && m.proposed_outcome == null) },
-    { label: "Settled", items: markets.filter((m) => m.status === "resolved").slice(0, 30) },
-    { label: "Called off", items: markets.filter((m) => m.status === "void").slice(0, 20) },
-  ];
-  return (
-    <div className="pb-4">
-      {groups.map((g) =>
-        g.items.length ? (
-          <section key={g.label}>
-            <h3 className="px-4 pb-1 pt-4 text-xs font-semibold uppercase tracking-wider text-mute">{g.label}</h3>
-            {g.items.map((m) => {
-              const s = m.subject_id ? members.get(m.subject_id) : null;
-              return (
-                <Link key={m.id} href={`/m/${m.id}`} className="flex items-center gap-3 px-4 py-3 hover:bg-white/5">
-                  {s ? <Avatar name={s.display_name} color={s.color} size={38} /> : <div className="flex h-[38px] w-[38px] items-center justify-center rounded-full bg-white/5 text-mute">{m.kind === "stock" ? <TrendUp size={16} /> : <Timer size={16} />}</div>}
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate font-medium">{m.title}</div>
-                    <div className="text-xs text-mute">
-                      {m.category} · {m.status === "void" ? "called off" : m.status === "resolved" ? "settled" : m.proposed_outcome != null ? `proposed ${(m.proposed_outcome ? sides(m).yesShort : sides(m).noShort).toUpperCase()}` : timeLeft(m.resolves_at, now)} · {m.volume.toFixed(0)} vol
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="font-semibold tabular">{m.status === "void" ? <span className="text-mute">VOID</span> : m.status === "resolved" ? (m.outcome ? sides(m).yesShort.toUpperCase() : sides(m).noShort.toUpperCase()) : <LiveNumber value={m.price}>{pct(m.price)}</LiveNumber>}</div>
-                    {m.status === "open" && <Change from={m.open_prob} to={m.price} />}
-                  </div>
-                </Link>
-              );
-            })}
-          </section>
-        ) : null
-      )}
-      {!markets.length && <p className="p-10 text-center text-mute">No stakes yet. Create the first one.</p>}
-    </div>
-  );
-}
-
 /** Group photo, name and description, editable by any member. The description is encrypted like a message. */
 function GroupProfile({ feed, groupId, groupKey, onChange, say }: { feed: Omit<Feed, "messages">; groupId: number; groupKey: CryptoKey | null; onChange: () => void; say: (m: string) => void }) {
   const g = feed.group;
@@ -1440,7 +1403,7 @@ function GroupSettings({ open, onClose, feed, groupId, keyRef, identity, onChang
         )}
         <ChatLook feed={feed} groupId={groupId} chatKey={keyRef.current?.key ?? null} onChange={onChange} />
         <div className="grid grid-cols-2 gap-2 lg:hidden">
-          <Link href={`/markets?g=${groupId}`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Markets</Link>
+          <Link href={`/g/${groupId}/stakes`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Stakes</Link>
           <Link href={`/g/${groupId}/stats`} className="rounded-xl border border-line bg-ink px-3 py-2.5 text-sm font-medium hover:border-white/20">Leaderboard and insights</Link>
         </div>
         <div>

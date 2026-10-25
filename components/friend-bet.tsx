@@ -23,6 +23,8 @@ export type FriendBetLite = {
   claim_by: number | null;
   claimed_at: string | null;
   winner_id: number | null;
+  created_at?: string;
+  settled_at?: string | null;
   counters: { id: number; user_id: number; taker_stake: number }[];
 };
 
