@@ -22,6 +22,7 @@ import { newWallet } from "../lib/solana";
 import { createIdentity, deriveKeys, encryptMessage, importGroupKey, newGroupKey, randomSalt, wrapGroupKey } from "../lib/e2ee";
 import type { User } from "../lib/auth";
 import { GROUPS, PASSWORD, PEOPLE, type Group, type Line } from "./seed-content";
+import { seedAvatars } from "./seed-avatars";
 
 const g = globalThis as unknown as { __fsScriptOffset?: number; __fsDb?: unknown };
 const HOUR = 36e5;
@@ -97,6 +98,9 @@ async function main() {
     chats.push({ id: grp.id, key: await importGroupKey(raw), spec });
   }
   const born = (c: Chat) => START + chats.indexOf(c) * 1.7 * DAY + 20 * HOUR;
+  // Profile photos, encrypted and shared with chat-mates the way the app does it.
+  const photos = await seedAvatars(db, users, GROUPS, now());
+  console.log(`Profile photos for ${photos} people`);
 
   /** Post one snippet of conversation starting at time t, one bulk insert. */
   async function speak(c: Chat, lines: Line[], t: number, subject: string | null = null) {
