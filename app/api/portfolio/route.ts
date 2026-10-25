@@ -6,6 +6,7 @@ import { netWorth } from "@/lib/economy";
 import { priceYes } from "@/lib/lmsr";
 import { explorer, onChainBalance, solanaConfig } from "@/lib/solana";
 import { walletSkill } from "@/lib/skill";
+import { cached } from "@/lib/cache";
 import { lockedInFriendBetsFor } from "@/lib/friend-bet";
 
 export const GET = route(async (_req, user) => {
@@ -30,7 +31,7 @@ export const GET = route(async (_req, user) => {
         ),
     netWorth(db, user.id),
     lockedInFriendBetsFor(db, user.id),
-    walletSkill(db, user.id),
+    cached(`wallet-skill:${user.id}`, 30_000, () => walletSkill(db, user.id)),
   ]);
   const cfg = solanaConfig();
   return {
