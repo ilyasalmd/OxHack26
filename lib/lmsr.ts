@@ -85,6 +85,45 @@ export function holdingValue(book: Book, h: Holding, vig: number) {
 /** The most the bookmaker can lose on a market: the bigger side's payout minus every coin it took in. */
 export const houseWorstLoss = (yesShares: number, noShares: number, collected: number) => Math.max(yesShares, noShares) - collected;
 
+/**
+ * How much the bookmaker will risk on one side of a market. A plain LMSR book that opened at
+ * probability p is built to lose at most b·ln(1/p) if that side comes in, so a long shot (small p)
+ * needs more room than an even bet (b·ln 2). The limit is that, and never less than `risk` × b.
+ */
+export const houseLimit = (b: number, openProb: number, side: Side, risk: number) =>
+  b * Math.max(risk, Math.log(1 / Math.max(1e-6, side === "yes" ? openProb : 1 - openProb)));
+
+export type HouseState = { yes: number; no: number; collected: number };
+
+/**
+ * The biggest stake on `side`, up to `upTo`, such that every stake up to it is one the bookmaker
+ * takes, so a slip offering 1…this never gets refused. The worst case rises with the stake and then
+ * falls (the margin on a big stake outgrows the risk), so this finds where it first passes the limit.
+ */
+export function houseRoom(book: Book, side: Side, vig: number, house: HouseState, limit: number, upTo: number) {
+  const fits = (coins: number) => {
+    const shares = buyQuote(book, side, coins, vig).shares;
+    return houseWorstLoss(house.yes + (side === "yes" ? shares : 0), house.no + (side === "no" ? shares : 0), house.collected + coins) <= limit + 1e-9;
+  };
+  const steps = 200;
+  let ok = 0;
+  for (let i = 1; i <= steps; i++) {
+    const c = (upTo * i) / steps;
+    if (fits(c)) {
+      ok = c;
+      continue;
+    }
+    let lo = ok, hi = c;
+    for (let k = 0; k < 40 && hi - lo > 0.005; k++) {
+      const mid = (lo + hi) / 2;
+      if (fits(mid)) lo = mid;
+      else hi = mid;
+    }
+    return Math.floor(lo * 100) / 100;
+  }
+  return upTo;
+}
+
 /** Probability a long-dated "by date X" event still happens, after time passes with no news.
  * Assumes a constant hazard: P(by T | none by t) = 1 - exp(-λ (T - t)). */
 export function hazardDecay(p: number, msLeftBefore: number, msLeftAfter: number) {

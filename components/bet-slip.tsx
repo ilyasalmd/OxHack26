@@ -19,6 +19,8 @@ type Props = {
   lockedSide?: "yes" | "no" | null;
   balance: number;
   maxStake: number;
+  /** The most the AI bookmaker takes on each side right now (it limits its risk on long shots). */
+  sideMax?: { yes: number; no: number };
   floor: number;
   ticker: string;
   /** Fee this trade pays to the lister (0 when free), and who that is. */
@@ -35,12 +37,13 @@ type Props = {
  * One slip for every trade. A bet reads like a bookmaker's: pick Yes or No, type a stake, see what
  * it returns, one tap. A stock reads like a broker's: Buy or Short, the price, what the shares pay.
  */
-export function BetSlip({ market, book, side, onSide, canShort, canLong = true, lockedSide = null, balance, maxStake, floor, ticker, fee = 0, lister, vig, busy, err, onPlace }: Props) {
+export function BetSlip({ market, book, side, onSide, canShort, canLong = true, lockedSide = null, balance, maxStake, sideMax, floor, ticker, fee = 0, lister, vig, busy, err, onPlace }: Props) {
   const [f] = useOddsFormat();
   const [amount, setAmount] = useState(Math.min(10, Math.max(1, Math.floor(maxStake))));
   const [raw, setRaw] = useState(String(Math.min(10, Math.max(1, Math.floor(maxStake)))));
   useEffect(() => setRaw(String(amount)), [amount]);
-  const max = Math.max(0, Math.floor(maxStake));
+  const houseMax = sideMax ? Math.floor(sideMax[side]) : Infinity;
+  const max = Math.max(0, Math.min(Math.floor(maxStake), houseMax));
   const kind = market.kind;
   const stock = kind === "stock";
   const lbl = sides(market);
@@ -112,7 +115,9 @@ export function BetSlip({ market, book, side, onSide, canShort, canLong = true, 
       {stock && !number && fee > 0 && (
         <p className="px-1 text-xs text-mute">Includes a {fee} {ticker} fee to {lister ?? "the lister"}.</p>
       )}
-      {max < 1 && <p className="text-sm text-down">You&apos;re at the safety floor ({floor} {ticker} stays untouched). Your weekly allowance tops you up.</p>}
+      {houseMax < Math.floor(maxStake) && max >= 1 && <p className="text-xs text-mute">The AI bookmaker takes at most {max} {ticker} more on {side === "yes" ? lbl.yes : lbl.no} here, so it can always pay out.</p>}
+      {houseMax < 1 && Math.floor(maxStake) >= 1 && <p className="text-sm text-mute">The AI bookmaker has taken all it will on {side === "yes" ? lbl.yes : lbl.no} here. Try the other side.</p>}
+      {Math.floor(maxStake) < 1 && <p className="text-sm text-down">You&apos;re at the safety floor ({floor} {ticker} stays untouched). Your weekly allowance tops you up.</p>}
       {err && <p className="text-sm text-down">{err}</p>}
       <Button variant={side === "yes" ? "up" : "down"} className="w-full !py-3.5 text-[17px]" disabled={busy || !ok} onClick={() => onPlace(side, amount)}>
         {busy ? "Placing…" : stock && !number ? `${side === "yes" ? "Buy" : "Short"} for ${fmt(amount + fee, fee ? 1 : 0)} ${ticker}` : `Place bet · ${fmt(amount, 0)} ${ticker}`}
