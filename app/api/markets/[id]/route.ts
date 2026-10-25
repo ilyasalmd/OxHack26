@@ -2,7 +2,7 @@ import { firstSentence } from "@/lib/text";
 import { getDb } from "@/lib/db";
 import { requireMember, route } from "@/lib/auth";
 import { idParam, type IdCtx } from "@/lib/http";
-import { PROPOSE_GRACE_MS, book, callableBy, getMarket, isClosed, price, voteState } from "@/lib/markets";
+import { book, getMarket, isClosed, price, voteState } from "@/lib/markets";
 import { askPrice, bidPrice, cashOutQuote } from "@/lib/lmsr";
 import { maxStake } from "@/lib/economy";
 import { tradeFee, tradeMargin } from "@/lib/markets";
@@ -71,7 +71,6 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
   const [u] = await db.query<{ balance: number }>(`SELECT balance FROM users WHERE id = $1`, [user.id]);
   const closed = isClosed(m);
   const buyVig = await tradeMargin(db, m, user.id);
-  const callable = await callableBy(db, m, user.id);
   const vote = m.status === "open" && m.proposed_outcome != null ? await voteState(db, m) : null;
   const voters = vote ? await db.query<{ id: number; display_name: string; color: string }>(`SELECT id, display_name, color FROM users WHERE id = ANY($1::int[])`, [[...vote.confirms, ...vote.rejects]]) : [];
   const named = (ids: number[]) => ids.map((i) => voters.find((v) => v.id === i)).filter(Boolean);
@@ -125,20 +124,19 @@ export const GET = route<IdCtx>(async (_req, user, ctx) => {
       canShort: !isSubject && lockedSide !== "yes",
       canSell: m.kind === "stock",
       fee: await tradeFee(db, m, user.id),
-      // Before the deadline anyone can say it already happened (with evidence); after it, the
-      // poster calls it, and anyone can a day later.
-      canResolve:
-        open && !proposed && !isSubject && (new Date(m.resolves_at) > now() || m.creator_id === user.id || now().getTime() >= new Date(m.resolves_at).getTime() + PROPOSE_GRACE_MS),
+      // Anyone in the chat can say what happened: early (YES, with evidence) or once the deadline passes.
+      canResolve: open && !proposed,
       early: open && new Date(m.resolves_at) > now(),
       canConfirm: !!vote?.eligible.includes(user.id),
       myVote: vote?.confirms.includes(user.id) ? true : vote?.rejects.includes(user.id) ? false : null,
       canVeto: open && isSubject,
       canReport: m.creator_id !== user.id || isSubject,
       reported: !!mine,
-      // You can't call it the way that pays you.
-      canResolveYes: callable.yes,
+      canResolveYes: true,
       // NO/Under can't be known before the deadline.
-      canResolveNo: callable.no && new Date(m.resolves_at) <= now(),
+      canResolveNo: new Date(m.resolves_at) <= now(),
+      // Confirming settles it at once when this result would cost you.
+      wouldLose: !!vote?.losers.includes(user.id),
       isSubject,
     },
   };
