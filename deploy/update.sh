@@ -37,4 +37,6 @@ echo "$(date -Is) deploying $branch: $(git log -1 --format='%h %s')"
 docker compose up -d --build --remove-orphans
 echo "$commit" > .deployed
 docker image prune -f >/dev/null
+# Demo accounts and sample chats: only adds what the database is missing, never wipes it.
+docker compose exec -T app npm run setup || echo "$(date -Is) npm run setup failed; the site is still up"
 echo "$(date -Is) done"

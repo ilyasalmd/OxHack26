@@ -12,7 +12,7 @@
 
 ## For judges
 
-- **Live app:** _link to be added before submission_ (the current link and every demo account are in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md)).
+- **Live app:** **https://192.248.147.140.sslip.io**, always on and hosted on Vultr (every demo account is in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md); how it is hosted is in [docs/DEPLOY.md](docs/DEPLOY.md)).
 - **Log in** as `ilyas`, `aariz`, `durukan` or `barkin` with password `demo1234`. Two browsers let you chat between friends.
 - **Run it yourself** in three commands: `npm install`, `npm run setup`, `npm run dev` (details in [Run it](#run-it)). No keys or accounts needed.
 - **What to tell the AI** when you post a stake: [docs/AI_INPUTS.md](docs/AI_INPUTS.md).
@@ -68,6 +68,8 @@ Everything here is free; none of it needs a card.
 `npm test` runs the unit tests (market maths, settling rules, the Solana outbox against a fake chain, chat redaction, the hosted-Gemma client and more); `npm run typecheck` checks the types. `sh scripts/serve.sh` builds and (re)starts production on port 3000 with only a few seconds of downtime, which keeps a phone tunnel (`cloudflared tunnel --url http://localhost:3000`) usable while you change things. Set `APP_SECRET` for production.
 
 ### Deploy on Vultr
+
+**The team's hosted copy is at https://192.248.147.140.sslip.io** and follows `main` by itself. [docs/DEPLOY.md](docs/DEPLOY.md) covers the server, how it updates, and its settings. To make your own:
 
 `deploy/` runs the app, TimescaleDB and Caddy (automatic HTTPS) on one VM. HTTPS isn't optional: chat encryption uses WebCrypto, which browsers only allow on secure origins.
 
