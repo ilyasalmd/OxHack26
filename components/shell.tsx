@@ -6,6 +6,7 @@ import { useSession, type Me } from "./session";
 import { api } from "./api";
 import { createGroup, groupKey } from "./groupkeys";
 import { warmChat } from "./chat/cache";
+import { clearCache } from "./chat/store";
 import { TimeMachine } from "./timemachine";
 import { Avatar, Button, Coins, Input, Sheet, ago } from "./ui";
 import { Blocks, Chat, LogOut, Plus, Settings, TrendUp, User as UserIcon, Wallet, Users } from "./icons";
@@ -96,17 +97,22 @@ export function LastLine({ g }: { g: Me["groups"][number] }) {
   const { me, identity } = useSession();
   const [p, setP] = useState<Payload | null>(null);
   const last = g.last;
+  const ct = last?.ciphertext ?? null;
+  const iv = last?.iv ?? null;
+  const wrapped = g.my_key?.wrapped_key ?? null;
   useEffect(() => {
-    if (!last || last.kind !== "chat" || !last.ciphertext || !last.iv || !identity || !g.my_key) return setP(null);
+    if (!last || last.kind !== "chat" || !ct || !iv || !identity || !g.my_key) return setP(null);
     let alive = true;
     groupKey(g.id, identity, g.my_key)
-      .then((k) => (k ? decryptPayload(k.key, last.iv!, last.ciphertext!) : null))
+      .then((k) => (k ? decryptPayload(k.key, iv, ct) : null))
       .catch(() => null)
       .then((x) => alive && setP(x));
     return () => {
       alive = false;
     };
-  }, [g.id, g.my_key, identity, last]);
+    // The key and the message are identified by their contents; the row objects are new on every refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [g.id, wrapped, identity, ct, iv, last?.kind]);
   if (!last) return <>{g.members} members</>;
   if (last.kind !== "chat") return <>{last.author ? `${last.author} ` : ""}{last.body ?? ""}</>;
   const who = last.user_id === me?.user.id ? "You" : last.author;
@@ -123,7 +129,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
   const c = me.config.currency;
   async function logout() {
     await api("/api/auth/logout", { method: "POST" });
-    await forgetIdentities();
+    await Promise.all([forgetIdentities(), clearCache()]);
     location.href = "/";
   }
   // The chats are the home screen, like a messaging app; everything else is a small row at the bottom.
@@ -156,7 +162,7 @@ function Sidebar({ me, path }: { me: Me; path: string }) {
           const active = path === `/g/${g.id}` || path.startsWith(`/g/${g.id}/`);
           return (
             <li key={g.id}>
-              <Link href={`/g/${g.id}`} className={`flex min-h-[64px] items-center gap-3 rounded-xl px-3 py-2 ${active ? "bg-white/[.08]" : "hover:bg-white/[.04]"}`}>
+              <Link href={`/g/${g.id}`} prefetch={true} className={`flex min-h-[64px] items-center gap-3 rounded-xl px-3 py-2 ${active ? "bg-white/[.08]" : "hover:bg-white/[.04]"}`}>
                 <ChatMark g={g} size={48} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">

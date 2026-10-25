@@ -1,9 +1,10 @@
 "use client";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { api } from "./api";
+import { api, ApiError } from "./api";
 import { loadIdentity, unwrapGroupKey, wrapGroupKey } from "@/lib/e2ee";
 import { groupKey, shareKeyWithNewcomers } from "./groupkeys";
 import { registerPhotos, setPhotoViewer, type PhotoInfo } from "./media";
+import { clearCache, lastUser, meKey, readCache, rememberUser, writeCache } from "./chat/store";
 
 export type Me = {
   user: { id: number; username: string; display_name: string; color: string; balance: number; public_key: string; wallet_pubkey: string | null };
@@ -49,27 +50,72 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [identity, setIdentity] = useState<CryptoKey | null>(null);
   const loadedFor = useRef<number | null>(null);
 
+  // The server's answer always wins over anything drawn from the device cache.
+  const fresh = useRef(false);
+
   const refresh = useCallback(async () => {
     try {
       const m = await api<Me>("/api/me");
+      fresh.current = true;
       setMe(m);
       if (loadedFor.current !== m.user.id) {
+        // Someone else's cache must not be shown to this account.
+        if (loadedFor.current != null) await clearCache();
         loadedFor.current = m.user.id;
         setIdentity(await loadIdentity(m.user.id));
       }
+      rememberUser(m.user.id);
+      void writeCache(meKey(m.user.id), m);
       return m;
-    } catch {
+    } catch (e) {
+      fresh.current = true;
+      // No signal (a tunnel, a flaky hotspot): keep showing what we have rather than logging out.
+      if (!(e instanceof ApiError)) return null;
       setMe(null);
+      // Signed out: nothing of the last account stays on this device.
+      if (loadedFor.current != null) {
+        loadedFor.current = null;
+        setIdentity(null);
+        await clearCache();
+      }
       return null;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Draw the last known chat list (and unlock the identity key) straight from the device while
+  // the first /api/me is in flight, so a reload doesn't start from an empty screen.
+  useEffect(() => {
+    const uid = lastUser();
+    if (!uid) return;
+    let alive = true;
+    (async () => {
+      const [cached, key] = await Promise.all([readCache<Me>(meKey(uid)), loadIdentity(uid)]);
+      if (!alive || fresh.current || loadedFor.current != null) return;
+      if (cached && cached.user?.id === uid) {
+        loadedFor.current = uid;
+        setMe(cached);
+        setIdentity(key);
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
   useEffect(() => {
     refresh();
     const t = setInterval(refresh, 5000);
-    return () => clearInterval(t);
+    // Coming back to the tab (or the phone waking up) catches up at once rather than on the next tick.
+    const wake = () => document.visibilityState === "visible" && refresh();
+    document.addEventListener("visibilitychange", wake);
+    window.addEventListener("focus", wake);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", wake);
+      window.removeEventListener("focus", wake);
+    };
   }, [refresh]);
 
   useEffect(() => {

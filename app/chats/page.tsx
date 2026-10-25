@@ -98,7 +98,7 @@ export default function Chats() {
           {me.groups.length === 0 && <li className="px-5 py-10 text-center text-mute">No chats yet. Start one with your friends&apos; usernames, or join with an invite code.</li>}
           {me.groups.map((g) => (
             <li key={g.id}>
-              <Link href={`/g/${g.id}`} className="flex items-center gap-3.5 px-5 py-3 active:bg-white/5">
+              <Link href={`/g/${g.id}`} prefetch={true} className="flex items-center gap-3.5 px-5 py-3 active:bg-white/5">
                 <ChatMark g={g} size={48} />
                 <div className="min-w-0 flex-1 py-0.5">
                   <div className="flex items-baseline gap-2">

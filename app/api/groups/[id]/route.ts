@@ -5,6 +5,7 @@ import { body, idParam, type IdCtx } from "@/lib/http";
 import { price, isClosed, voteState, type MarketRow, type VoteState } from "@/lib/markets";
 import { now } from "@/lib/clock";
 import { AVATAR_COLS, whoIsTyping } from "@/lib/chat";
+import { friendBetsForChat } from "@/lib/friend-bet";
 
 // One poll endpoint for the chat screen: new messages, live prices, members and key handshakes.
 export const GET = route<IdCtx>(async (req, user, ctx) => {
@@ -16,7 +17,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
   const read = Number(req.nextUrl.searchParams.get("read") ?? 0) || 0;
   const db = await getDb();
   // These reads don't depend on each other, so they go to the database together, not one after another.
-  const [[group], members, [prefs], [myKey], former, messages, markets] = await Promise.all([
+  const [[group], members, [prefs], [myKey], former, messages, markets, friendBets] = await Promise.all([
     db.query(
       `SELECT id, name, emoji, invite_code, ai_context, ai_reads_chat, created_by, is_dm, description_ct, description_iv, photo_id::int AS photo_id FROM groups WHERE id = $1`,
       [id]
@@ -49,20 +50,24 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
       [id, after, user.id]
     ),
     db.query<MarketRow>(`SELECT * FROM markets WHERE group_id = $1 ORDER BY created_at DESC`, [id]),
+    // Bet a friend: one-on-one bets in this chat, for their cards.
+    friendBetsForChat(db, id),
   ]);
   // Ticks: whatever this app just fetched is delivered; what it says is on screen is read.
   const newest = messages.length ? (messages[messages.length - 1] as { id: number }).id : 0;
-  if (newest || read)
-    await db.query(
+  const receipts = (newest || read)
+    ? db.query(
       `UPDATE group_members gm SET delivered_upto = GREATEST(gm.delivered_upto, LEAST(GREATEST($3::bigint, $4::bigint), x.top)), read_upto = GREATEST(gm.read_upto, LEAST($4::bigint, x.top))
        FROM (SELECT coalesce(max(id), 0) AS top FROM messages WHERE group_id = $1) x
        WHERE gm.group_id = $1 AND gm.user_id = $2
          AND (gm.read_upto < LEAST($4::bigint, x.top) OR gm.delivered_upto < LEAST(GREATEST($3::bigint, $4::bigint), x.top))`,
       [id, user.id, newest, read]
-    );
+    )
+    : Promise.resolve();
   // The vote on each proposed result, for the card in the chat.
-  const votes = new Map<number, VoteState>();
-  for (const m of markets) if (m.status === "open" && m.proposed_outcome != null) votes.set(m.id, await voteState(db, m));
+  const proposed = markets.filter((m) => m.status === "open" && m.proposed_outcome != null);
+  const [tallies] = await Promise.all([Promise.all(proposed.map((m) => voteState(db, m))), receipts]);
+  const votes = new Map<number, VoteState>(proposed.map((m, i) => [m.id, tallies[i]]));
   return {
     group,
     members,
@@ -71,8 +76,7 @@ export const GET = route<IdCtx>(async (req, user, ctx) => {
     prefs: prefs ?? { wallpaper: null, muted: false },
     messages,
     typing: whoIsTyping(id, user.id),
-    // Bet a friend: one-on-one bets in this chat, for their cards.
-    friendBets: await (await import("@/lib/friend-bet")).friendBetsForChat(db, id),
+    friendBets,
     markets: markets.map((m) => ({
       id: m.id,
       title: m.title,
