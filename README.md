@@ -19,7 +19,7 @@ npm run seed      # demo data: 15 people, 6 group chats, 3 months of history
 npm run dev       # http://localhost:3000
 ```
 
-Log in as `ilyas`, `jake`, `priya`, `sam`, `maya`, `omar`, `chloe`, `aisha`, `leo`, `dan`, `tom`, `zara`, `mum`, `dad` or `yasmin` with password `demo1234`. Use two browsers to chat between friends. Put your admin account's username in `ADMIN_USERNAMES`: that account alone sees the **Chain** page, the pricing records and the **+1h / +1d / +1w** buttons (bottom of the sidebar on a laptop, bottom of the screen on a phone). The buttons move only the admin's own clock, and its own groups, so you can show allowances, deadlines and stock decay live while everyone else stays on the real date.
+Log in as `ilyas` or any sample person (`jake`, `priya`, `sam`, `maya`, `omar` and the rest listed in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md)) with password `demo1234`. Use two browsers to chat between friends. Put your admin account's username in `ADMIN_USERNAMES`: that account alone sees the **Chain** page, the pricing records and the **+1h / +1d / +1w** buttons (bottom of the sidebar on a laptop, bottom of the screen on a phone). The buttons move only the admin's own clock, and its own groups, so you can show allowances, deadlines and stock decay live while everyone else stays on the real date.
 
 On a laptop (1024px and wider) the app is a workspace: chats and your balance in a sidebar, the chat in the middle, and markets, leaderboard and insights beside it. On a phone it's one screen at a time.
 
