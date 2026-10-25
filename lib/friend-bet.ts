@@ -117,6 +117,7 @@ export async function actOnFriendBet(
       case "counter": {
         if (b.status !== "open") throw new HttpError(400, "This bet isn't open any more");
         if (user.id === b.creator_id) throw new HttpError(400, "Change your own bet by cancelling it and posting a new one");
+        if (over) throw new HttpError(400, "This bet has ended");
         const theirs = round2(a.theirStake);
         if (!(theirs >= ECONOMY.minTrade)) throw new HttpError(400, `Put in at least ${ECONOMY.minTrade}`);
         if (Math.abs(theirs - b.taker_stake) < 0.01) throw new HttpError(400, "That's what the bet already asks: just take it");
@@ -130,6 +131,9 @@ export async function actOnFriendBet(
         if (b.status !== "open") throw new HttpError(400, "This bet isn't open any more");
         const [c] = await q.query<{ id: number; user_id: number; taker_stake: number }>(`SELECT * FROM friend_bet_counters WHERE id = $1 AND bet_id = $2 AND status = 'open'`, [a.counterId, b.id]);
         if (!c) throw new HttpError(400, "That counter-offer was withdrawn");
+        if (over) throw new HttpError(400, "This bet has ended");
+        // They may have left the chat since they made the offer.
+        await member(q, b.group_id, c.user_id);
         await startWith(q, b, c.user_id, c.taker_stake);
         await q.query(`UPDATE friend_bet_counters SET status = 'accepted' WHERE id = $1`, [c.id]);
         await line(q, b, user.id, `accepted ${await name(q, c.user_id)}'s offer on “${b.title}”. Winner takes ${round2(b.stake + c.taker_stake).toFixed(0)}`);

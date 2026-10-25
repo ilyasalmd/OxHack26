@@ -159,3 +159,20 @@ test("while a bet is on, it counts at what you put in: no paper profit", async (
 test("banned topics are blocked here too", async () => {
   await rejects(post("Sam gets pregnant this year"), /aren't allowed/);
 });
+
+test("once the bet has ended nobody can counter it or accept a counter, and a counter from someone who left can't be accepted", async () => {
+  const late = await post("Maya runs on Sunday");
+  await act("sam", late, { action: "counter", theirStake: 25 });
+  const [c] = await db.query<{ id: number }>(`SELECT id FROM friend_bet_counters WHERE bet_id = $1 AND status = 'open'`, [late]);
+  await endIt(late, 1);
+  await rejects(act("maya", late, { action: "counter", theirStake: 15 }), /ended/);
+  await rejects(act("jake", late, { action: "accept", counterId: c.id }), /ended/);
+
+  const gone = await post("Sam cooks on Thursday");
+  await act("maya", gone, { action: "counter", theirStake: 10 });
+  const [c2] = await db.query<{ id: number }>(`SELECT id FROM friend_bet_counters WHERE bet_id = $1 AND status = 'open'`, [gone]);
+  await db.query(`DELETE FROM group_members WHERE group_id = $1 AND user_id = $2`, [chat, people.maya.id]);
+  await rejects(act("jake", gone, { action: "accept", counterId: c2.id }), /not in this chat/);
+  assert.equal(await status(gone), "open");
+  await db.query(`INSERT INTO group_members (group_id, user_id, joined_at) VALUES ($1,$2,now())`, [chat, people.maya.id]);
+});
