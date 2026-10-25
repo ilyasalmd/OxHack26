@@ -16,15 +16,17 @@
 
 ```bash
 npm install
-npm run seed      # demo data: 15 people, 6 group chats, 3 months of history
+npm run setup     # every demo account and sample chat, the same as the live app (a few minutes)
 npm run dev       # http://localhost:3000
 ```
 
-Log in as `ilyas` or any sample person (`jake`, `priya`, `sam`, `maya`, `omar` and the rest listed in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md)) with password `demo1234`. Use two browsers to chat between friends. The admin is `stakesadmin` (set by `ADMIN_USERNAMES`, which defaults to it); only the admin sees the **Chain** page, the pricing records and the **+1h / +1d / +1w** buttons (bottom of the sidebar on a laptop, bottom of the screen on a phone). The buttons move only the admin's own clock, and its own groups, so you can show allowances, deadlines and stock decay live while everyone else stays on the real date.
+Log in as `ilyas`, `aariz`, `durukan`, `barkin` or any sample person (`jake`, `priya`, `kofi`, `hana` and the rest listed in [docs/DEMO_LOGINS.md](docs/DEMO_LOGINS.md)) with password `demo1234`. Use two browsers to chat between friends. `npm run setup` makes `.env.local` from `.env.example` if you don't have one, and is safe to run again after a pull: it only adds what your database is missing (an older copy without Aariz or the Harrow chat gets them). `npm run setup -- --fresh` starts the local database again from nothing. It never wipes a server named by `DATABASE_URL`.
+
+The admin is `stakesadmin` (set by `ADMIN_USERNAMES`, which defaults to it). Its password is `ADMIN_PASSWORD` in your `.env.local`; on a local copy with none, setup writes a random one there. Only the admin sees the **Chain** page, the pricing records and the **+1h / +1d / +1w** buttons (bottom of the sidebar on a laptop, bottom of the screen on a phone). The buttons move only the admin's own clock, and its own groups, so you can show allowances, deadlines and stock decay live while everyone else stays on the real date.
 
 On a laptop (1024px and wider) the app is a workspace: chats and your balance in a sidebar, the chat in the middle, and markets, leaderboard and insights beside it. On a phone it's one screen at a time.
 
-No keys are needed to run it: without `DATABASE_URL` it uses embedded Postgres (PGlite in `.data/`), and without `OLLAMA_MODEL` or `GEMMA_API_KEY` it prices from history with a statistical model. Copy `.env.example` to `.env.local` to switch things on. Stop `npm run dev` before re-seeding when using PGlite. After a re-seed the demo users get fresh encryption keys, so each browser asks for the password once to unlock the chats again.
+No keys are needed to run it: without `DATABASE_URL` it uses embedded Postgres (PGlite in `.data/`), and without `OLLAMA_MODEL` or `GEMMA_API_KEY` it prices from history with a statistical model. Copy `.env.example` to `.env.local` to switch things on. Stop `npm run dev` before `npm run setup` or a re-seed when using PGlite. `npm run seed` alone wipes the database and writes only the base 15 people and 6 chats. After a re-seed the demo users get fresh encryption keys, so each browser asks for the password once to unlock the chats again.
 
 ### Turning on the free services
 

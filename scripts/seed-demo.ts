@@ -53,7 +53,7 @@ const ONTIME: Record<string, string[]> = {
 
 async function main() {
   const db = await getDb();
-  const admin = (process.env.ADMIN_USERNAMES ?? "").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)[0];
+  const admin = (process.env.ADMIN_USERNAMES || "stakesadmin").split(",").map((s) => s.trim().toLowerCase()).filter(Boolean)[0];
   if (!admin) throw new Error("Set ADMIN_USERNAMES first");
   const [exists] = await db.query(`SELECT id FROM groups WHERE name = $1`, [NAME]);
   if (exists) throw new Error(`"${NAME}" already exists`);
