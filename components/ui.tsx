@@ -84,7 +84,8 @@ export function Button({ variant = "primary", className = "", ...p }: React.Butt
   const styles = {
     primary: "bg-white text-black hover:bg-white/90",
     ghost: "bg-white/5 text-white hover:bg-white/10 border border-line",
-    up: "bg-up text-black hover:brightness-110",
+    // The "go" action wears the theme's accent rather than a fixed green.
+    up: "bg-brand text-black hover:brightness-105",
     down: "bg-down text-white hover:brightness-110",
   }[variant];
   return <button {...p} className={`rounded-xl px-4 py-2.5 font-medium transition active:scale-[.98] disabled:opacity-40 ${styles} ${className}`} />;

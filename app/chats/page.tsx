@@ -182,7 +182,7 @@ function SituationCard({ s, now }: { s: Situation; now: string }) {
           <div>{fmt(s.volume, 0)} traded · @{s.creator}</div>
         </div>
       </div>
-      <div className="mt-3 h-1 overflow-hidden rounded-full bg-down/30"><div className="h-full rounded-full bg-up" style={{ width: `${s.price * 100}%` }} /></div>
+      <div className="mt-3 h-1 overflow-hidden rounded-full bg-white/[.12]"><div className="h-full rounded-full bg-brand" style={{ width: `${s.price * 100}%` }} /></div>
       <div className="mt-4 grid grid-cols-2 gap-2">
         <Link href={`/m/${s.id}?side=yes`} className="rounded-xl bg-up/10 py-2 text-center text-sm font-semibold text-up transition hover:bg-up/20">Long</Link>
         <Link href={`/m/${s.id}?side=no`} className="rounded-xl bg-down/10 py-2 text-center text-sm font-semibold text-down transition hover:bg-down/20">Short</Link>

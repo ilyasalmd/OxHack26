@@ -149,7 +149,7 @@ export function VoiceNote({ a, url, mine, children }: { a: Attachment; url: stri
         type="button"
         onClick={toggle}
         disabled={!url}
-        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50 ${mine ? "bg-white text-[#2b6cff]" : "bg-brand text-black"}`}
+        className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition disabled:opacity-50 ${mine ? "bg-white text-mine" : "bg-brand text-black"}`}
         aria-label={on ? "Pause voice note" : "Play voice note"}
       >
         {on ? <Pause size={16} /> : <Play size={16} className="translate-x-px" />}

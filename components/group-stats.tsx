@@ -109,7 +109,7 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
           <h3 className="font-semibold">Calibration</h3>
           <p className="mb-3 text-xs text-mute">When the market says 70%, does it happen 70% of the time? Dots on the diagonal = well calibrated.</p>
           <svg viewBox={`-14 -14 ${W + 28} ${W + 28}`} className="mx-auto w-full max-w-[280px]">
-            <rect x="0" y="0" width={W} height={W} fill="none" stroke="#232327" />
+            <rect x="0" y="0" width={W} height={W} fill="none" stroke="var(--color-line)" />
             <line x1="0" y1={W} x2={W} y2="0" stroke="#444" strokeDasharray="4 4" />
             {s.calibration.map((c) => (
               <g key={c.bin}>
@@ -117,8 +117,8 @@ export function Insights({ groupId, moods, stockSnippets, aiReadsChat, onReprice
                 {c.aiRate != null && <circle cx={c.mid * W} cy={W - c.aiRate * W} r={4 + Math.sqrt(c.aiN) * 2} fill="none" stroke="#4f8cff" strokeWidth="2" />}
               </g>
             ))}
-            <text x="6" y="14" fill="#8a8a93" fontSize="10">happened</text>
-            <text x={W - 6} y={W - 6} fill="#8a8a93" fontSize="10" textAnchor="end">predicted →</text>
+            <text x="6" y="14" fill="var(--color-mute)" fontSize="10">happened</text>
+            <text x={W - 6} y={W - 6} fill="var(--color-mute)" fontSize="10" textAnchor="end">predicted →</text>
           </svg>
           <div className="mt-2 flex justify-center gap-4 text-xs text-mute">
             <span><span className="text-brand">●</span> crowd</span>
