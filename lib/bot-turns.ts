@@ -5,8 +5,10 @@
  *  1. If the message names one of the sample people ("how r u dad", "@priya", "mum, ..."), they answer.
  *  2. Otherwise, if the sender is answering someone (the last other person to speak before it), that
  *     person answers back.
- *  3. If nobody is addressed, one sample person picks it up.
- * Anyone else only chips in now and then, after the first reply.
+ *  3. If nobody is addressed, someone picks it up most of the time, preferring whoever hasn't just
+ *     spoken, and now and then nobody does.
+ * Someone else often chips in after the first reply, usually with a quick "100%" or "lol" rather
+ * than a full answer. A bare "ok" or "lol" from the sender often gets no reply at all.
  */
 
 /** How many recent chat messages a sample person reads before answering. */
@@ -18,6 +20,8 @@ export type Turns = {
   /** Who answers, in order. The first is the person addressed; any after it chip in. */
   order: number[];
   why: "named" | "reply" | "open" | "someone-else";
+  /** The ones in `order` who only react ("100%", "lol") instead of answering. */
+  quick: number[];
 };
 
 // What people call their parents in a family chat, so "hi mum" finds the sample person called Mum.
@@ -28,8 +32,15 @@ const ALIASES: Record<string, string[]> = {
 const GREETINGS = ["hi", "hey", "hello", "hiya", "yo", "oi", "morning", "evening", "night", "thanks", "thank you", "cheers", "love you", "miss you"];
 // A conversation goes cold: past this, the last speaker isn't the person being answered.
 const REPLY_WINDOW_MS = 2 * 3600e3;
-const CHIME_AFTER_ADDRESSED = 0.15;
-const CHIME_WHEN_OPEN = 0.2;
+// How often a second person chips in, and how often that's a quick reaction rather than a reply.
+const CHIME_AFTER_ADDRESSED = 0.25;
+const CHIME_WHEN_OPEN = 0.35;
+const CHIME_QUICK = 0.6;
+// How often an open message, or a bare "ok"/"lol" nobody needs to answer, gets no reply.
+const QUIET_WHEN_OPEN = 0.15;
+const QUIET_AFTER_ACK = 0.55;
+/** A message that needs no answer: "ok", "lol", "haha", "100%", "nice". */
+export const ACK = /^(ok(ay)?|k|kk|lol+|lmao+|haha+|ha|nice|fair|true|same|yeah|yep|ye|ya|cool|sound|bet|100%?|facts|fr|word|right|oh|ah|hmm+|mhm|np|ty|thx)[\s!.?]*$/i;
 
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -66,7 +77,7 @@ export function pickTurns(args: { members: TurnMember[]; recent: TurnMessage[]; 
   const { members, recent, senderId, now } = args;
   const rand = args.rand ?? Math.random;
   const bots = members.filter((m) => m.bot && m.id !== senderId);
-  if (!bots.length) return { order: [], why: "open" };
+  if (!bots.length) return { order: [], why: "open", quick: [] };
   const byId = new Map(members.map((m) => [m.id, m]));
 
   // What the sender just said: their last run of messages, since someone else last spoke.
@@ -75,11 +86,18 @@ export function pickTurns(args: { members: TurnMember[]; recent: TurnMessage[]; 
   const said = recent.slice(i).map((m) => m.text).filter(Boolean);
   const before = recent.slice(0, i);
 
-  const chime = (first: number[], p: number) => {
+  const quick: number[] = [];
+  const chime = (first: number[], p: number, quickP = CHIME_QUICK) => {
     const others = bots.filter((b) => !first.includes(b.id));
     if (!others.length || rand() >= p) return first;
-    return [...first, others[Math.floor(rand() * others.length)].id];
+    const extra = others[Math.floor(rand() * others.length)].id;
+    if (rand() < quickP) quick.push(extra);
+    return [...first, extra];
   };
+  const done = (order: number[], why: Turns["why"]): Turns => ({ order, why, quick: quick.filter((id) => order.includes(id)) });
+  // In a group, a bare "ok" or "lol" often just sits there, as it would with real friends.
+  const ack = said.length > 0 && said.every((t) => ACK.test(t.trim()));
+  const quiet = (p: number) => bots.length > 1 && rand() < p;
 
   // 1. Named. The most direct wins; the newest message counts most when two are equally direct.
   const scored = members
@@ -92,8 +110,8 @@ export function pickTurns(args: { members: TurnMember[]; recent: TurnMessage[]; 
     const named = scored.filter((x) => Math.floor(x.score / 10) === top).map((x) => x.m);
     const namedBots = named.filter((m) => m.bot).slice(0, 2).map((m) => m.id);
     // Speaking to a real person in the chat: the sample people mostly leave them to it.
-    if (!namedBots.length) return { order: chime([], CHIME_WHEN_OPEN), why: "someone-else" };
-    return { order: namedBots.length > 1 ? namedBots : chime(namedBots, CHIME_AFTER_ADDRESSED), why: "named" };
+    if (!namedBots.length) return done(chime([], CHIME_WHEN_OPEN - 0.1, 0.7), "someone-else");
+    return done(namedBots.length > 1 ? namedBots : chime(namedBots, CHIME_AFTER_ADDRESSED), "named");
   }
 
   // 2. Answering whoever spoke last, if that was recent.
@@ -101,11 +119,15 @@ export function pickTurns(args: { members: TurnMember[]; recent: TurnMessage[]; 
   const lastWord = recent[recent.length - 1]?.at ?? now;
   if (prev && lastWord - prev.at <= REPLY_WINDOW_MS && byId.has(prev.userId)) {
     const to = byId.get(prev.userId)!;
-    if (to.bot) return { order: chime([to.id], CHIME_AFTER_ADDRESSED), why: "reply" };
-    return { order: chime([], CHIME_WHEN_OPEN), why: "someone-else" };
+    if (!to.bot) return done(chime([], CHIME_WHEN_OPEN - 0.1, 0.7), "someone-else");
+    if (ack && quiet(QUIET_AFTER_ACK)) return done([], "reply");
+    return done(chime([to.id], CHIME_AFTER_ADDRESSED), "reply");
   }
 
-  // 3. Open to the room: one person picks it up.
-  const first = bots[Math.floor(rand() * bots.length)].id;
-  return { order: chime([first], CHIME_WHEN_OPEN), why: "open" };
+  // 3. Open to the room: someone picks it up, usually not whoever spoke last.
+  if (quiet(ack ? QUIET_AFTER_ACK : QUIET_WHEN_OPEN)) return done([], "open");
+  const lastBot = [...before].reverse().find((m) => bots.some((b) => b.id === m.userId))?.userId;
+  const fresh = bots.length > 1 && rand() < 0.75 ? bots.filter((b) => b.id !== lastBot) : bots;
+  const first = fresh[Math.floor(rand() * fresh.length)].id;
+  return done(chime([first], CHIME_WHEN_OPEN), "open");
 }
